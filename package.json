@@ -6,7 +6,8 @@
     "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
     "test": "vitest run",
     "build": "vite build",
-    "e2e": "playwright test"
+    "e2e": "playwright test",
+    "test:e2e": "node tests/e2e/run-traefik.mjs"
   },
   "devDependencies": {
     "@playwright/test": "1.62.1",
