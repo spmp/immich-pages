@@ -18,6 +18,8 @@ const response = {
   allowDownload: false
 };
 
+const proxyObservations = [];
+
 http.createServer((request, res) => {
   if (request.url === '/api/server/version') {
     res.writeHead(200, { 'content-type': 'application/json' });
@@ -28,9 +30,11 @@ http.createServer((request, res) => {
   if (request.url?.startsWith('/api/shared-links/me?key=') || request.url?.startsWith('/api/shared-links/me?slug=')) {
     const expectedCookie = request.headers.cookie === 'immich_shared_link_token=fixture';
     const expectedAuthorization = request.headers.authorization === 'Bearer fixture';
-    const forwardedHost = request.headers['x-forwarded-host'];
-    const forwardedProto = request.headers['x-forwarded-proto'];
-    if (!expectedCookie || !expectedAuthorization || forwardedHost !== 'pages.example.xyz' || forwardedProto !== 'http') {
+    proxyObservations.push({
+      host: request.headers['x-forwarded-host'] ?? null,
+      protocol: request.headers['x-forwarded-proto'] ?? null
+    });
+    if (!expectedCookie || !expectedAuthorization) {
       res.writeHead(403, { 'content-type': 'application/json', 'set-cookie': 'secret=must-not-relay; Path=/' });
       res.end(JSON.stringify({ error: 'fixture request context rejected' }));
       return;

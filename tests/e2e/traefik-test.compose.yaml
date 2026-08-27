@@ -1,7 +1,7 @@
 services:
   pages:
     build:
-      context: ..
+      context: ../..
       dockerfile: Dockerfile
     environment:
       IMMICH_BASE_URL: http://fake-immich:3001

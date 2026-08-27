@@ -1,0 +1,15 @@
+.env*
+!.env.example
+node_modules/
+.svelte-kit/
+build/
+coverage/
+playwright-report/
+test-results/
+.cache/
+.planning/
+.opencode/
+.claude/
+.agents/
+*.log
+SPEC.md
