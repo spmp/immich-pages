@@ -3,7 +3,7 @@ import { SharedLinkResponseSchema, type SharedLinkResponse } from './types';
 import type { AuthContext } from './auth-context';
 
 export type ImmichProvider = {
-	getSharedLink: (context: AuthContext) => Promise<{ status: number; data?: SharedLinkResponse }>;
+	getSharedLink: (context: AuthContext) => Promise<{ status: number; data?: SharedLinkResponse; error?: 'malformed' }>;
 	getVersion: () => Promise<{ status: number; version?: string }>;
 };
 
@@ -16,9 +16,9 @@ export function createImmichProvider(fetchImpl: typeof fetch = fetch, baseUrl = 
 			if (!response.ok) return { status: response.status };
 			try {
 				const parsed = SharedLinkResponseSchema.safeParse(JSON.parse(await readBoundedText(response)));
-				return parsed.success ? { status: response.status, data: parsed.data } : { status: 422 };
+				return parsed.success ? { status: response.status, data: parsed.data } : { status: 422, error: 'malformed' };
 			} catch {
-				return { status: 422 };
+				return { status: 422, error: 'malformed' };
 			}
 		},
 		async getVersion() {

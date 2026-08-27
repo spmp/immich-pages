@@ -19,7 +19,7 @@ export async function assembleDirectShare(provider: ImmichProvider, context: Aut
 	try { result = await provider.getSharedLink(context); } catch { return { kind: 'upstream-error', requestId }; }
 	if (result.status === 401 || result.status === 403) return { kind: 'unauthorized' };
 	if (result.status === 404) return { kind: 'not-found' };
-	if (result.status === 422) return { kind: 'invalid-metadata' };
+	if (result.status === 422) return { kind: result.error === 'malformed' ? 'unsupported' : 'invalid-metadata' };
 	if (!result.data) return { kind: 'upstream-error', requestId };
 	const share: SharedLinkResponse = result.data;
 	if (share.password) return { kind: 'password-required' };
