@@ -5,9 +5,11 @@
   "scripts": {
     "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
     "test": "vitest run",
+    "dev": "vite dev",
     "build": "vite build",
     "e2e": "playwright test",
     "test:e2e": "node tests/e2e/run-traefik.mjs",
+    "test:e2e:mock": "node tests/e2e/run-mock-immich.mjs",
     "verify:immich-release": "node scripts/verify-immich-release.mjs",
     "test:stateless-recreate": "node scripts/test-stateless-recreate.mjs"
   },
