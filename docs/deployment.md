@@ -1,0 +1,98 @@
+# Deployment and operations
+
+## Trust and topology
+
+Immich remains the sole persistent source of truth and authorization boundary.
+Pages is read-only and stateless: it stores no albums, credentials, sessions,
+media, or page configuration. Every response is rebuilt from the request and
+Immich. Caches, if introduced later, are optimizations and must be disposable.
+
+Use separate hosts:
+
+```text
+pages.example.xyz  -- Traefik Host router --> Pages:3000
+Pages              -- IMMICH_BASE_URL ----> https://immich.example.xyz
+```
+
+Do not transparently intercept Immich `/share/...` in Phase 1. The exact Pages
+routes are `/share/key/<opaque-ref>` and `/share/slug/<opaque-ref>`.
+
+## Environment and container
+
+Set `IMMICH_BASE_URL` to the explicit trusted Immich origin. Do not set an
+owner credential or API key for visitor rendering. The adapter-node image is a
+multi-stage Node 24 image, listens on port 3000, and runs as non-root with
+`node build`. The production Compose file has one service and no database,
+media, or correctness volume.
+
+```sh
+cp .env.example .env
+# edit .env and set IMMICH_BASE_URL=https://immich.example.xyz
+docker compose up -d --build
+docker compose ps
+```
+
+Recovery is a normal rebuild. `docker compose down --volumes` followed by
+`docker compose up -d --build` must reproduce pages from Immich alone.
+
+## Proxy requirements
+
+Traefik must use an HTTPS router equivalent to
+`Host(`pages.example.xyz`)` with TLS and a configured certificate resolver,
+and must send traffic to the Pages container port 3000. Configure the adapter
+to consume `X-Forwarded-Proto` and `X-Forwarded-Host` only through this trusted
+Traefik path; do not expose those headers as trusted input on a direct public
+Pages port.
+
+The request contract is deliberately narrow:
+
+* preserve the route query string;
+* forward the visitor `Cookie` and `Authorization` headers only when present;
+* preserve the public host/protocol context through Traefik;
+* never relay Immich `Set-Cookie` to the Pages host;
+* do not log keys, cookies, authorization values, passwords, or secret media URLs.
+
+Validate TLS separately in production, including the certificate, HTTPS
+redirect/entrypoint, and deep links such as
+`/share/key/fixture?view=gallery`. A deep link must reach Pages rather than a
+Traefik or static-file 404.
+
+## Health and safe outcomes
+
+`GET /health` is a cheap process-only readiness endpoint and contains no
+Immich or page data. `GET /health/immich` performs only the supported
+`/api/server/version` probe and exposes renderer version, observed Immich
+version, compatibility, and a redacted failure category. It never returns
+album IDs, share references, private metadata, raw upstream bodies, or
+credentials.
+
+The direct-share route maps not-found, unauthorized, password-required,
+unsupported, non-page, invalid-metadata, and upstream errors to safe public
+responses. Detailed diagnostics belong in structured redacted logs. Request
+authorization is never persisted or reused for another request.
+
+## Coverage and exclusions
+
+Phase 1 covers shared-link lookup, explicit key/slug normalization, request
+authorization forwarding, album/assets/capability projection, thumbnail/view
+references, version probing, and renderer health. It intentionally excludes
+password login, asset pagination, maps/GPS, original/video/thumbnail proxying,
+downloads, authenticated album enumeration, shared-link enumeration, and all
+album/asset mutation. Full release and stateless-recreate gates are separate
+commands and target `immich-server:v1.143.1`.
+
+## Verification
+
+```sh
+npm run check && npm run build
+npx playwright install --with-deps chromium
+npm run test:e2e -- tests/e2e/direct-share.spec.ts
+```
+
+The E2E fixture is disposable and uses the real Traefik HTTP entrypoint, not a
+local Pages harness. The production TLS check remains an operator deployment
+check because the fixture intentionally uses HTTP on host port 18080.
+
+Svelte MCP and component inspection tools are for development/agents only;
+they are not required by the deployed service and must not receive production
+credentials.

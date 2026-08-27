@@ -179,3 +179,14 @@ Do not make direct repo edits outside a GSD workflow unless the user explicitly 
 > Profile not yet configured. Run `/gsd-profile-user` to generate your developer profile.
 > This section is managed by `generate-claude-profile` -- do not edit manually.
 <!-- GSD:profile-end -->
+
+## Deployment and security rules
+
+- Immich is the sole CMS, persistent source of truth, and authorization boundary.
+- Pages is read-only and stateless: never add a database, media store, page index, or correctness-critical volume.
+- Visitor authorization is request-scoped. Forward only incoming `Cookie` and `Authorization` to the explicit `IMMICH_BASE_URL`; never use an owner/API key fallback, persist credentials, expose them to page code, or relay `Set-Cookie`.
+- The Phase 1 public grammar is exactly `/share/key/<opaque-ref>` or `/share/slug/<opaque-ref>` on the Pages host. Do not add transparent Immich `/share` interception, password login, broad media/download proxying, album discovery, or mutations in Phase 1.
+- Treat album YAML/Markdown, route refs, headers, cookies, queries, and upstream DTOs as untrusted. Validate, sanitize, constrain, and return typed redacted outcomes; never log secrets or raw upstream bodies.
+- Production routing is Traefik `Host(`pages.example.xyz`)` over TLS to Pages, with an explicit `IMMICH_BASE_URL=https://immich.example.xyz`. Trust forwarded host/protocol headers only through that configured proxy.
+- Run `npm run check`, `npm run build`, and the real Traefik-backed E2E fixture when changing deployment or proxy behavior. Install Chromium explicitly with `npx playwright install --with-deps chromium`.
+- Svelte MCP and component tooling are development-only and must not be part of the runtime image or receive production secrets.
