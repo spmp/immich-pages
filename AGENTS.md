@@ -36,7 +36,7 @@ The architecture is generic enough for future photo essays, events, portfolios, 
 | Svelte | 5.56.10 | Component UI | Current Svelte major, aligns with Immich and supports small, inspectable components. |
 | SvelteKit | 2.70.3 | Routing, SSR, server endpoints | Current npm release; SSR is useful for first render and auth-aware Immich fetching. |
 | `@sveltejs/adapter-node` | 5.5.7 | Deployment | Produces a standalone Node server with no database or persistent volume requirement. |
-| TypeScript | 6.0.2 | Application language | Current version exposed by the official TypeScript documentation index; use strict checking. |
+| TypeScript | 7.0.2 | Application language | Version verified in the Phase 1 research pass; pin it exactly for strict DTO and outcome contracts. |
 | Vite | 8.x-compatible | Build/dev server | SvelteKit and current MapLibre tooling are Vite-oriented. Let SvelteKit own the Vite integration. |
 
 ### Mapping and Data Formats
