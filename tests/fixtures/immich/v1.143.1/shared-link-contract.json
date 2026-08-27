@@ -1,0 +1,15 @@
+{
+  "dtoFields": ["album", "assets", "allowDownload", "allowUpload", "expiresAt", "showMetadata", "password"],
+  "mediaReferences": ["/api/assets/{assetId}/thumbnail", "/api/assets/{assetId}/original"],
+  "queryBehavior": ["key", "slug"],
+  "authorization": {
+    "forwardedHeaders": ["Cookie", "Authorization"],
+    "ownerCredentialFallback": false,
+    "persistence": false
+  },
+  "separateHost": {
+    "pagesHost": "pages.example.xyz",
+    "immichHost": "immich.example.xyz",
+    "pagesRelaysSetCookie": false
+  }
+}

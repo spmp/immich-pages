@@ -1,0 +1,15 @@
+{
+  "image": "immich-server:v1.143.1",
+  "mode": "fixture",
+  "observedVersion": "v1.143.1",
+  "checks": {
+    "serverVersion": true,
+    "dtoFields": true,
+    "mediaReferences": true,
+    "requestScopedAuthorization": true,
+    "separateHost": true
+  },
+  "status": "passed",
+  "dockerImagePresent": false,
+  "dockerUnavailable": true
+}

@@ -7,7 +7,9 @@
     "test": "vitest run",
     "build": "vite build",
     "e2e": "playwright test",
-    "test:e2e": "node tests/e2e/run-traefik.mjs"
+    "test:e2e": "node tests/e2e/run-traefik.mjs",
+    "verify:immich-release": "node scripts/verify-immich-release.mjs",
+    "test:stateless-recreate": "node scripts/test-stateless-recreate.mjs"
   },
   "devDependencies": {
     "@playwright/test": "1.62.1",
