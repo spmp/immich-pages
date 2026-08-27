@@ -8,7 +8,12 @@ import { parseSharedLinkRef } from '$server/share/ref';
 export const load: PageServerLoad = async ({ params, request, locals, fetch }) => {
 	const ref = parseSharedLinkRef(params.kind, params.ref);
 	if (!ref) error(404, 'Share not found');
-	const outcome = await assembleDirectShare(createImmichProvider(fetch), authContextFromRequest(request, ref), locals.requestId);
+	let outcome: Awaited<ReturnType<typeof assembleDirectShare>>;
+	try {
+		outcome = await assembleDirectShare(createImmichProvider(fetch), authContextFromRequest(request, ref), locals.requestId);
+	} catch {
+		outcome = { kind: 'upstream-error', requestId: locals.requestId };
+	}
 	if (outcome.kind === 'page') return { outcome };
 	if (outcome.kind === 'non-page') error(404, 'This album is not a Pages presentation');
 	if (outcome.kind === 'invalid-metadata') error(422, 'This presentation has invalid metadata');

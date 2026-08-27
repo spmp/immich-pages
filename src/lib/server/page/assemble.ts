@@ -2,16 +2,60 @@ import type { ImmichProvider } from '$server/immich/provider';
 import type { AuthorizedAlbumPage, DirectShareOutcome, SharedLinkResponse } from '$server/immich/types';
 import type { AuthContext } from '$server/immich/auth-context';
 
+const MAX_METADATA_BYTES = 16_384;
+
 function metadata(description: string | null | undefined): 'page' | 'non-page' | 'invalid-metadata' {
 	if (!description) return 'non-page';
-	const match = description.match(/^---\s*\n([\s\S]*?)\n---/);
-	if (!match) return 'non-page';
-	const body = match[1];
-	const type = body.match(/^immich-presentation:\s*\n(?:\s+.*\n)*?\s+type:\s*([^\n]+)$/m)?.[1]?.trim();
-	const version = body.match(/^immich-presentation:\s*\n(?:\s+.*\n)*?\s+version:\s*([^\n]+)$/m)?.[1]?.trim();
-	if (!type && !version) return 'non-page';
+	if (!description.startsWith('---')) return 'non-page';
+	if (new TextEncoder().encode(description).byteLength > MAX_METADATA_BYTES) return 'invalid-metadata';
+	const lines = description.split('\n');
+	if (lines[0].trim() !== '---') return 'non-page';
+	const closing = lines.slice(1).findIndex((line) => line.trim() === '---');
+	if (closing < 0) return 'invalid-metadata';
+
+	let inPresentation = false;
+	let foundPresentation = false;
+	let type: string | undefined;
+	let version: string | undefined;
+	for (const line of lines.slice(1, closing + 1)) {
+		if (/^immich-presentation:\s*$/.test(line)) {
+			if (foundPresentation) return 'invalid-metadata';
+			foundPresentation = true;
+			inPresentation = true;
+			continue;
+		}
+		if (/^immich-presentation:\s+/.test(line)) return 'invalid-metadata';
+		if (inPresentation && /^\s+/.test(line)) {
+			const field = line.match(/^\s+(type|version):\s*(.*?)\s*$/);
+			if (!field) continue;
+			if (field[1] === 'type') {
+				if (type !== undefined) return 'invalid-metadata';
+				type = field[2];
+			} else {
+				if (version !== undefined) return 'invalid-metadata';
+				version = field[2];
+			}
+			continue;
+		}
+		if (line.trim()) inPresentation = false;
+	}
+	if (!foundPresentation) return 'non-page';
 	if (type !== 'journey' || version !== '1') return 'invalid-metadata';
 	return 'page';
+}
+
+function assetMediaPath(path: string, assetId: string, operation: 'thumbnail' | 'original'): string | null {
+	if (!path || path.length > 2048 || path.includes('\\') || path.includes('?') || path.includes('#')) return null;
+	if (!path.startsWith('/') || path.startsWith('//')) return null;
+	if (path.split('/').some((segment) => segment === '.' || segment === '..')) return null;
+	try {
+		const url = new URL(path, 'https://pages.invalid');
+		if (url.origin !== 'https://pages.invalid' || url.username || url.password || url.search || url.hash) return null;
+		const expected = `/api/assets/${encodeURIComponent(assetId)}/${operation}`;
+		return url.pathname === expected ? path : null;
+	} catch {
+		return null;
+	}
 }
 
 export async function assembleDirectShare(provider: ImmichProvider, context: AuthContext, requestId: string): Promise<DirectShareOutcome> {
@@ -26,8 +70,8 @@ export async function assembleDirectShare(provider: ImmichProvider, context: Aut
 	const status = metadata(share.album.description);
 	if (status !== 'page') return { kind: status };
 	const assets = share.assets.map((asset) => {
-		const thumbnail = asset.thumbnailPath;
-		const view = asset.viewPath;
+		const thumbnail = asset.thumbnailPath ? assetMediaPath(asset.thumbnailPath, asset.id, 'thumbnail') : null;
+		const view = asset.viewPath ? assetMediaPath(asset.viewPath, asset.id, 'original') : null;
 		return thumbnail && view ? { id: asset.id, type: asset.type, fileName: asset.originalFileName, thumbnail, view } : null;
 	}).filter((asset): asset is NonNullable<typeof asset> => asset !== null);
 	if (assets.length !== share.assets.length) return { kind: 'unsupported' };
