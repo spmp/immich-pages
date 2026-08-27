@@ -22,8 +22,29 @@ export async function requestImmich(
 
 export async function readBoundedText(response: Response, maxBytes = IMMICH_MAX_RESPONSE_BYTES): Promise<string> {
 	const declaredLength = response.headers.get('content-length');
-	if (declaredLength && Number(declaredLength) > maxBytes) throw new Error('response-too-large');
-	const text = await response.text();
-	if (new TextEncoder().encode(text).byteLength > maxBytes) throw new Error('response-too-large');
-	return text;
+	const declaredBytes = declaredLength === null ? null : Number(declaredLength);
+	if (declaredBytes !== null && Number.isFinite(declaredBytes) && declaredBytes > maxBytes) {
+		throw new Error('response-too-large');
+	}
+
+	if (!response.body) return '';
+	const reader = response.body.getReader();
+	const decoder = new TextDecoder();
+	let bytes = 0;
+	let text = '';
+	try {
+		while (true) {
+			const { done, value } = await reader.read();
+			if (done) break;
+			bytes += value.byteLength;
+			if (bytes > maxBytes) {
+				await reader.cancel();
+				throw new Error('response-too-large');
+			}
+			text += decoder.decode(value, { stream: true });
+		}
+		return text + decoder.decode();
+	} finally {
+		reader.releaseLock();
+	}
 }
