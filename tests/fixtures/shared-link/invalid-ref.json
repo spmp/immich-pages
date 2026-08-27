@@ -1,0 +1,6 @@
+[
+  { "kind": "key", "ref": "" },
+  { "kind": "slug", "ref": "bad/ref" },
+  { "kind": "unknown", "ref": "opaque-ref" },
+  { "kind": null, "ref": "opaque-ref" }
+]

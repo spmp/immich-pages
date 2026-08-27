@@ -1,0 +1,19 @@
+{
+  "type": "ALBUM",
+  "album": {
+    "id": "album-journey",
+    "albumName": "Coastal Journey",
+    "description": "---\nimmich-presentation:\n  type: journey\n  version: 1\n---\nA safe story."
+  },
+  "assets": [
+    {
+      "id": "asset-1",
+      "type": "IMAGE",
+      "originalFileName": "coast.jpg",
+      "thumbnailPath": "/api/assets/asset-1/thumbnail",
+      "viewPath": "/api/assets/asset-1/original"
+    }
+  ],
+  "showMetadata": true,
+  "allowDownload": false
+}

@@ -1,0 +1,6 @@
+{
+  "unauthorized": { "status": 401, "body": { "message": "unauthorized" } },
+  "forbidden": { "status": 403, "body": { "message": "forbidden" } },
+  "notFound": { "status": 404, "body": { "message": "not found" } },
+  "serverError": { "status": 503, "body": { "message": "private upstream diagnostic" } }
+}

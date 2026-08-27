@@ -1,0 +1,4 @@
+{
+  "album": { "id": "album-malformed", "description": 42 },
+  "assets": [{ "id": "asset-without-view", "thumbnailPath": "/private/thumb" }]
+}
