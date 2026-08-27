@@ -1,0 +1,58 @@
+services:
+  pages:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    environment:
+      IMMICH_BASE_URL: http://fake-immich:3001
+      HOST: 0.0.0.0
+      PORT: 3000
+      PROTOCOL_HEADER: X-Forwarded-Proto
+      HOST_HEADER: X-Forwarded-Host
+    depends_on:
+      fake-immich:
+        condition: service_healthy
+    networks: [test]
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/health').then(r => { if (!r.ok) process.exit(1) }).catch(() => process.exit(1))"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+
+  fake-immich:
+    image: node:24-alpine
+    command: ["node", "/fixture/server.mjs"]
+    volumes:
+      - ./traefik-fixture.mjs:/fixture/server.mjs:ro
+    networks: [test]
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3001/api/server/version').then(r => { if (!r.ok) process.exit(1) }).catch(() => process.exit(1))"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+
+  traefik:
+    image: traefik:v3.5
+    command:
+      - --entrypoints.web.address=:80
+      - --providers.docker=true
+      - --providers.docker.exposedbydefault=false
+      - --providers.docker.network=immich-pages-e2e
+      - --api.dashboard=false
+    ports:
+      - "18080:80"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    depends_on:
+      pages:
+        condition: service_healthy
+    networks: [test]
+    healthcheck:
+      test: ["CMD", "traefik", "healthcheck", "--ping"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+
+networks:
+  test:
+    name: immich-pages-e2e

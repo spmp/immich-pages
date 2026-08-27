@@ -1,0 +1,29 @@
+services:
+  pages:
+    build: .
+    image: immich-pages:latest
+    environment:
+      IMMICH_BASE_URL: ${IMMICH_BASE_URL:-https://immich.example.xyz}
+      HOST: 0.0.0.0
+      PORT: 3000
+      PROTOCOL_HEADER: X-Forwarded-Proto
+      HOST_HEADER: X-Forwarded-Host
+    networks:
+      - proxy
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=immich-pages-proxy
+      - traefik.http.routers.pages.rule=Host(`pages.example.xyz`)
+      - traefik.http.routers.pages.entrypoints=websecure
+      - traefik.http.routers.pages.tls=true
+      - traefik.http.routers.pages.tls.certresolver=letsencrypt
+      - traefik.http.services.pages.loadbalancer.server.port=3000
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/health').then(r => { if (!r.ok) process.exit(1) }).catch(() => process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+networks:
+  proxy:
+    name: immich-pages-proxy
