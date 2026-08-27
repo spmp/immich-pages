@@ -79,6 +79,49 @@ describe('Immich boundary contracts', () => {
 		await expect(readBoundedText(new Response('12345'), 4)).rejects.toThrow('response-too-large');
 	});
 
+	it('rejects an oversized streamed body without reading later chunks', async () => {
+		let reads = 0;
+		const body = new ReadableStream<Uint8Array>({
+			start(controller) {
+				controller.enqueue(new TextEncoder().encode('1234'));
+				controller.enqueue(new TextEncoder().encode('5678'));
+				controller.enqueue(new TextEncoder().encode('should-not-be-read'));
+				controller.close();
+			},
+			pull() {
+				reads += 1;
+			}
+		});
+		await expect(readBoundedText(new Response(body), 5)).rejects.toThrow('response-too-large');
+		 expect(reads).toBe(0);
+	});
+
+	it('rejects dishonest chunked and declared response sizes', async () => {
+		const body = new ReadableStream<Uint8Array>({
+			start(controller) {
+				controller.enqueue(new TextEncoder().encode('123456'));
+				controller.close();
+			}
+		});
+		await expect(readBoundedText(new Response(body), 5)).rejects.toThrow('response-too-large');
+		await expect(readBoundedText(new Response('ok', { headers: { 'content-length': '6' } }), 5)).rejects.toThrow('response-too-large');
+	});
+
+	it('rejects non-album shares, malformed identifiers, and strips unknown DTO fields', async () => {
+		const nonAlbum = { ...validPage, type: 'INDIVIDUAL' };
+		const provider = createImmichProvider(vi.fn(async () => new Response(JSON.stringify(nonAlbum))), 'https://immich.example');
+		expect((await assembleDirectShare(provider, context(), 'request-non-album')).kind).toBe('unsupported');
+
+		const malformedId = { ...validPage, album: { ...validPage.album, id: '' } };
+		const malformedProvider = createImmichProvider(vi.fn(async () => new Response(JSON.stringify(malformedId))), 'https://immich.example');
+		expect((await assembleDirectShare(malformedProvider, context(), 'request-empty-id')).kind).toBe('unsupported');
+
+		const unknown = { ...validPage, privateToken: 'must-not-cross', album: { ...validPage.album, privateNote: 'must-not-cross' } };
+		const unknownProvider = createImmichProvider(vi.fn(async () => new Response(JSON.stringify(unknown))), 'https://immich.example');
+		const outcome = await assembleDirectShare(unknownProvider, context(), 'request-unknown');
+		expect(JSON.stringify(outcome)).not.toContain('must-not-cross');
+	});
+
 	it('aborts a request at the transport timeout', async () => {
 		const fetchMock = vi.fn((_input: URL | RequestInfo, init?: RequestInit) => new Promise<Response>((_resolve, reject) => {
 			init?.signal?.addEventListener('abort', () => reject(new DOMException('timed out', 'AbortError')));
