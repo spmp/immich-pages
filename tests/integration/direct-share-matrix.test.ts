@@ -45,4 +45,16 @@ describe('direct-share fixture matrix', () => {
 		expect(calls).toEqual(['/api/server/version']);
 		vi.unstubAllEnvs();
 	});
+
+	it('maps missing Immich configuration to a typed unavailable response', async () => {
+		vi.stubEnv('IMMICH_BASE_URL', '');
+		const { load } = await import('../../src/routes/share/[kind]/[ref]/+page.server');
+		await expect(load({
+			params: { kind: 'key', ref: 'opaque-ref' },
+			request: new Request('https://pages.example/share/key/opaque-ref'),
+			locals: { requestId: 'missing-config' },
+			fetch: vi.fn()
+		} as never)).rejects.toMatchObject({ status: 502 });
+		vi.unstubAllEnvs();
+	});
 });

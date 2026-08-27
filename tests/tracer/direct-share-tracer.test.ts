@@ -31,4 +31,37 @@ describe('direct-share tracer', () => {
 			expect(JSON.stringify(outcome)).not.toContain('visitor');
 		}
 	});
+
+	it('serializes only asset-bound endpoint-relative media references', async () => {
+		const fetchMock = vi.fn(async () => new Response(JSON.stringify(response)));
+		const outcome = await assembleDirectShare(createImmichProvider(fetchMock, 'https://immich.example'), {
+			shareRef: { kind: 'key', value: 'opaque_ref' }, cookie: null, authorization: null
+		}, 'req-media');
+		expect(outcome).toMatchObject({ kind: 'page', page: { assets: [{ thumbnail: '/api/assets/asset-1/thumbnail', view: '/api/assets/asset-1/original' }] } });
+
+		for (const unsafe of [
+			'https://evil.example/collect',
+			'//evil.example/collect',
+			'/api/assets/asset-2/thumbnail',
+			'/api/assets/asset-1/../asset-2/thumbnail',
+			'/api/assets/asset-1\\/thumbnail'
+		]) {
+			const unsafeResponse = { ...response, assets: [{ ...response.assets[0], thumbnailPath: unsafe }] };
+			const unsafeOutcome = await assembleDirectShare(createImmichProvider(vi.fn(async () => new Response(JSON.stringify(unsafeResponse))), 'https://immich.example'), {
+				shareRef: { kind: 'key', value: 'opaque_ref' }, cookie: null, authorization: null
+			}, 'req-unsafe-media');
+			expect(unsafeOutcome).toEqual({ kind: 'unsupported' });
+		}
+	});
+
+	it('classifies minimal activation metadata deterministically', async () => {
+		const makeOutcome = async (description: string) => assembleDirectShare(
+			createImmichProvider(vi.fn(async () => new Response(JSON.stringify({ ...response, album: { ...response.album, description } }))), 'https://immich.example'),
+			{ shareRef: { kind: 'key', value: 'opaque_ref' }, cookie: null, authorization: null }, 'req-metadata'
+		);
+		expect((await makeOutcome('ordinary album')).kind).toBe('non-page');
+		expect((await makeOutcome('---\nimmich-presentation:\n  type: journey\n  version: 1\n  type: event\n---')).kind).toBe('invalid-metadata');
+		expect((await makeOutcome('---\nimmich-presentation:\n  type: journey\n  version: 2\n---')).kind).toBe('invalid-metadata');
+		expect((await makeOutcome('---\nimmich-presentation:\n  type: journey\n  version: 1\n---')).kind).toBe('page');
+	});
 });
