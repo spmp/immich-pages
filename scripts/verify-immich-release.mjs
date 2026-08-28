@@ -54,16 +54,19 @@ function checkVersion(version) {
 }
 
 function checkDirectShare(contract, { cookie, authorization, upstreamSetCookie }) {
-  const fields = ['album', 'assets', 'allowDownload', 'allowUpload', 'expiresAt', 'showMetadata', 'password'];
+  const fields = ['id', 'description', 'password', 'userId', 'key', 'type', 'createdAt', 'expiresAt', 'assets', 'album', 'allowUpload', 'allowDownload', 'showMetadata', 'slug'];
   assert(fields.every((field) => Object.hasOwn(contract, field)), 'SharedLinkResponseDto field contract is incomplete');
   result.checks.dtoFields = true;
 
   const assets = Array.isArray(contract.assets) ? contract.assets : [];
+  const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
   assert(assets.every((asset) => {
-    if (!asset || typeof asset.id !== 'string') return false;
+    if (!asset || typeof asset.id !== 'string' || !uuid.test(asset.id)) return false;
     return !Object.hasOwn(asset, 'thumbnailPath') && !Object.hasOwn(asset, 'viewPath') &&
       !Object.hasOwn(asset, 'originalPath') && typeof asset.type === 'string';
-  }), 'asset descriptors must contain no media paths or URLs');
+  }) && uuid.test(contract.id) && uuid.test(contract.userId) &&
+    (!contract.album || (typeof contract.album === 'object' && uuid.test(contract.album.id))),
+  'SharedLinkResponseDto must contain UUID identities and descriptor-only assets');
   result.checks.mediaReferences = true;
 
   assert(!process.env.IMMICH_API_KEY && !process.env.IMMICH_OWNER_API_KEY,
@@ -83,6 +86,8 @@ async function runFixtureContract() {
   const fields = ['album', 'assets', 'allowDownload', 'allowUpload', 'expiresAt', 'showMetadata', 'password'];
   assert(fields.every((field) => contract.dtoFields.includes(field)), 'fixture DTO field contract is incomplete');
   result.checks.dtoFields = true;
+  assert(contract.assetDescriptors.every((field) => !['originalPath', 'thumbnailPath', 'viewPath'].includes(field)),
+    'fixture asset descriptors must omit media paths');
   assert(contract.mediaPolicy.length === 1 && contract.mediaPolicy[0] === 'thumbnail',
     'fixture media policy must be descriptor-only and thumbnail-only');
   result.checks.mediaReferences = true;
@@ -95,6 +100,7 @@ async function runFixtureContract() {
     contract.separateHost.pagesRelaysSetCookie === false && contract.queryBehavior.join(',') === 'key,slug',
     'fixture separate-host contract is incomplete');
   result.checks.separateHost = true;
+  result.provenance = 'fixture';
 }
 
 async function liveJson(url, headers, signal) {
@@ -132,6 +138,8 @@ async function runLiveContract() {
   } finally {
     clearTimeout(timer);
   }
+  result.mode = 'endpoint';
+  result.provenance = 'endpoint';
   result.exactImage = process.env.IMMICH_RELEASE_EXACT_IMAGE_CONFIRMED === 'false' ? false : 'unknown';
   result.liveVerified = true;
   result.status = 'passed';

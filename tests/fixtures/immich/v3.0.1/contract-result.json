@@ -11,5 +11,6 @@
     "requestScopedAuthorization": true,
     "separateHost": true
   },
-  "status": "passed"
+  "status": "passed",
+  "provenance": "fixture"
 }

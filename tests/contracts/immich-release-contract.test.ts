@@ -1,9 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
-import { execFileSync } from 'node:child_process';
+import { execFile, execFileSync } from 'node:child_process';
 import { createServer } from 'node:http';
+import { promisify } from 'node:util';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+
+const execFileAsync = promisify(execFile);
 import result from '../fixtures/immich/v3.0.1/contract-result.json';
 
 describe('pinned Immich release contract', () => {
@@ -87,7 +90,7 @@ describe('pinned Immich release contract', () => {
     const resultPath = join(tempDirectory, 'endpoint-result.json');
 
     try {
-      execFileSync(process.execPath, ['scripts/verify-immich-release.mjs', '--live', '--result-path', resultPath], {
+      await execFileAsync(process.execPath, ['scripts/verify-immich-release.mjs', '--live', '--result-path', resultPath], {
         cwd: process.cwd(),
         env: {
           ...process.env,
