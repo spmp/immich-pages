@@ -22,7 +22,6 @@ export const SCAN_PATHS = [
   'compose.yaml',
   'README.md',
   'docs/deployment.md',
-  '.planning/phases/01-secure-immich-foundation-and-direct-share-slice/01-VERIFICATION.md',
   'tests/fixtures/immich/v3.1.0/server-version.json',
   'tests/fixtures/immich/v3.1.0/shared-link-contract.json',
   'tests/fixtures/immich/v3.1.0/contract-result.json'

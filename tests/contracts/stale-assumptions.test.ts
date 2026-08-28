@@ -40,5 +40,6 @@ describe('stale-assumption guard', () => {
     expect(SCAN_PATHS).not.toContain('01-09-SUMMARY.md');
     expect(SCAN_PATHS).not.toContain('01-CONTEXT.md');
     expect(SCAN_PATHS).not.toContain('01-RESEARCH.md');
+    expect(SCAN_PATHS).not.toContain('.planning/phases/01-secure-immich-foundation-and-direct-share-slice/01-VERIFICATION.md');
   });
 });
