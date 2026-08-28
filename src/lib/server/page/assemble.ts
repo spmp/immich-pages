@@ -17,7 +17,7 @@ export async function assembleDirectShare(provider: ImmichProvider, context: Aut
 	if (share.type !== 'ALBUM' || !share.album) return { kind: 'unsupported' };
 	const document = parsePresentationDocument(share.album.description);
 	if (document.kind === 'absent' || document.kind === 'unrelated') return { kind: 'non-page' };
-	if (document.kind === 'invalid') return { kind: 'invalid-metadata', metadataReason: document.reason };
+	if (document.kind === 'invalid') return { kind: 'presentation-error', state: 'invalid' };
 	const narrative = await renderMarkdown(document.markdown);
 	const hero = selectHero(document.config, share);
 	const template = normalizeTemplate(document.config);

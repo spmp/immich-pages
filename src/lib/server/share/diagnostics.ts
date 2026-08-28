@@ -5,6 +5,7 @@ type OutcomeKind = DirectShareOutcome['kind'];
 
 const statusByOutcome: Record<OutcomeKind, number> = {
 	page: 200,
+	'presentation-error': 422,
 	'non-page': 404,
 	'invalid-metadata': 422,
 	'password-required': 401,

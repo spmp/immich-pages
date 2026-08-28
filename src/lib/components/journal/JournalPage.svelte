@@ -3,8 +3,9 @@
 	import JournalHero from './JournalHero.svelte';
 	import JournalNarrative from './JournalNarrative.svelte';
 	import JourneyMapSlot from './JourneyMapSlot.svelte';
+	import PresentationState from './PresentationState.svelte';
 
-	let { page, onState }: { page: NormalizedPageModel; onState?: () => void } = $props();
+	let { page }: { page: NormalizedPageModel } = $props();
 	let galleryHeading = $state<HTMLElement | null>(null);
 	const date = $derived(page.showMetadata && (page.album.startDate || page.album.endDate)
 		? { start: page.album.startDate ?? page.album.endDate!, end: page.album.endDate ?? page.album.startDate! } : undefined);
@@ -27,7 +28,7 @@
 			<h2 id="gallery-title" bind:this={galleryHeading} tabindex="-1">Gallery</h2>
 		</div>
 		{#if page.assets.length === 0}
-			<p class="quiet">No photographs to show yet</p>
+			<PresentationState state="empty" />
 		{:else}
 			<div class="gallery-grid">
 				{#each page.assets as asset}
@@ -53,7 +54,6 @@
 	.rule { width: 32px; height: 4px; background: #c96b4b; }
 	h2 { margin: 0; font: 600 20px/1.2 ui-serif, Georgia, serif; }
 	.gallery h2:focus-visible { outline: 3px solid #c96b4b; outline-offset: 4px; }
-	.quiet { color: #626860; }
 	.gallery-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
 	figure { min-width: 0; margin: 0; overflow: hidden; background: #e7e1d8; }
 	figure a { display: block; min-height: 44px; }

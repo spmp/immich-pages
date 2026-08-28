@@ -77,6 +77,7 @@ export type MetadataFailureReason =
 
 export type DirectShareOutcome =
 	| { kind: 'page'; page: import('../presentation/model').NormalizedPageModel }
+	| { kind: 'presentation-error'; state: 'invalid' | 'empty' | 'temporary' }
 	| { kind: 'non-page' }
 	| { kind: 'invalid-metadata'; metadataReason?: MetadataFailureReason }
 	| { kind: 'password-required' }
