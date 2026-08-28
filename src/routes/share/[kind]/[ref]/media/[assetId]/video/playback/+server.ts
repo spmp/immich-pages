@@ -4,8 +4,8 @@ import { createImmichProvider } from '$server/immich/provider';
 import { parseSharedLinkRef } from '$server/share/ref';
 import { z } from 'zod';
 
-export const MAX_VIDEO_RESPONSE_BYTES = 16 * 1024 * 1024;
-export const MAX_VIDEO_RANGE_BYTES = 8 * 1024 * 1024;
+const MAX_VIDEO_RESPONSE_BYTES = 16 * 1024 * 1024;
+const MAX_VIDEO_RANGE_BYTES = 8 * 1024 * 1024;
 const RANGE = /^bytes=(\d+)-(\d+)$/;
 const OPEN_RANGE = /^bytes=(\d+)-$/;
 
