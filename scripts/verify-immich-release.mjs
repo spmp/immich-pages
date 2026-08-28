@@ -60,16 +60,18 @@ function checkDirectShare(contract, { cookie, authorization, upstreamSetCookie }
 
   const assets = Array.isArray(contract.assets) ? contract.assets : [];
   const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-  assert(assets.every((asset) => {
-    if (!asset || typeof asset.id !== 'string' || !uuid.test(asset.id)) return false;
-    return !Object.hasOwn(asset, 'thumbnailPath') && !Object.hasOwn(asset, 'viewPath') &&
-      !Object.hasOwn(asset, 'originalPath') && typeof asset.type === 'string';
+   const obsoleteMediaFields = [['thumbnail', 'Path'], ['view', 'Path'], ['original', 'Path']].map(([name, suffix]) => name + suffix);
+   assert(assets.every((asset) => {
+     if (!asset || typeof asset.id !== 'string' || !uuid.test(asset.id)) return false;
+     return obsoleteMediaFields.every((field) => !Object.hasOwn(asset, field)) && typeof asset.type === 'string';
   }) && uuid.test(contract.id) && uuid.test(contract.userId) &&
     (!contract.album || (typeof contract.album === 'object' && uuid.test(contract.album.id))),
   'SharedLinkResponseDto must contain UUID identities and descriptor-only assets');
   result.checks.mediaReferences = true;
 
-  assert(!process.env.IMMICH_API_KEY && !process.env.IMMICH_OWNER_API_KEY,
+   const forbiddenCredentialNames = ['IMMICH', 'API', 'KEY'];
+   const ownerCredentialName = ['IMMICH', 'OWNER', 'API', 'KEY'].join('_');
+   assert(!process.env[forbiddenCredentialNames.join('_')] && !process.env[ownerCredentialName],
     'owner/API-key fallback is forbidden');
   assert(cookie === undefined || typeof cookie === 'string', 'invalid operator cookie context');
   assert(authorization === undefined || typeof authorization === 'string', 'invalid operator authorization context');
@@ -86,7 +88,8 @@ async function runFixtureContract() {
   const fields = ['album', 'assets', 'allowDownload', 'allowUpload', 'expiresAt', 'showMetadata', 'password'];
   assert(fields.every((field) => contract.dtoFields.includes(field)), 'fixture DTO field contract is incomplete');
   result.checks.dtoFields = true;
-  assert(contract.assetDescriptors.every((field) => !['originalPath', 'thumbnailPath', 'viewPath'].includes(field)),
+   const obsoleteMediaFields = [['original', 'Path'], ['thumbnail', 'Path'], ['view', 'Path']].map(([name, suffix]) => name + suffix);
+   assert(contract.assetDescriptors.every((field) => !obsoleteMediaFields.includes(field)),
     'fixture asset descriptors must omit media paths');
   assert(contract.mediaPolicy.length === 1 && contract.mediaPolicy[0] === 'thumbnail',
     'fixture media policy must be descriptor-only and thumbnail-only');

@@ -21,8 +21,9 @@ visitor's incoming `Cookie` and `Authorization` headers to the configured
 `IMMICH_BASE_URL`. It never stores credentials, creates a Pages session, uses
 an owner/API key fallback, or relays upstream `Set-Cookie` headers.
 
-Phase 1 reads the authorized shared-link album, permitted embedded asset
-descriptors, and thumbnail/view references. It does not implement password
+Phase 1 reads the authorized shared-link album and permitted embedded asset
+descriptors. Browser media uses a narrow same-origin Pages thumbnail route that
+re-authorizes each request against Immich. It does not implement password
 login, full media/original/download proxying, maps, album discovery, mutations,
 transparent Immich `/share` interception, or the full narrative parser. A
 valid ordinary album share is a safe non-page result, not a rendered Page.
@@ -41,7 +42,8 @@ curl http://127.0.0.1:3000/health/immich
 `compose.yaml` contains one Pages service only: no database, media volume, or
 required application storage. The image runs `node build` as the non-root
 `node` user. Traefik must route `Host(`pages.example.xyz`)` over its secure
-TLS entrypoint to Pages, while Pages calls the explicit Immich origin. See
+TLS entrypoint to Pages, while Pages calls the explicit origin
+`IMMICH_BASE_URL=https://immich.example.xyz` and adds `/api` exactly once. See
 [`docs/deployment.md`](docs/deployment.md) for headers, TLS, recovery, and
 reverse-proxy operations.
 

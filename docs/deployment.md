@@ -52,6 +52,12 @@ The request contract is deliberately narrow:
 * never relay Immich `Set-Cookie` to the Pages host;
 * do not log keys, cookies, authorization values, passwords, or secret media URLs.
 
+Media remains a same-origin Pages concern. The browser receives only a
+`/share/<key-or-slug>/<ref>/media/<asset-id>/thumbnail` reference; Pages
+re-resolves the share and checks asset membership before forwarding the
+thumbnail request to Immich. There is no API-key fallback, direct Immich media
+URL, original/download proxy, or credential persistence.
+
 Validate TLS separately in production, including the certificate, HTTPS
 redirect/entrypoint, and deep links such as
 `/share/key/fixture?view=gallery`. A deep link must reach Pages rather than a
@@ -79,7 +85,7 @@ references, version probing, and renderer health. It intentionally excludes
 password login, asset pagination, maps/GPS, original/video/thumbnail proxying,
 downloads, authenticated album enumeration, shared-link enumeration, and all
 album/asset mutation. Full release and stateless-recreate gates are separate
-commands and target `immich-server:v1.143.1`.
+commands and target `immich-server:v3.0.1`.
 
 ## Verification
 
