@@ -1,34 +1,49 @@
 import { z } from 'zod';
 
-const IdentifierSchema = z.string().min(1).max(256);
-const DescriptorPathSchema = z.string().min(1).max(2048);
+const IdentifierSchema = z.uuidv4();
 
-const AssetSchema = z.object({
+
+export const AssetResponseSchema = z.object({
 	id: IdentifierSchema,
-	type: z.string().min(1).max(64).optional(),
+	type: z.string().min(1).max(64),
 	originalFileName: z.string().max(1024).optional(),
-	thumbnailPath: DescriptorPathSchema.optional(),
-	viewPath: DescriptorPathSchema.optional()
+	originalMimeType: z.string().max(256).optional(),
+	localDateTime: z.string().max(128).optional(),
+	duration: z.number().int().nonnegative().nullable().optional(),
+	livePhotoVideoId: z.string().max(256).nullable().optional(),
+	hasMetadata: z.boolean().optional(),
+	width: z.number().int().nonnegative().nullable().optional(),
+	height: z.number().int().nonnegative().nullable().optional()
 });
 
+export type SharedAsset = z.infer<typeof AssetResponseSchema>;
+
 export const SharedLinkResponseSchema = z.object({
-	type: z.literal('ALBUM').optional(),
+	id: IdentifierSchema,
+	description: z.string().nullable(),
+	password: z.string().nullable(),
+	userId: IdentifierSchema,
+	key: z.string().min(1),
+	type: z.literal('ALBUM'),
+	createdAt: z.string().min(1),
+	expiresAt: z.string().nullable(),
 	album: z.object({
 		id: IdentifierSchema,
-		albumName: z.string().optional(),
-		description: z.string().nullable().optional()
-	}),
-	assets: z.array(AssetSchema),
-	showMetadata: z.boolean().optional().default(false),
-	allowDownload: z.boolean().optional().default(false),
-	password: z.string().nullable().optional()
+		albumName: z.string(),
+		description: z.string().nullable()
+	}).optional(),
+	assets: z.array(AssetResponseSchema),
+	allowUpload: z.boolean(),
+	allowDownload: z.boolean(),
+	showMetadata: z.boolean(),
+	slug: z.string().nullable()
 });
 
 export type SharedLinkResponse = z.infer<typeof SharedLinkResponseSchema>;
 
 export type AuthorizedAlbumPage = {
 	album: { id: string; title: string; description: string };
-	assets: Array<{ id: string; type?: string; fileName?: string; thumbnail: string; view: string }>;
+	assets: Array<{ id: string; type: string; fileName?: string; thumbnail: string }>;
 	showMetadata: boolean;
 	allowDownload: boolean;
 };

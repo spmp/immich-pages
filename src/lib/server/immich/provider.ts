@@ -1,9 +1,10 @@
 import { readBoundedText, requestImmich } from './client';
-import { SharedLinkResponseSchema, type SharedLinkResponse } from './types';
+import { AssetResponseSchema, SharedLinkResponseSchema, type SharedLinkResponse } from './types';
 import type { AuthContext } from './auth-context';
 
 export type ImmichProvider = {
 	getSharedLink: (context: AuthContext) => Promise<{ status: number; data?: SharedLinkResponse; error?: 'malformed' }>;
+	getThumbnail: (context: AuthContext, assetId: string) => Promise<{ status: number; response?: Response; error?: 'malformed' | 'asset-mismatch' }>;
 	getVersion: () => Promise<{ status: number; version?: string }>;
 };
 
@@ -20,6 +21,13 @@ export function createImmichProvider(fetchImpl: typeof fetch = fetch, baseUrl = 
 			} catch {
 				return { status: 422, error: 'malformed' };
 			}
+		},
+		async getThumbnail(context, assetId) {
+			const share = await this.getSharedLink(context);
+			if (!share.data) return { status: share.status, error: share.error };
+			if (!share.data.assets.some((asset) => asset.id === assetId && AssetResponseSchema.safeParse(asset).success)) return { status: 404, error: 'asset-mismatch' };
+			const response = await requestImmich(baseUrl, `/api/assets/${encodeURIComponent(assetId)}/thumbnail`, context, fetchImpl);
+			return { status: response.status, response };
 		},
 		async getVersion() {
 			const response = await requestImmich(baseUrl, '/api/server/version', { shareRef: { kind: 'key', value: 'health' }, cookie: null, authorization: null }, fetchImpl);

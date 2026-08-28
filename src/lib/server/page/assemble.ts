@@ -44,20 +44,6 @@ function metadata(description: string | null | undefined): 'page' | 'non-page' |
 	return 'page';
 }
 
-function assetMediaPath(path: string, assetId: string, operation: 'thumbnail' | 'original'): string | null {
-	if (!path || path.length > 2048 || path.includes('\\') || path.includes('?') || path.includes('#')) return null;
-	if (!path.startsWith('/') || path.startsWith('//')) return null;
-	if (path.split('/').some((segment) => segment === '.' || segment === '..')) return null;
-	try {
-		const url = new URL(path, 'https://pages.invalid');
-		if (url.origin !== 'https://pages.invalid' || url.username || url.password || url.search || url.hash) return null;
-		const expected = `/api/assets/${encodeURIComponent(assetId)}/${operation}`;
-		return url.pathname === expected ? path : null;
-	} catch {
-		return null;
-	}
-}
-
 export async function assembleDirectShare(provider: ImmichProvider, context: AuthContext, requestId: string): Promise<DirectShareOutcome> {
 	let result: Awaited<ReturnType<ImmichProvider['getSharedLink']>>;
 	try { result = await provider.getSharedLink(context); } catch { return { kind: 'upstream-error', requestId }; }
@@ -67,14 +53,13 @@ export async function assembleDirectShare(provider: ImmichProvider, context: Aut
 	if (!result.data) return { kind: 'upstream-error', requestId };
 	const share: SharedLinkResponse = result.data;
 	if (share.password) return { kind: 'password-required' };
+	if (share.type !== 'ALBUM' || !share.album) return { kind: 'unsupported' };
 	const status = metadata(share.album.description);
 	if (status !== 'page') return { kind: status };
-	const assets = share.assets.map((asset) => {
-		const thumbnail = asset.thumbnailPath ? assetMediaPath(asset.thumbnailPath, asset.id, 'thumbnail') : null;
-		const view = asset.viewPath ? assetMediaPath(asset.viewPath, asset.id, 'original') : null;
-		return thumbnail && view ? { id: asset.id, type: asset.type, fileName: asset.originalFileName, thumbnail, view } : null;
-	}).filter((asset): asset is NonNullable<typeof asset> => asset !== null);
-	if (assets.length !== share.assets.length) return { kind: 'unsupported' };
+	const assets = share.assets.map((asset) => ({
+		id: asset.id, type: asset.type, fileName: asset.originalFileName,
+		thumbnail: `/share/${context.shareRef.kind}/${encodeURIComponent(context.shareRef.value)}/media/${encodeURIComponent(asset.id)}/thumbnail`
+	}));
 	const page: AuthorizedAlbumPage = {
 		album: { id: share.album.id, title: share.album.albumName ?? 'Untitled album', description: share.album.description ?? '' },
 		assets,
