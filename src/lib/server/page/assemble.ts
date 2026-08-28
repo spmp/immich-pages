@@ -24,7 +24,9 @@ export async function assembleDirectShare(provider: ImmichProvider, context: Aut
 	const displayDate = deriveDisplayDate(document.config, share);
 	const assets = share.assets.map((asset) => ({
 		id: asset.id, type: asset.type, fileName: asset.originalFileName,
-		thumbnail: `/share/${context.shareRef.kind}/${encodeURIComponent(context.shareRef.value)}/media/${encodeURIComponent(asset.id)}/thumbnail`
+		thumbnail: `/share/${context.shareRef.kind}/${encodeURIComponent(context.shareRef.value)}/media/${encodeURIComponent(asset.id)}/thumbnail`,
+		width: asset.width, height: asset.height,
+		videoHref: asset.type === 'VIDEO' ? `/share/${context.shareRef.kind}/${encodeURIComponent(context.shareRef.value)}/media/${encodeURIComponent(asset.id)}/video/playback` : undefined
 	}));
 	const page: AuthorizedAlbumPage = {
 		album: { id: share.album.id, title: share.album.albumName ?? 'Untitled album', description: document.markdown,

@@ -5,6 +5,7 @@ import type { AuthContext } from './auth-context';
 export type ImmichProvider = {
 	getSharedLink: (context: AuthContext) => Promise<{ status: number; data?: SharedLinkResponse; error?: 'malformed' }>;
 	getThumbnail: (context: AuthContext, assetId: string) => Promise<{ status: number; response?: Response; error?: 'malformed' | 'asset-mismatch' }>;
+	getVideoPlayback: (context: AuthContext, assetId: string, range?: string) => Promise<{ status: number; response?: Response; error?: 'malformed' | 'asset-mismatch' | 'not-video' }>;
 	getVersion: () => Promise<{ status: number; version?: string }>;
 };
 
@@ -27,6 +28,15 @@ export function createImmichProvider(fetchImpl: typeof fetch = fetch, baseUrl = 
 			if (!share.data) return { status: share.status, error: share.error };
 			if (!share.data.assets.some((asset) => asset.id === assetId && AssetResponseSchema.safeParse(asset).success)) return { status: 404, error: 'asset-mismatch' };
 			const response = await requestImmich(baseUrl, `/api/assets/${encodeURIComponent(assetId)}/thumbnail`, context, fetchImpl);
+			return { status: response.status, response };
+		},
+		async getVideoPlayback(context, assetId, range) {
+			const share = await this.getSharedLink(context);
+			if (!share.data) return { status: share.status, error: share.error };
+			const asset = share.data.assets.find((candidate) => candidate.id === assetId);
+			if (!asset) return { status: 404, error: 'asset-mismatch' };
+			if (asset.type !== 'VIDEO') return { status: 404, error: 'not-video' };
+			const response = await requestImmich(baseUrl, `/api/assets/${encodeURIComponent(assetId)}/video/playback`, context, fetchImpl, { headers: range ? { Range: range } : undefined });
 			return { status: response.status, response };
 		},
 		async getVersion() {

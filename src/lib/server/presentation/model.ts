@@ -1,7 +1,7 @@
 import type { SharedLinkResponse } from '$server/immich/types';
 import type { PresentationConfig } from './schema';
 
-export type NormalizedAsset = { id: string; type: string; fileName?: string; thumbnail: string; caption?: string };
+export type NormalizedAsset = { id: string; type: string; fileName?: string; thumbnail: string; caption?: string; width?: number | null; height?: number | null; videoHref?: string };
 export type NormalizedPageModel = {
 	album: { id: string; title: string; description: string; thumbnailAssetId?: string; startDate?: string; endDate?: string; updatedAt?: string };
 	presentation: PresentationConfig & { template: string };

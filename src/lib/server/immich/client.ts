@@ -17,7 +17,7 @@ export async function requestImmich(
 	path: string,
 	context: AuthContext,
 	fetchImpl: typeof fetch = fetch,
-	options: { timeoutMs?: number } = {}
+	options: { timeoutMs?: number; headers?: HeadersInit } = {}
 ): Promise<Response> {
 	const origin = immichOrigin(baseUrl);
 	const apiPath = path.startsWith('/api/') ? path.slice(4) : path.startsWith('api/') ? path.slice(3) : path;
@@ -25,7 +25,9 @@ export async function requestImmich(
 	const controller = new AbortController();
 	const timeout = setTimeout(() => controller.abort(), options.timeoutMs ?? IMMICH_REQUEST_TIMEOUT_MS);
 	try {
-		return await fetchImpl(target, { headers: upstreamHeaders(context), signal: controller.signal });
+		const headers = upstreamHeaders(context);
+		for (const [name, value] of new Headers(options.headers)) headers.set(name, value);
+		return await fetchImpl(target, { headers, signal: controller.signal });
 	} finally {
 		clearTimeout(timeout);
 	}

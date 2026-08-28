@@ -60,6 +60,8 @@ export type AuthorizedAlbumPage = {
 	errors?: string[];
 };
 
+export type VideoPlaybackResult = { status: number; response?: Response; error?: 'malformed' | 'asset-mismatch' | 'not-video' };
+
 export type MetadataFailureReason =
 	| 'oversized'
 	| 'missing-closing-delimiter'
