@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
+import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import result from '../fixtures/immich/v3.0.1/contract-result.json';
@@ -46,5 +47,72 @@ describe('pinned Immich release contract', () => {
     } finally {
       rmSync(tempDirectory, { recursive: true, force: true });
     }
+  });
+
+  it('records operator endpoint evidence without claiming exact-image execution', async () => {
+    const server = createServer((request, response) => {
+      response.setHeader('content-type', 'application/json');
+      if (request.url === '/api/server/version') {
+        response.end(JSON.stringify({ major: 3, minor: 0, patch: 1 }));
+        return;
+      }
+
+      if (request.url?.startsWith('/api/shared-links/me?key=operator-share')) {
+        response.end(JSON.stringify({
+          id: '550e8400-e29b-41d4-a716-446655440000',
+          description: null,
+          password: null,
+          userId: '550e8400-e29b-41d4-a716-446655440001',
+          key: 'operator-share',
+          type: 'ALBUM',
+          createdAt: '2026-01-01T00:00:00.000Z',
+          expiresAt: null,
+          assets: [{ id: '550e8400-e29b-41d4-a716-446655440002', type: 'IMAGE' }],
+          album: { id: '550e8400-e29b-41d4-a716-446655440003' },
+          allowUpload: false,
+          allowDownload: false,
+          showMetadata: true,
+          slug: null
+        }));
+        return;
+      }
+
+      response.statusCode = 404;
+      response.end('{}');
+    });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const address = server.address();
+    if (!address || typeof address === 'string') throw new Error('test server did not bind');
+    const tempDirectory = mkdtempSync(join(tmpdir(), 'immich-release-endpoint-'));
+    const resultPath = join(tempDirectory, 'endpoint-result.json');
+
+    try {
+      execFileSync(process.execPath, ['scripts/verify-immich-release.mjs', '--live', '--result-path', resultPath], {
+        cwd: process.cwd(),
+        env: {
+          ...process.env,
+          IMMICH_RELEASE_BASE_URL: `http://127.0.0.1:${address.port}`,
+          IMMICH_RELEASE_SHARE_KEY: 'operator-share',
+          IMMICH_RELEASE_EXACT_IMAGE_CONFIRMED: 'false'
+        },
+        stdio: 'pipe'
+      });
+      expect(JSON.parse(readFileSync(resultPath, 'utf8'))).toMatchObject({
+        mode: 'endpoint',
+        provenance: 'endpoint',
+        exactImage: false,
+        liveVerified: true,
+        observedVersion: 'v3.0.1',
+        status: 'passed'
+      });
+    } finally {
+      server.close();
+      rmSync(tempDirectory, { recursive: true, force: true });
+    }
+  });
+
+  it('does not contain an image runner or obsolete release fixture root', () => {
+    expect(readFileSync('scripts/verify-immich-release.mjs', 'utf8')).not.toMatch(/docker|spawnSync|v1\.143\.1/);
+    expect(() => readFileSync('tests/fixtures/immich/v1.143.1/contract-result.json')).toThrow();
   });
 });
