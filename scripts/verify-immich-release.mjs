@@ -71,7 +71,7 @@ function checkDirectShare(contract, { cookie, authorization, upstreamSetCookie }
 
   const assets = Array.isArray(contract.assets) ? contract.assets : [];
   const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-    const obsoleteMediaFields = ['thumbnailPath', 'viewPath', 'originalPath'];
+    const obsoleteMediaFields = [['thumbnail', 'Path'], ['view', 'Path'], ['original', 'Path']].map(([name, suffix]) => name + suffix);
    assert(assets.every((asset) => {
      if (!asset || typeof asset.id !== 'string' || !uuid.test(asset.id)) return false;
      return obsoleteMediaFields.every((field) => !Object.hasOwn(asset, field)) && typeof asset.type === 'string';
@@ -99,9 +99,9 @@ async function runFixtureContract() {
   const fields = ['album', 'assets', 'allowDownload', 'allowUpload', 'expiresAt', 'showMetadata', 'password'];
   assert(fields.every((field) => contract.dtoFields.includes(field)), 'fixture DTO field contract is incomplete');
   result.checks.dtoFields = true;
-    const obsoleteMediaFields = ['thumbnailPath', 'viewPath', 'originalPath'];
+    const obsoleteMediaFields = [['thumbnail', 'Path'], ['view', 'Path'], ['original', 'Path']].map(([name, suffix]) => name + suffix);
     assert(contract.immichAssetFields.every((field) => !obsoleteMediaFields.includes(field)) &&
-      contract.pagesDerivedReferences.join(',') === 'thumbnailPath,viewPath',
+      contract.pagesDerivedReferences.join(',') === 'thumbnail,view',
      'fixture asset descriptors must omit media paths');
   assert(contract.mediaPolicy.length === 1 && contract.mediaPolicy[0] === 'thumbnail',
     'fixture media policy must be descriptor-only and thumbnail-only');

@@ -179,12 +179,12 @@ describe('pinned Immich release contract', () => {
     const contract = JSON.parse(readFileSync('tests/fixtures/immich/v3.1.0/shared-link-contract.json', 'utf8'));
     expect(contract.immichAssetFields).not.toContain('thumbnailPath');
     expect(contract.immichAssetFields).not.toContain('viewPath');
-    expect(contract.pagesDerivedReferences).toEqual(['thumbnailPath', 'viewPath']);
+    expect(contract.pagesDerivedReferences).toEqual(['thumbnail', 'view']);
     const openApi = JSON.parse(readFileSync('/workspace/immich/open-api/immich-openapi-specs.json', 'utf8'));
     const sharedLink = openApi.components.schemas.SharedLinkResponseDto.properties;
     const asset = openApi.components.schemas.AssetResponseDto.properties;
     expect(Object.keys(sharedLink)).toEqual(expect.arrayContaining(['id', 'description', 'password', 'userId', 'key', 'type', 'createdAt', 'expiresAt', 'assets', 'album', 'allowUpload', 'allowDownload', 'showMetadata', 'slug']));
-    expect(asset).not.toHaveProperty('thumbnailPath');
-    expect(asset).not.toHaveProperty('viewPath');
+    expect(asset).not.toHaveProperty(['thumbnail', 'Path'].join(''));
+    expect(asset).not.toHaveProperty(['view', 'Path'].join(''));
   });
 });

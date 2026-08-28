@@ -18,9 +18,9 @@ export const SCAN_PATHS = [
   'tests/integration/media-proxy.test.ts',
   'tests/tracer/direct-share-tracer.test.ts',
   'scripts/verify-immich-release.mjs',
-  'tests/fixtures/immich/v3.0.1/server-version.json',
-  'tests/fixtures/immich/v3.0.1/shared-link-contract.json',
-  'tests/fixtures/immich/v3.0.1/contract-result.json'
+  'tests/fixtures/immich/v3.1.0/server-version.json',
+  'tests/fixtures/immich/v3.1.0/shared-link-contract.json',
+  'tests/fixtures/immich/v3.1.0/contract-result.json'
 ];
 
 // Only these two files contain intentional forbidden strings in their test/scanner logic.
