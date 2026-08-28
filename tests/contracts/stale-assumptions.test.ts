@@ -6,8 +6,12 @@ describe('stale-assumption guard', () => {
     expect(SCAN_PATHS).toEqual(expect.arrayContaining([
       'src/lib/server/page/assemble.ts',
       'src/lib/server/immich/types.ts',
-      'tests/e2e/mock-immich-server.mjs',
-      'tests/e2e/traefik-fixture.mjs',
+       'tests/e2e/mock-immich-server.mjs',
+       'tests/e2e/traefik-fixture.mjs',
+       '.env.example',
+       'compose.yaml',
+       'README.md',
+       'docs/deployment.md',
       'tests/fixtures/stateless/server.mjs',
       'tests/fixtures/shared-link/valid-page.json',
       'tests/fixtures/shared-link/malformed-response.json',
@@ -21,8 +25,9 @@ describe('stale-assumption guard', () => {
     ['thumbnailPath', 'invented media field'],
     ['viewPath', 'invented media field'],
     ["src: 'https://immich.example/api/assets/id/thumbnail'", 'direct Immich media source'],
-    ['IMMICH_API_KEY', 'API-key fallback'],
-    ['immich-server:v1.143.1', 'active v1.143.1 evidence']
+     ['IMMICH_API_KEY', 'API-key fallback'],
+     ['immich-server:v1.143.1', 'active v1.143.1 evidence'],
+     ['immich-server:v3.0.1', 'stale active v3.0.1 evidence']
   ])('rejects %s', (text, category) => {
     expect(scanText(text, 'synthetic')).toContainEqual({ name: category, path: 'synthetic' });
   });
