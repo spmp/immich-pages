@@ -20,4 +20,12 @@ describe('presentation frontmatter', () => {
 		expect(scalar).toMatchObject({ kind: 'invalid', reason: 'non-object-root' });
 		expect(JSON.stringify(duplicate)).not.toContain('journey');
 	});
+
+	it('bounds deep and oversized documents and reports unknown fields safely', () => {
+		const deep = 'immich-presentation:\n  type: journey\n  version: 1\n  hero:\n    x:\n      x:\n        x:\n          x:\n            x:\n              x:\n                x:\n                  x:\n                    x: value';
+		expect(parsePresentationDocument(`---\n${deep}\n---`).kind).toBe('invalid');
+		const unknown = parsePresentationDocument('---\nimmich-presentation:\n  type: journey\n  version: 1\n  future-option: secret\n---');
+		expect(unknown).toMatchObject({ kind: 'valid', warnings: ['unknown-fields'] });
+		expect(JSON.stringify(unknown)).not.toContain('secret');
+	});
 });

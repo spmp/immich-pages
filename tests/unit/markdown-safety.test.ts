@@ -16,4 +16,10 @@ describe('safe markdown', () => {
 		expect(result.warnings).toContain('markdown-resource-limit');
 		expect(result.html).not.toContain('x'.repeat(100));
 	});
+
+	it('rejects protocol smuggling and executable resource attributes', async () => {
+		const result = await renderMarkdown('[a](//evil.example) ![b](data:text/html,evil)\n\n<img src="https://evil.example/x" onerror="alert(1)">');
+		expect(result.html).not.toContain('evil.example');
+		expect(result.html).not.toContain('onerror');
+	});
 });
