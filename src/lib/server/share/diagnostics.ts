@@ -1,5 +1,5 @@
 import { redactPathname } from '../../../hooks.server';
-import type { DirectShareOutcome } from '../immich/types';
+import type { DirectShareOutcome, MetadataFailureReason } from '../immich/types';
 
 type OutcomeKind = DirectShareOutcome['kind'];
 
@@ -26,22 +26,26 @@ export function logDirectShareOutcome({
 	outcome,
 	method,
 	pathname,
-	status
+	status,
+	metadataReason
 }: {
 	requestId: string;
 	outcome: OutcomeKind;
 	method: string;
 	pathname: string;
 	status?: number;
+	metadataReason?: MetadataFailureReason;
 }) {
 	const resolvedStatus = status ?? statusByOutcome[outcome];
-	console.info(JSON.stringify({
+	const fields = {
 		event: 'direct-share.outcome',
 		requestId,
 		outcomeKind: outcome,
 		status: resolvedStatus,
 		statusCategory: statusCategory(resolvedStatus),
 		method,
-		pathname: redactPathname(pathname)
-	}));
+		pathname: redactPathname(pathname),
+		...(metadataReason ? { metadataReason } : {})
+	};
+	console.info(JSON.stringify(fields));
 }

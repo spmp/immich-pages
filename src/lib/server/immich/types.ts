@@ -48,10 +48,18 @@ export type AuthorizedAlbumPage = {
 	allowDownload: boolean;
 };
 
+export type MetadataFailureReason =
+	| 'oversized'
+	| 'missing-closing-delimiter'
+	| 'duplicate-field'
+	| 'malformed-quoting'
+	| 'unsupported-type'
+	| 'unsupported-version';
+
 export type DirectShareOutcome =
 	| { kind: 'page'; page: AuthorizedAlbumPage }
 	| { kind: 'non-page' }
-	| { kind: 'invalid-metadata' }
+	| { kind: 'invalid-metadata'; metadataReason?: MetadataFailureReason }
 	| { kind: 'password-required' }
 	| { kind: 'not-found' }
 	| { kind: 'unauthorized' }

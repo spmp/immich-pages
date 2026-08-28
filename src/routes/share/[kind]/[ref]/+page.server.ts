@@ -18,7 +18,8 @@ export const load: PageServerLoad = async ({ params, request, locals, fetch }) =
 	} catch {
 		outcome = { kind: 'upstream-error', requestId: locals.requestId };
 	}
-	logDirectShareOutcome({ requestId: locals.requestId, outcome: outcome.kind, method: request.method, pathname: new URL(request.url).pathname });
+	logDirectShareOutcome({ requestId: locals.requestId, outcome: outcome.kind, method: request.method, pathname: new URL(request.url).pathname,
+		metadataReason: outcome.kind === 'invalid-metadata' ? outcome.metadataReason : undefined });
 	if (outcome.kind === 'page') return { outcome };
 	if (outcome.kind === 'non-page') error(404, 'This album is not a Pages presentation');
 	if (outcome.kind === 'invalid-metadata') error(422, 'This presentation has invalid metadata');

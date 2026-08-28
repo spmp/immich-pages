@@ -11,7 +11,8 @@ describe('direct-share outcome diagnostics', () => {
 			outcome: 'invalid-metadata',
 			method: 'GET',
 			pathname,
-			status: 422
+			status: 422,
+			metadataReason: 'unsupported-version'
 		});
 
 		expect(infoLog).toHaveBeenCalledOnce();
@@ -23,7 +24,8 @@ describe('direct-share outcome diagnostics', () => {
 			status: 422,
 			statusCategory: 'client-error',
 			method: 'GET',
-			pathname: '/share/key/:ref'
+			pathname: '/share/key/:ref',
+			metadataReason: 'unsupported-version'
 		});
 		expect(line).not.toContain('secret-ref');
 		expect(line).not.toContain('token');

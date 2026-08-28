@@ -52,5 +52,9 @@ describe('direct-share tracer', () => {
 		expect((await makeOutcome('ordinary album')).kind).toBe('non-page');
 		expect((await makeOutcome('---\nimmich-presentation:\n  type: journey\n  version: 2\n---')).kind).toBe('invalid-metadata');
 		expect((await makeOutcome('---\nimmich-presentation:\n  type: journey\n  version: 1\n---')).kind).toBe('page');
+		expect((await makeOutcome('---\nimmich-presentation:\n  type: "journey"\n  version: "1"\n---')).kind).toBe('page');
+		expect((await makeOutcome("---\nimmich-presentation:\n  type: 'journey'\n  version: '1'\n---")).kind).toBe('page');
+		const malformed = await makeOutcome('---\nimmich-presentation:\n  type: journey\n  version: "1\n---');
+		expect(malformed).toEqual({ kind: 'invalid-metadata', metadataReason: 'malformed-quoting' });
 	});
 });
