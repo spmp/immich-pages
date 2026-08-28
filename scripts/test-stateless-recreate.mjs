@@ -1,4 +1,4 @@
-import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { readFile, rm, writeFile } from 'node:fs/promises';
 import { spawn, spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
@@ -6,7 +6,6 @@ import { randomUUID } from 'node:crypto';
 
 const composeFile = resolve('tests/fixtures/stateless/compose.yaml');
 const project = `immich-pages-stateless-${randomUUID().slice(0, 8)}`;
-const cacheDir = resolve(tmpdir(), project);
 const projectionPath = resolve(tmpdir(), `${project}-projection.json`);
 const compose = ['compose', '-p', project, '-f', composeFile];
 
@@ -39,14 +38,10 @@ if (spawnSync('docker', ['info'], { stdio: 'ignore' }).status !== 0) {
 } else {
   let before;
   try {
-    await mkdir(cacheDir, { recursive: true });
-    await writeFile(resolve(cacheDir, 'disposable-cache.txt'), 'must be deleted');
     await command([...compose, 'up', '-d', '--build', '--remove-orphans']);
     before = await projection();
     await writeFile(projectionPath, JSON.stringify(before));
     await command([...compose, 'down', '--volumes', '--remove-orphans']);
-    await rm(cacheDir, { recursive: true, force: true });
-    await mkdir(cacheDir, { recursive: true });
     await command([...compose, 'up', '-d', '--build', '--remove-orphans']);
     const after = await projection();
     const saved = JSON.parse(await readFile(projectionPath, 'utf8')).body;
@@ -57,7 +52,6 @@ if (spawnSync('docker', ['info'], { stdio: 'ignore' }).status !== 0) {
     process.exitCode = 1;
   } finally {
     await command([...compose, 'down', '--volumes', '--remove-orphans'], { quiet: true }).catch(() => {});
-    await rm(cacheDir, { recursive: true, force: true });
     await rm(projectionPath, { force: true });
   }
 }
