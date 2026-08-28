@@ -22,12 +22,18 @@ export async function assembleDirectShare(provider: ImmichProvider, context: Aut
 	const hero = selectHero(document.config, share);
 	const template = normalizeTemplate(document.config);
 	const displayDate = deriveDisplayDate(document.config, share);
-	const assets = share.assets.map((asset) => ({
-		id: asset.id, type: asset.type, fileName: asset.originalFileName,
-		thumbnail: `/share/${context.shareRef.kind}/${encodeURIComponent(context.shareRef.value)}/media/${encodeURIComponent(asset.id)}/thumbnail`,
-		width: asset.width, height: asset.height,
-		videoHref: asset.type === 'VIDEO' ? `/share/${context.shareRef.kind}/${encodeURIComponent(context.shareRef.value)}/media/${encodeURIComponent(asset.id)}/video/playback` : undefined
-	}));
+	const assets = share.assets.map((asset) => {
+		const normalized = {
+			id: asset.id, type: asset.type, fileName: asset.originalFileName,
+			thumbnail: `/share/${context.shareRef.kind}/${encodeURIComponent(context.shareRef.value)}/media/${encodeURIComponent(asset.id)}/thumbnail`
+		};
+		return {
+			...normalized,
+			...(asset.width !== undefined ? { width: asset.width } : {}),
+			...(asset.height !== undefined ? { height: asset.height } : {}),
+			...(asset.type === 'VIDEO' ? { videoHref: `/share/${context.shareRef.kind}/${encodeURIComponent(context.shareRef.value)}/media/${encodeURIComponent(asset.id)}/video/playback` } : {})
+		};
+	});
 	const page: AuthorizedAlbumPage = {
 		album: { id: share.album.id, title: share.album.albumName ?? 'Untitled album', description: document.markdown,
 			thumbnailAssetId: share.album.albumThumbnailAssetId ?? undefined, startDate: share.album.startDate ?? undefined,

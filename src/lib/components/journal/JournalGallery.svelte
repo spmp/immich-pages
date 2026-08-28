@@ -3,7 +3,7 @@
 	import GalleryAsset from './GalleryAsset.svelte';
 	import Lightbox from './Lightbox.svelte';
 	let { assets, shareKind, shareRef }: { assets: NormalizedAsset[]; shareKind?: string; shareRef?: string } = $props();
-	const enriched = $derived(assets.map((asset) => ({ ...asset, videoHref: asset.type === 'VIDEO' && shareKind && shareRef ? `/share/${shareKind}/${encodeURIComponent(shareRef)}/media/${encodeURIComponent(asset.id)}/video/playback` : undefined })));
+	const enriched = $derived(assets.map((asset) => ({ ...asset, videoHref: asset.videoHref ?? (asset.type === 'VIDEO' && shareKind && shareRef ? `/share/${shareKind}/${encodeURIComponent(shareRef)}/media/${encodeURIComponent(asset.id)}/video/playback` : undefined) })));
 </script>
 
 <section class="gallery" aria-labelledby="gallery-title">

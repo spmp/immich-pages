@@ -2,7 +2,7 @@ import { defineConfig, devices } from '@playwright/test';
 
 export default defineConfig({
   testDir: './tests/e2e',
-  testMatch: 'direct-share.mock.spec.ts',
+   testMatch: /.*\.mock\.spec\.ts/,
   timeout: 30_000,
   use: {
     ...devices['Desktop Chrome'],

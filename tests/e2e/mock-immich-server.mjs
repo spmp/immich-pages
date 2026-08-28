@@ -16,11 +16,17 @@ const page = {
     albumName: 'Mock Journey',
     description: '---\nimmich-presentation:\n  type: journey\n  version: 1\n---\nMock browser proof'
   },
-  assets: [{
-    id: '550e8400-e29b-41d4-a716-446655440002',
-    type: 'IMAGE',
-    originalFileName: 'mock-proof.jpg'
-  }],
+   assets: [{
+     id: '550e8400-e29b-41d4-a716-446655440002',
+     type: 'IMAGE',
+     originalFileName: 'mock-proof.jpg', width: 1200, height: 800
+   }, {
+     id: '550e8400-e29b-41d4-a716-446655440005',
+     type: 'VIDEO', originalFileName: 'mock-clip.mp4', width: 640, height: 360, duration: 1000
+   }, {
+     id: '550e8400-e29b-41d4-a716-446655440006',
+     type: 'IMAGE', originalFileName: 'failing-photo.jpg', width: 800, height: 1200
+   }],
   showMetadata: true,
   allowDownload: false
 };
@@ -58,7 +64,7 @@ const server = http.createServer((request, response) => {
     return;
   }
 
-  if (url.pathname === '/api/assets/550e8400-e29b-41d4-a716-446655440002/thumbnail') {
+  if (url.pathname === '/api/assets/550e8400-e29b-41d4-a716-446655440002/thumbnail' || url.pathname === '/api/assets/550e8400-e29b-41d4-a716-446655440005/thumbnail') {
     if (request.headers.cookie !== 'immich_shared_link_token=fixture' || request.headers.authorization !== 'Bearer fixture') {
       response.writeHead(403, { 'content-type': 'application/json', 'set-cookie': 'secret=must-not-relay; Path=/' });
       response.end(JSON.stringify({ error: 'thumbnail request context rejected' }));
@@ -67,6 +73,20 @@ const server = http.createServer((request, response) => {
     response.writeHead(200, { 'content-type': 'image/svg+xml' });
     response.end('<svg xmlns="http://www.w3.org/2000/svg" width="2" height="2"><rect width="2" height="2" fill="teal"/></svg>');
     return;
+  }
+
+  if (url.pathname === '/api/assets/550e8400-e29b-41d4-a716-446655440005/video/playback') {
+    if (request.headers.cookie !== 'immich_shared_link_token=fixture' || request.headers.authorization !== 'Bearer fixture') { response.writeHead(403); response.end(); return; }
+    const data = Buffer.from('mock-video-bytes');
+    const range = request.headers.range;
+    if (range) { response.writeHead(206, { 'content-type': 'video/mp4', 'content-length': data.length, 'content-range': `bytes 0-${data.length - 1}/${data.length}`, 'accept-ranges': 'bytes' }); }
+    else response.writeHead(200, { 'content-type': 'video/mp4', 'content-length': data.length, 'accept-ranges': 'bytes' });
+    response.end(data);
+    return;
+  }
+
+  if (url.pathname === '/api/assets/550e8400-e29b-41d4-a716-446655440006/thumbnail') {
+    response.writeHead(404, { 'content-type': 'application/json' }); response.end(JSON.stringify({ error: 'individual media failure' })); return;
   }
 
   response.writeHead(404, { 'content-type': 'application/json' });
