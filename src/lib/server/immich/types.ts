@@ -9,6 +9,7 @@ export const AssetResponseSchema = z.object({
 	originalFileName: z.string().max(1024).optional(),
 	originalMimeType: z.string().max(256).optional(),
 	localDateTime: z.string().max(128).optional(),
+	createdAt: z.string().max(128).optional(),
 	duration: z.number().int().nonnegative().nullable().optional(),
 	livePhotoVideoId: z.string().max(256).nullable().optional(),
 	hasMetadata: z.boolean().optional(),
@@ -30,7 +31,11 @@ export const SharedLinkResponseSchema = z.object({
 	album: z.object({
 		id: IdentifierSchema,
 		albumName: z.string(),
-		description: z.string().nullable()
+		description: z.string().nullable(),
+		albumThumbnailAssetId: IdentifierSchema.nullable().optional(),
+		startDate: z.string().max(128).nullable().optional(),
+		endDate: z.string().max(128).nullable().optional(),
+		updatedAt: z.string().max(128).optional()
 	}).optional(),
 	assets: z.array(AssetResponseSchema),
 	allowUpload: z.boolean(),
@@ -42,10 +47,17 @@ export const SharedLinkResponseSchema = z.object({
 export type SharedLinkResponse = z.infer<typeof SharedLinkResponseSchema>;
 
 export type AuthorizedAlbumPage = {
-	album: { id: string; title: string; description: string };
-	assets: Array<{ id: string; type: string; fileName?: string; thumbnail: string }>;
+	album: { id: string; title: string; description: string; thumbnailAssetId?: string; startDate?: string; endDate?: string; updatedAt?: string };
+	assets: Array<{ id: string; type: string; fileName?: string; thumbnail: string; caption?: string }>;
 	showMetadata: boolean;
 	allowDownload: boolean;
+	narrativeHtml?: string;
+	presentation?: unknown;
+	hero?: { id: string; thumbnail: string } | null;
+	markers?: [];
+	routeData?: null;
+	warnings?: string[];
+	errors?: string[];
 };
 
 export type MetadataFailureReason =
@@ -54,7 +66,14 @@ export type MetadataFailureReason =
 	| 'duplicate-field'
 	| 'malformed-quoting'
 	| 'unsupported-type'
-	| 'unsupported-version';
+	| 'unsupported-version'
+	| 'malformed-frontmatter'
+	| 'duplicate-key'
+	| 'alias-not-allowed'
+	| 'non-object-root'
+	| 'resource-limit'
+	| 'invalid-schema'
+	| 'unknown-fields';
 
 export type DirectShareOutcome =
 	| { kind: 'page'; page: AuthorizedAlbumPage }
