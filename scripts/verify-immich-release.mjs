@@ -7,8 +7,17 @@ import { fileURLToPath } from 'node:url';
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const image = 'immich-server:v1.143.1';
 const fixtureRoot = resolve(root, 'tests/fixtures/immich/v1.143.1');
-const resultPath = resolve(fixtureRoot, 'contract-result.json');
 const live = process.argv.includes('--live');
+
+function resultOutputPath() {
+  const option = process.argv.find((argument) => argument === '--result-path' || argument.startsWith('--result-path='));
+  if (!option) return resolve(fixtureRoot, 'contract-result.json');
+  const value = option === '--result-path' ? process.argv[process.argv.indexOf(option) + 1] : option.slice('--result-path='.length);
+  if (!value) throw new Error('--result-path requires a file path');
+  return resolve(value);
+}
+
+const resultPath = resultOutputPath();
 
 function emptyChecks() {
   return {
