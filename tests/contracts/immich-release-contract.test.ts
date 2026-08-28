@@ -97,8 +97,7 @@ describe('pinned Immich release contract', () => {
           IMMICH_RELEASE_BASE_URL: `http://127.0.0.1:${address.port}`,
           IMMICH_RELEASE_SHARE_KEY: 'operator-share',
           IMMICH_RELEASE_EXACT_IMAGE_CONFIRMED: 'false'
-        },
-        stdio: 'pipe'
+        }
       });
       expect(JSON.parse(readFileSync(resultPath, 'utf8'))).toMatchObject({
         mode: 'endpoint',
