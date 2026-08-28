@@ -10,7 +10,10 @@ const live = process.argv.includes('--live');
 
 function resultOutputPath() {
   const option = process.argv.find((argument) => argument === '--result-path' || argument.startsWith('--result-path='));
-  if (!option) return resolve(fixtureRoot, 'contract-result.json');
+  if (!option) {
+    if (live) throw new Error('--result-path is required for --live so fixture evidence cannot be overwritten');
+    return resolve(fixtureRoot, 'contract-result.json');
+  }
   const value = option === '--result-path' ? process.argv[process.argv.indexOf(option) + 1] : option.slice('--result-path='.length);
   if (!value) throw new Error('--result-path requires a file path');
   return resolve(value);

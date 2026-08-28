@@ -82,7 +82,7 @@ authorization is never persisted or reused for another request.
 Phase 1 covers shared-link lookup, explicit key/slug normalization, request
 authorization forwarding, album/assets/capability projection, thumbnail/view
 references, version probing, and renderer health. It intentionally excludes
-password login, asset pagination, maps/GPS, original/video/thumbnail proxying,
+password login, asset pagination, maps/GPS, video/original proxying,
 downloads, authenticated album enumeration, shared-link enumeration, and all
 album/asset mutation. Full release and stateless-recreate gates are separate
 commands and target `immich-server:v3.0.1`.

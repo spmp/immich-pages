@@ -52,6 +52,19 @@ describe('pinned Immich release contract', () => {
     }
   });
 
+  it('requires a separate result path for live verification', () => {
+    const script = 'scripts/verify-immich-release.mjs';
+    const fixturePath = 'tests/fixtures/immich/v3.0.1/contract-result.json';
+    const fixtureBefore = readFileSync(fixturePath, 'utf8');
+
+    expect(() => execFileSync(process.execPath, [script, '--live'], {
+      cwd: process.cwd(),
+      env: { ...process.env, IMMICH_RELEASE_BASE_URL: '' },
+      stdio: 'pipe'
+    })).toThrow();
+    expect(readFileSync(fixturePath, 'utf8')).toBe(fixtureBefore);
+  });
+
   it('records operator endpoint evidence without claiming exact-image execution', async () => {
     const server = createServer((request, response) => {
       response.setHeader('content-type', 'application/json');
