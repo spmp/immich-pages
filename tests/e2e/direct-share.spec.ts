@@ -6,7 +6,8 @@ test.use({
 });
 
 test.beforeEach(async ({ context }) => {
-  await context.addCookies([{ name: 'immich_shared_link_token', value: 'fixture', domain: 'pages.example.xyz', path: '/' }]);
+  const domain = process.env.E2E_COOKIE_DOMAIN ?? 'pages.example.xyz';
+  await context.addCookies([{ name: 'immich_shared_link_token', value: 'fixture', domain, path: '/' }]);
 });
 
 test('routes the explicit key share through Traefik with query and auth context', async ({ page }) => {
