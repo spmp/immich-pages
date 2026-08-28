@@ -20,7 +20,7 @@ describe('normalized presentation model seams', () => {
 	});
 
 	it('uses explicit date, authorized asset dates, then album dates', () => {
-		const base = { ...share, assets: [{ id: 'a', originalFileName: 'first.jpg', type: 'IMAGE', localDateTime: '2025-02-02T00:00:00Z' }, { id: 'b', originalFileName: 'cover.jpg', type: 'IMAGE', localDateTime: '2025-01-01T00:00:00Z' }] };
+		const base = { album: { albumThumbnailAssetId: 'b' }, assets: [{ id: 'a', originalFileName: 'first.jpg', type: 'IMAGE', localDateTime: '2025-02-02T00:00:00Z' }, { id: 'b', originalFileName: 'cover.jpg', type: 'IMAGE', localDateTime: '2025-01-01T00:00:00Z' }] };
 		const explicit = parsePresentationDocument('---\nimmich-presentation:\n  type: journey\n  version: 1\n  date: 2024-01-01\n---');
 		if (explicit.kind === 'valid') expect(deriveDisplayDate(explicit.config, base as never)).toEqual({ start: '2024-01-01', end: '2024-01-01' });
 		const empty = parsePresentationDocument('---\nimmich-presentation:\n  type: journey\n  version: 1\n---');
