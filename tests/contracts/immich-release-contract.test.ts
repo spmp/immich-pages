@@ -7,16 +7,17 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 const execFileAsync = promisify(execFile);
-import result from '../fixtures/immich/v3.0.1/contract-result.json';
+import result from '../fixtures/immich/v3.1.0/contract-result.json';
 
 describe('pinned Immich release contract', () => {
-  it('records a complete fixture-only v3.0.1 contract', () => {
+  it('records a complete fixture-only v3.1.0 contract', () => {
     expect(result).toMatchObject({
-      image: 'immich-server:v3.0.1',
+       image: 'immich-server:v3.1.0',
       mode: 'fixture',
       exactImage: false,
       liveVerified: false,
-      observedVersion: 'v3.0.1',
+       expectedVersion: 'v3.1.0',
+       observedVersion: 'v3.1.0',
       status: 'passed',
       checks: {
         serverVersion: true,
@@ -30,7 +31,7 @@ describe('pinned Immich release contract', () => {
 
   it('does not allow fixture evidence to satisfy explicit live verification', () => {
     const script = 'scripts/verify-immich-release.mjs';
-    const fixturePath = 'tests/fixtures/immich/v3.0.1/contract-result.json';
+    const fixturePath = 'tests/fixtures/immich/v3.1.0/contract-result.json';
     const fixtureBefore = readFileSync(fixturePath, 'utf8');
     const tempDirectory = mkdtempSync(join(tmpdir(), 'immich-release-contract-'));
     const liveResultPath = join(tempDirectory, 'live-result.json');
@@ -54,7 +55,7 @@ describe('pinned Immich release contract', () => {
 
   it('requires a separate result path for live verification', () => {
     const script = 'scripts/verify-immich-release.mjs';
-    const fixturePath = 'tests/fixtures/immich/v3.0.1/contract-result.json';
+    const fixturePath = 'tests/fixtures/immich/v3.1.0/contract-result.json';
     const fixtureBefore = readFileSync(fixturePath, 'utf8');
 
     expect(() => execFileSync(process.execPath, [script, '--live'], {
@@ -69,7 +70,7 @@ describe('pinned Immich release contract', () => {
     const server = createServer((request, response) => {
       response.setHeader('content-type', 'application/json');
       if (request.url === '/api/server/version') {
-        response.end(JSON.stringify({ major: 3, minor: 0, patch: 1 }));
+         response.end(JSON.stringify({ major: 3, minor: 1, patch: 0 }));
         return;
       }
 
@@ -117,7 +118,8 @@ describe('pinned Immich release contract', () => {
         provenance: 'endpoint',
         exactImage: false,
         liveVerified: true,
-        observedVersion: 'v3.0.1',
+         expectedVersion: 'v3.1.0',
+         observedVersion: 'v3.1.0',
         status: 'passed'
       });
     } finally {
@@ -127,7 +129,22 @@ describe('pinned Immich release contract', () => {
   });
 
   it('does not contain an image runner or obsolete release fixture root', () => {
-    expect(readFileSync('scripts/verify-immich-release.mjs', 'utf8')).not.toMatch(/docker|spawnSync|v1\.143\.1/);
-    expect(() => readFileSync('tests/fixtures/immich/v1.143.1/contract-result.json')).toThrow();
+     expect(readFileSync('scripts/verify-immich-release.mjs', 'utf8')).not.toMatch(/docker|spawnSync|v1\.143\.1|v3\.0\.1/);
+     expect(readFileSync('scripts/verify-immich-release.mjs', 'utf8')).toMatch(/expectedVersion/);
+     expect(() => readFileSync('tests/fixtures/immich/v1.143.1/contract-result.json')).toThrow();
+     expect(() => readFileSync('tests/fixtures/immich/v3.0.1/contract-result.json')).toThrow();
+  });
+
+  it('keeps Immich DTO fields separate from Pages-derived media references', async () => {
+    const contract = JSON.parse(readFileSync('tests/fixtures/immich/v3.1.0/shared-link-contract.json', 'utf8'));
+    expect(contract.immichAssetFields).not.toContain('thumbnailPath');
+    expect(contract.immichAssetFields).not.toContain('viewPath');
+    expect(contract.pagesDerivedReferences).toEqual(['thumbnailPath', 'viewPath']);
+    const openApi = JSON.parse(readFileSync('/workspace/immich/open-api/immich-openapi-specs.json', 'utf8'));
+    const sharedLink = openApi.components.schemas.SharedLinkResponseDto.properties;
+    const asset = openApi.components.schemas.AssetResponseDto.properties;
+    expect(Object.keys(sharedLink)).toEqual(expect.arrayContaining(['id', 'description', 'password', 'userId', 'key', 'type', 'createdAt', 'expiresAt', 'assets', 'album', 'allowUpload', 'allowDownload', 'showMetadata', 'slug']));
+    expect(asset).not.toHaveProperty('thumbnailPath');
+    expect(asset).not.toHaveProperty('viewPath');
   });
 });

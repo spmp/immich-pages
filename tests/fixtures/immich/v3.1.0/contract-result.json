@@ -1,9 +1,10 @@
 {
-  "image": "immich-server:v3.0.1",
+  "image": "immich-server:v3.1.0",
   "mode": "fixture",
   "exactImage": false,
   "liveVerified": false,
-  "observedVersion": "v3.0.1",
+  "expectedVersion": "v3.1.0",
+  "observedVersion": "v3.1.0",
   "checks": {
     "serverVersion": true,
     "dtoFields": true,

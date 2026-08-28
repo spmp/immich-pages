@@ -4,8 +4,9 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const image = 'immich-server:v3.0.1';
-const fixtureRoot = resolve(root, 'tests/fixtures/immich/v3.0.1');
+const expectedVersion = 'v3.1.0';
+const image = `immich-server:${expectedVersion}`;
+const fixtureRoot = resolve(root, 'tests/fixtures/immich/v3.1.0');
 const live = process.argv.includes('--live');
 
 function resultOutputPath() {
@@ -36,6 +37,7 @@ const result = {
   mode: live ? 'endpoint' : 'fixture',
   exactImage: false,
   liveVerified: false,
+  expectedVersion,
   observedVersion: null,
   checks: emptyChecks(),
   status: 'failed'
@@ -50,9 +52,10 @@ async function json(name) {
 }
 
 function checkVersion(version) {
-  assert(version && Number(version.major) === 3 && Number(version.minor) === 0 && Number(version.patch) === 1,
-    'observed Immich version is not v3.0.1');
-  result.observedVersion = `v${version.major}.${version.minor}.${version.patch}`;
+  assert(version && Number.isInteger(Number(version.major)) && Number.isInteger(Number(version.minor)) && Number.isInteger(Number(version.patch)),
+    'observed Immich version is invalid');
+  result.observedVersion = `v${Number(version.major)}.${Number(version.minor)}.${Number(version.patch)}`;
+  assert(result.observedVersion === expectedVersion, `observed Immich version is not ${expectedVersion}`);
   result.checks.serverVersion = true;
 }
 
@@ -63,7 +66,7 @@ function checkDirectShare(contract, { cookie, authorization, upstreamSetCookie }
 
   const assets = Array.isArray(contract.assets) ? contract.assets : [];
   const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-   const obsoleteMediaFields = [['thumbnail', 'Path'], ['view', 'Path'], ['original', 'Path']].map(([name, suffix]) => name + suffix);
+    const obsoleteMediaFields = ['thumbnailPath', 'viewPath', 'originalPath'];
    assert(assets.every((asset) => {
      if (!asset || typeof asset.id !== 'string' || !uuid.test(asset.id)) return false;
      return obsoleteMediaFields.every((field) => !Object.hasOwn(asset, field)) && typeof asset.type === 'string';
@@ -91,9 +94,10 @@ async function runFixtureContract() {
   const fields = ['album', 'assets', 'allowDownload', 'allowUpload', 'expiresAt', 'showMetadata', 'password'];
   assert(fields.every((field) => contract.dtoFields.includes(field)), 'fixture DTO field contract is incomplete');
   result.checks.dtoFields = true;
-   const obsoleteMediaFields = [['original', 'Path'], ['thumbnail', 'Path'], ['view', 'Path']].map(([name, suffix]) => name + suffix);
-   assert(contract.assetDescriptors.every((field) => !obsoleteMediaFields.includes(field)),
-    'fixture asset descriptors must omit media paths');
+    const obsoleteMediaFields = ['thumbnailPath', 'viewPath', 'originalPath'];
+    assert(contract.immichAssetFields.every((field) => !obsoleteMediaFields.includes(field)) &&
+      contract.pagesDerivedReferences.join(',') === 'thumbnailPath,viewPath',
+     'fixture asset descriptors must omit media paths');
   assert(contract.mediaPolicy.length === 1 && contract.mediaPolicy[0] === 'thumbnail',
     'fixture media policy must be descriptor-only and thumbnail-only');
   result.checks.mediaReferences = true;

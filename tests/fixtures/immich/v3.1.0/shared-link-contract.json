@@ -1,6 +1,7 @@
 {
   "dtoFields": ["id", "description", "password", "userId", "key", "type", "createdAt", "expiresAt", "assets", "album", "allowUpload", "allowDownload", "showMetadata", "slug"],
-  "assetDescriptors": ["id", "type", "originalMimeType", "localDateTime", "duration", "hasMetadata", "width", "height"],
+  "immichAssetFields": ["id", "type", "originalMimeType", "localDateTime", "duration", "hasMetadata", "width", "height"],
+  "pagesDerivedReferences": ["thumbnailPath", "viewPath"],
   "mediaPolicy": ["thumbnail"],
   "queryBehavior": ["key", "slug"],
   "authorization": {
