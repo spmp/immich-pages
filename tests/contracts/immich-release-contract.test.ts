@@ -43,7 +43,7 @@ describe('pinned Immich release contract', () => {
       })).toThrow();
 
       const liveResult = JSON.parse(readFileSync(liveResultPath, 'utf8'));
-      expect(liveResult.mode).toBe('live');
+       expect(liveResult.mode).toBe('endpoint');
       expect(liveResult.liveVerified).toBe(false);
       expect(liveResult.status).toBe('failed');
       expect(readFileSync(fixturePath, 'utf8')).toBe(fixtureBefore);

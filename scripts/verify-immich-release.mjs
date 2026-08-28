@@ -30,7 +30,7 @@ function emptyChecks() {
 
 const result = {
   image,
-  mode: live ? 'live' : 'fixture',
+  mode: live ? 'endpoint' : 'fixture',
   exactImage: false,
   liveVerified: false,
   observedVersion: null,
