@@ -39,6 +39,7 @@ const result = {
   liveVerified: false,
   expectedVersion,
   observedVersion: null,
+  provenance: live ? 'endpoint' : 'fixture',
   checks: emptyChecks(),
   status: 'failed'
 };
@@ -55,7 +56,11 @@ function checkVersion(version) {
   assert(version && Number.isInteger(Number(version.major)) && Number.isInteger(Number(version.minor)) && Number.isInteger(Number(version.patch)),
     'observed Immich version is invalid');
   result.observedVersion = `v${Number(version.major)}.${Number(version.minor)}.${Number(version.patch)}`;
-  assert(result.observedVersion === expectedVersion, `observed Immich version is not ${expectedVersion}`);
+  if (result.observedVersion !== expectedVersion) {
+    const error = new Error('observed Immich version does not match expected release');
+    error.code = 'version-mismatch';
+    throw error;
+  }
   result.checks.serverVersion = true;
 }
 
@@ -110,7 +115,6 @@ async function runFixtureContract() {
     contract.separateHost.pagesRelaysSetCookie === false && contract.queryBehavior.join(',') === 'key,slug',
     'fixture separate-host contract is incomplete');
   result.checks.separateHost = true;
-  result.provenance = 'fixture';
 }
 
 async function liveJson(url, headers, signal) {
@@ -149,8 +153,7 @@ async function runLiveContract() {
     clearTimeout(timer);
   }
   result.mode = 'endpoint';
-  result.provenance = 'endpoint';
-  result.exactImage = process.env.IMMICH_RELEASE_EXACT_IMAGE_CONFIRMED === 'false' ? false : 'unknown';
+   result.exactImage = process.env.IMMICH_RELEASE_EXACT_IMAGE_CONFIRMED === 'false' ? false : 'unknown';
   result.liveVerified = true;
   result.status = 'passed';
 }
@@ -164,6 +167,7 @@ try {
   }
 } catch (error) {
   result.errorCategory = error?.name === 'AbortError' ? 'timeout' :
+    error?.code === 'version-mismatch' ? 'version-mismatch' :
     error instanceof Error && error.message.includes('required') ? 'configuration' : 'contract-failure';
 }
 
