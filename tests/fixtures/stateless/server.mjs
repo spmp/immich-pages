@@ -1,8 +1,8 @@
 import http from 'node:http';
 
 const page = {
-  album: { id: 'stateless-album', albumName: 'Recreated Journey', description: '---\nimmich-presentation:\n  type: journey\n  version: 1\n---\nRecreated safely.' },
-  assets: [{ id: 'stateless-asset', type: 'IMAGE', originalFileName: 'recreated.jpg', thumbnailPath: '/api/assets/stateless-asset/thumbnail', viewPath: '/api/assets/stateless-asset/original' }],
+  album: { id: '550e8400-e29b-41d4-a716-446655440003', albumName: 'Recreated Journey', description: '---\nimmich-presentation:\n  type: journey\n  version: 1\n---\nRecreated safely.' },
+  assets: [{ id: '550e8400-e29b-41d4-a716-446655440002', type: 'IMAGE', originalFileName: 'recreated.jpg' }],
   showMetadata: true,
   allowDownload: false
 };
@@ -10,7 +10,7 @@ const page = {
 http.createServer((request, response) => {
   if (request.url === '/api/server/version') {
     response.writeHead(200, { 'content-type': 'application/json' });
-    response.end(JSON.stringify({ major: 1, minor: 143, patch: 1 }));
+    response.end(JSON.stringify({ major: 3, minor: 0, patch: 1 }));
     return;
   }
   if (request.url?.startsWith('/api/shared-links/me?key=') || request.url?.startsWith('/api/shared-links/me?slug=')) {

@@ -1,17 +1,15 @@
 {
   "type": "ALBUM",
   "album": {
-    "id": "album-journey",
+    "id": "550e8400-e29b-41d4-a716-446655440003",
     "albumName": "Coastal Journey",
     "description": "---\nimmich-presentation:\n  type: journey\n  version: 1\n---\nA safe story."
   },
   "assets": [
     {
-      "id": "asset-1",
-      "type": "IMAGE",
-      "originalFileName": "coast.jpg",
-      "thumbnailPath": "/api/assets/asset-1/thumbnail",
-      "viewPath": "/api/assets/asset-1/original"
+        "id": "550e8400-e29b-41d4-a716-446655440002",
+        "type": "IMAGE",
+        "originalFileName": "coast.jpg"
     }
   ],
   "showMetadata": true,

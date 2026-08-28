@@ -2,15 +2,13 @@ import http from 'node:http';
 
 const response = {
   album: {
-    id: 'album-1',
+    id: '550e8400-e29b-41d4-a716-446655440003',
     albumName: 'Traefik Journey',
     description: '---\nimmich-presentation:\n  type: journey\n  version: 1\n---\nProxy proof'
   },
   assets: [
     {
-      id: 'asset-1',
-      thumbnailPath: '/api/assets/asset-1/thumbnail',
-      viewPath: '/api/assets/asset-1/original',
+      id: '550e8400-e29b-41d4-a716-446655440002',
       originalFileName: 'proxy-proof.jpg'
     }
   ],
@@ -23,7 +21,7 @@ const proxyObservations = [];
 http.createServer((request, res) => {
   if (request.url === '/api/server/version') {
     res.writeHead(200, { 'content-type': 'application/json' });
-    res.end(JSON.stringify({ major: 1, minor: 143, patch: 1 }));
+    res.end(JSON.stringify({ major: 3, minor: 0, patch: 1 }));
     return;
   }
 
