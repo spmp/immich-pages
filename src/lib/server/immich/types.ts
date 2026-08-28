@@ -76,7 +76,7 @@ export type MetadataFailureReason =
 	| 'unknown-fields';
 
 export type DirectShareOutcome =
-	| { kind: 'page'; page: AuthorizedAlbumPage }
+	| { kind: 'page'; page: import('../presentation/model').NormalizedPageModel }
 	| { kind: 'non-page' }
 	| { kind: 'invalid-metadata'; metadataReason?: MetadataFailureReason }
 	| { kind: 'password-required' }
