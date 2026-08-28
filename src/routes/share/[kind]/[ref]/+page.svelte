@@ -8,6 +8,6 @@
 
 {#if outcome.kind === 'page'}
 	<JournalPage page={outcome.page} />
-{:else}
-	<main><p>This journey is unavailable right now. Please check the link and try again.</p></main>
+{:else if outcome.kind === 'presentation-error'}
+	<PresentationState state={outcome.state} retryHref="." />
 {/if}

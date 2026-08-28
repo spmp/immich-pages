@@ -30,4 +30,17 @@ describe('journal presentation contract', () => {
 		expect(source).toContain('@media (min-width: 960px)');
 		expect(source).toContain('overflow-wrap: anywhere');
 	});
+
+	it('routes invalid presentation outcomes through the branded state', () => {
+		const source = route();
+		expect(source).toContain("outcome.kind === 'presentation-error'");
+		expect(source).toContain('<PresentationState state={outcome.state} retryHref="." />');
+		expect(source).toContain('PresentationState');
+		expect(source).not.toContain('This journey is unavailable right now. Please check the link and try again.');
+		expect(source).not.toMatch(/metadataReason|requestId|cookie|authorization|immich\.example/i);
+		const copy = readFileSync('src/lib/components/journal/presentation-copy.ts', 'utf8');
+		expect(copy).toContain("invalid:");
+		expect(copy).toContain('This page needs a small correction before it can be shown.');
+		expect(copy).toContain('Return to the album');
+	});
 });
