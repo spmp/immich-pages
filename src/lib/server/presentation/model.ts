@@ -17,6 +17,24 @@ export type NormalizedPageModel = {
 	errors: string[];
 };
 
+export function deriveDisplayDate(config: PresentationConfig, share: SharedLinkResponse): { start: string; end: string } | undefined {
+	if (config.date) return { start: config.date, end: config.date };
+	if (config.dateRange?.start || config.dateRange?.end) {
+		const start = config.dateRange.start ?? config.dateRange.end!;
+		const end = config.dateRange.end ?? config.dateRange.start!;
+		return { start, end };
+	}
+	const dates = share.assets.map((asset) => asset.localDateTime ?? asset.createdAt).filter((date): date is string => Boolean(date)).sort();
+	if (dates.length) return { start: dates[0], end: dates[dates.length - 1] };
+	const start = share.album?.startDate ?? share.album?.endDate;
+	const end = share.album?.endDate ?? share.album?.startDate;
+	return start && end ? { start, end } : undefined;
+}
+
+export function normalizeTemplate(config: PresentationConfig): { template: 'journal'; warning?: string } {
+	return config.template === 'journal' ? { template: 'journal' } : { template: 'journal', warning: 'unknown-template' };
+}
+
 export function selectHero(config: PresentationConfig, share: SharedLinkResponse) {
 	const assets = share.assets;
 	const filename = config.hero.filename?.toLocaleLowerCase();

@@ -4,7 +4,7 @@ import { PresentationSchema, type PresentationConfig } from './schema';
 export const MAX_DESCRIPTION_BYTES = 64 * 1024;
 export const MAX_FRONTMATTER_BYTES = 16 * 1024;
 const MAX_LINES = 4096;
-const MAX_DEPTH = 12;
+const MAX_DEPTH = 8;
 const MAX_COLLECTION = 256;
 
 export type FrontmatterReason =

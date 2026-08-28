@@ -3,7 +3,7 @@ import type { AuthorizedAlbumPage, DirectShareOutcome, SharedLinkResponse } from
 import type { AuthContext } from '$server/immich/auth-context';
 import { parsePresentationDocument } from '$server/presentation/frontmatter';
 import { renderMarkdown } from '$server/presentation/markdown';
-import { selectHero, type NormalizedPageModel } from '$server/presentation/model';
+import { deriveDisplayDate, normalizeTemplate, selectHero, type NormalizedPageModel } from '$server/presentation/model';
 
 export async function assembleDirectShare(provider: ImmichProvider, context: AuthContext, requestId: string): Promise<DirectShareOutcome> {
 	let result: Awaited<ReturnType<ImmichProvider['getSharedLink']>>;
@@ -20,6 +20,8 @@ export async function assembleDirectShare(provider: ImmichProvider, context: Aut
 	if (document.kind === 'invalid') return { kind: 'invalid-metadata', metadataReason: document.reason };
 	const narrative = await renderMarkdown(document.markdown);
 	const hero = selectHero(document.config, share);
+	const template = normalizeTemplate(document.config);
+	const displayDate = deriveDisplayDate(document.config, share);
 	const assets = share.assets.map((asset) => ({
 		id: asset.id, type: asset.type, fileName: asset.originalFileName,
 		thumbnail: `/share/${context.shareRef.kind}/${encodeURIComponent(context.shareRef.value)}/media/${encodeURIComponent(asset.id)}/thumbnail`
@@ -34,14 +36,15 @@ export async function assembleDirectShare(provider: ImmichProvider, context: Aut
 	};
 	const normalized: NormalizedPageModel = {
 		album: page.album,
-		presentation: { ...document.config, template: document.config.template === 'journal' ? 'journal' : 'journal' },
+		presentation: { ...document.config, template: template.template },
 		narrativeHtml: narrative.html,
 		assets: assets.map((asset) => document.config.gallery.captions[asset.id] ? { ...asset, caption: document.config.gallery.captions[asset.id] } : asset),
 		permissions: { showMetadata: page.showMetadata, allowDownload: page.allowDownload },
 		hero: hero ? { id: hero.id, thumbnail: assets.find((asset) => asset.id === hero.id)?.thumbnail ?? '' } : null,
 		markers: [], routeData: null,
 		showMetadata: page.showMetadata, allowDownload: page.allowDownload,
-		warnings: [...document.warnings, ...narrative.warnings], errors: []
+		warnings: [...document.warnings, ...narrative.warnings, ...(template.warning ? [template.warning] : [])], errors: []
 	};
+	if (displayDate) normalized.album = { ...normalized.album, startDate: displayDate.start, endDate: displayDate.end };
 	return { kind: 'page', page: normalized };
 }
