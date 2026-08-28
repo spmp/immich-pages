@@ -5,7 +5,7 @@ const DateText = z.string().trim().min(1).max(64);
 
 export const PresentationSchema = z.object({
 	type: z.literal('journey'),
-	version: z.literal(1),
+	version: z.preprocess((value) => value === '1' ? 1 : value, z.literal(1)),
 	template: SafeText.default('journal'),
 	hero: z.object({
 		source: z.enum(['album-thumbnail', 'primary', 'filename', 'asset-id']).default('album-thumbnail'),

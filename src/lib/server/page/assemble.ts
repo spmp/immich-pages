@@ -36,7 +36,7 @@ export async function assembleDirectShare(provider: ImmichProvider, context: Aut
 		album: page.album,
 		presentation: { ...document.config, template: document.config.template === 'journal' ? 'journal' : 'journal' },
 		narrativeHtml: narrative.html,
-		assets: assets.map((asset) => ({ ...asset, caption: document.config.gallery.captions[asset.id] || asset.fileName || undefined })),
+		assets: assets.map((asset) => document.config.gallery.captions[asset.id] ? { ...asset, caption: document.config.gallery.captions[asset.id] } : asset),
 		permissions: { showMetadata: page.showMetadata, allowDownload: page.allowDownload },
 		hero: hero ? { id: hero.id, thumbnail: assets.find((asset) => asset.id === hero.id)?.thumbnail ?? '' } : null,
 		markers: [], routeData: null,
