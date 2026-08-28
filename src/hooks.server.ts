@@ -28,12 +28,13 @@ export const handle: Handle = async ({ event, resolve }) => {
 	return response;
 };
 
-export const handleError: HandleServerError = ({ error, event, kind }) => {
-	const status = safeStatus(error && typeof error === 'object' && 'status' in error ? error.status : undefined);
+export const handleError: HandleServerError = ({ error, event, status: errorStatus }) => {
+	const status = safeStatus(
+		errorStatus ?? (error && typeof error === 'object' && 'status' in error ? error.status : undefined)
+	);
 	console.error(
 		JSON.stringify({
 			requestId: event.locals.requestId,
-			kind,
 			status,
 			method: event.request.method,
 			pathname: redactPathname(event.url.pathname)

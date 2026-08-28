@@ -19,7 +19,8 @@ describe('server error diagnostics', () => {
 		const result = handleError({
 			error: { status: 404, message: 'secret raw error' },
 			event,
-			kind: 'framework'
+			status: 404,
+			message: 'Not found'
 		});
 
 		expect(result).toEqual({ status: 404, message: 'Not found' });
@@ -27,7 +28,6 @@ describe('server error diagnostics', () => {
 		const line = String(errorLog.mock.calls[0][0]);
 		expect(JSON.parse(line)).toEqual({
 			requestId: 'request-123',
-			kind: 'framework',
 			status: 404,
 			method: 'GET',
 			pathname: '/share/:ref'
@@ -46,7 +46,8 @@ describe('server error diagnostics', () => {
 				request: new Request('https://pages.example/health', { method: 'POST' }),
 				url: new URL('https://pages.example/health')
 			} as Parameters<typeof handleError>[0]['event'],
-			kind: 'unknown'
+			status: 500,
+			message: 'Internal server error'
 		});
 
 		expect(result).toEqual({ status: 500, message: 'Internal server error' });
