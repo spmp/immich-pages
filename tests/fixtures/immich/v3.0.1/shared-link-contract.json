@@ -1,0 +1,34 @@
+{
+  "dtoFields": ["id", "description", "password", "userId", "key", "type", "createdAt", "expiresAt", "assets", "album", "allowUpload", "allowDownload", "showMetadata", "slug"],
+  "assetDescriptors": ["id", "type", "originalMimeType", "localDateTime", "duration", "hasMetadata", "width", "height"],
+  "mediaPolicy": ["thumbnail"],
+  "queryBehavior": ["key", "slug"],
+  "authorization": {
+    "forwardedHeaders": ["Cookie", "Authorization"],
+    "ownerCredentialFallback": false,
+    "persistence": false
+  },
+  "separateHost": {
+    "pagesHost": "pages.example.xyz",
+    "immichHost": "immich.example.xyz",
+    "pagesRelaysSetCookie": false
+  },
+  "example": {
+    "id": "550e8400-e29b-41d4-a716-446655440000",
+    "type": "IMAGE",
+    "album": {
+      "id": "550e8400-e29b-41d4-a716-446655440001"
+    },
+    "assets": [
+      {
+        "id": "550e8400-e29b-41d4-a716-446655440002",
+        "type": "IMAGE"
+      }
+    ],
+    "allowDownload": false,
+    "allowUpload": false,
+    "showMetadata": true,
+    "password": null,
+    "slug": null
+  }
+}

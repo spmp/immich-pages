@@ -3,15 +3,16 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import result from '../fixtures/immich/v1.143.1/contract-result.json';
+import result from '../fixtures/immich/v3.0.1/contract-result.json';
 
 describe('pinned Immich release contract', () => {
-  it('records a complete fixture-only v1.143.1 contract', () => {
+  it('records a complete fixture-only v3.0.1 contract', () => {
     expect(result).toMatchObject({
-      image: 'immich-server:v1.143.1',
+      image: 'immich-server:v3.0.1',
       mode: 'fixture',
+      exactImage: false,
       liveVerified: false,
-      observedVersion: 'v1.143.1',
+      observedVersion: 'v3.0.1',
       status: 'passed',
       checks: {
         serverVersion: true,
@@ -25,7 +26,7 @@ describe('pinned Immich release contract', () => {
 
   it('does not allow fixture evidence to satisfy explicit live verification', () => {
     const script = 'scripts/verify-immich-release.mjs';
-    const fixturePath = 'tests/fixtures/immich/v1.143.1/contract-result.json';
+    const fixturePath = 'tests/fixtures/immich/v3.0.1/contract-result.json';
     const fixtureBefore = readFileSync(fixturePath, 'utf8');
     const tempDirectory = mkdtempSync(join(tmpdir(), 'immich-release-contract-'));
     const liveResultPath = join(tempDirectory, 'live-result.json');

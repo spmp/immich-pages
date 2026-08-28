@@ -1,12 +1,11 @@
 import { readFile, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
-import { spawnSync } from 'node:child_process';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const image = 'immich-server:v1.143.1';
-const fixtureRoot = resolve(root, 'tests/fixtures/immich/v1.143.1');
+const image = 'immich-server:v3.0.1';
+const fixtureRoot = resolve(root, 'tests/fixtures/immich/v3.0.1');
 const live = process.argv.includes('--live');
 
 function resultOutputPath() {
@@ -32,6 +31,7 @@ function emptyChecks() {
 const result = {
   image,
   mode: live ? 'live' : 'fixture',
+  exactImage: false,
   liveVerified: false,
   observedVersion: null,
   checks: emptyChecks(),
@@ -46,15 +46,9 @@ async function json(name) {
   return JSON.parse(await readFile(resolve(fixtureRoot, name), 'utf8'));
 }
 
-function dockerState() {
-  const available = spawnSync('docker', ['info', '--format', '{{.ServerVersion}}'], { stdio: 'ignore' }).status === 0;
-  result.dockerAvailable = available;
-  result.dockerImagePresent = available && spawnSync('docker', ['image', 'inspect', image], { stdio: 'ignore' }).status === 0;
-}
-
 function checkVersion(version) {
-  assert(version && Number(version.major) === 1 && Number(version.minor) === 143 && Number(version.patch) === 1,
-    'observed Immich version is not v1.143.1');
+  assert(version && Number(version.major) === 3 && Number(version.minor) === 0 && Number(version.patch) === 1,
+    'observed Immich version is not v3.0.1');
   result.observedVersion = `v${version.major}.${version.minor}.${version.patch}`;
   result.checks.serverVersion = true;
 }
@@ -67,9 +61,9 @@ function checkDirectShare(contract, { cookie, authorization, upstreamSetCookie }
   const assets = Array.isArray(contract.assets) ? contract.assets : [];
   assert(assets.every((asset) => {
     if (!asset || typeof asset.id !== 'string') return false;
-    return [asset.thumbnailPath, asset.viewPath].filter(Boolean).every((path) =>
-      typeof path === 'string' && path.startsWith(`/api/assets/${asset.id}/`));
-  }), 'media references must be endpoint-relative and bound to their asset ID');
+    return !Object.hasOwn(asset, 'thumbnailPath') && !Object.hasOwn(asset, 'viewPath') &&
+      !Object.hasOwn(asset, 'originalPath') && typeof asset.type === 'string';
+  }), 'asset descriptors must contain no media paths or URLs');
   result.checks.mediaReferences = true;
 
   assert(!process.env.IMMICH_API_KEY && !process.env.IMMICH_OWNER_API_KEY,
@@ -89,8 +83,8 @@ async function runFixtureContract() {
   const fields = ['album', 'assets', 'allowDownload', 'allowUpload', 'expiresAt', 'showMetadata', 'password'];
   assert(fields.every((field) => contract.dtoFields.includes(field)), 'fixture DTO field contract is incomplete');
   result.checks.dtoFields = true;
-  assert(contract.mediaReferences.every((entry) => /^\/api\/assets\/\{assetId\}\/(thumbnail|original)$/.test(entry)),
-    'fixture media references must be endpoint-relative asset references');
+  assert(contract.mediaPolicy.length === 1 && contract.mediaPolicy[0] === 'thumbnail',
+    'fixture media policy must be descriptor-only and thumbnail-only');
   result.checks.mediaReferences = true;
   assert(contract.authorization.forwardedHeaders.join(',') === 'Cookie,Authorization' &&
     contract.authorization.ownerCredentialFallback === false && contract.authorization.persistence === false,
@@ -138,13 +132,13 @@ async function runLiveContract() {
   } finally {
     clearTimeout(timer);
   }
+  result.exactImage = process.env.IMMICH_RELEASE_EXACT_IMAGE_CONFIRMED === 'false' ? false : 'unknown';
   result.liveVerified = true;
   result.status = 'passed';
 }
 
 try {
   assert(existsSync(fixtureRoot), 'committed release fixture is missing');
-  dockerState();
   if (live) await runLiveContract();
   else {
     await runFixtureContract();
