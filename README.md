@@ -5,6 +5,7 @@ the sole CMS and source of truth for albums, descriptions, assets, metadata,
 sharing, and authorization. Pages reconstructs a presentation from each
 request; it has no database, media store, page index, or correctness-critical
 volume. Deleting and recreating the container therefore does not delete pages.
+The current compatibility target is Immich v3.1.0.
 
 ## Phase 1 contract
 

@@ -29,7 +29,7 @@ const server = http.createServer((request, response) => {
   const url = new URL(request.url ?? '/', 'http://mock-immich.test');
   if (url.pathname === '/api/server/version') {
     response.writeHead(200, { 'content-type': 'application/json' });
-     response.end(JSON.stringify({ version: 'v3.0.1' }));
+     response.end(JSON.stringify({ version: 'v3.1.0' }));
     return;
   }
 

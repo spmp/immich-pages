@@ -19,8 +19,10 @@ routes are `/share/key/<opaque-ref>` and `/share/slug/<opaque-ref>`.
 
 ## Environment and container
 
-Set `IMMICH_BASE_URL` to the explicit trusted Immich origin. Do not set an
-owner credential or API key for visitor rendering. The adapter-node image is a
+Set `IMMICH_BASE_URL` to the explicit trusted Immich origin. Set
+`IMMICH_SUPPORTED_VERSION=3.1.0` so `/health/immich` checks the current Immich
+release target. Do not set an owner credential or API key for visitor rendering.
+The adapter-node image is a
 multi-stage Node 24 image, listens on port 3000, and runs as non-root with
 `node build`. The production Compose file has one service and no database,
 media, or correctness volume.
@@ -85,7 +87,7 @@ references, version probing, and renderer health. It intentionally excludes
 password login, asset pagination, maps/GPS, video/original proxying,
 downloads, authenticated album enumeration, shared-link enumeration, and all
 album/asset mutation. Full release and stateless-recreate gates are separate
-commands and target `immich-server:v3.0.1`.
+commands and target `immich-server:v3.1.0`.
 
 ## Verification
 

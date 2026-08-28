@@ -21,7 +21,7 @@ const proxyObservations = [];
 http.createServer((request, res) => {
   if (request.url === '/api/server/version') {
     res.writeHead(200, { 'content-type': 'application/json' });
-    res.end(JSON.stringify({ major: 3, minor: 0, patch: 1 }));
+    res.end(JSON.stringify({ major: 3, minor: 1, patch: 0 }));
     return;
   }
 
