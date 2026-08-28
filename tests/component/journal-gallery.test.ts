@@ -23,5 +23,8 @@ describe('journal gallery contract', () => {
 		expect(lightbox).toContain("import('photoswipe')");
 		expect(lightbox).toContain('Close full-screen viewer');
 		expect(lightbox).not.toMatch(/original|download|127\.0\.0\.1/);
+		expect(lightbox).toContain('focus');
+		expect(lightbox).toContain('overflow');
+		expect(lightbox).toContain('prefers-reduced-motion');
 	});
 });
