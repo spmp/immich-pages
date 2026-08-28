@@ -22,7 +22,7 @@ export const load: PageServerLoad = async ({ params, request, locals, fetch }) =
 		metadataReason: outcome.kind === 'invalid-metadata' ? outcome.metadataReason : undefined });
 	if (outcome.kind === 'page') return { outcome };
 	if (outcome.kind === 'non-page') error(404, 'This album is not a Pages presentation');
-	if (outcome.kind === 'invalid-metadata') error(422, 'This presentation has invalid metadata');
+	if (outcome.kind === 'invalid-metadata') return { outcome: { kind: 'presentation-error' as const, state: 'invalid' as const } };
 	if (outcome.kind === 'password-required') error(401, 'This share requires authentication');
 	if (outcome.kind === 'unauthorized') error(403, 'This share is not authorized');
 	if (outcome.kind === 'not-found') error(404, 'Share not found');
