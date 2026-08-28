@@ -1,5 +1,5 @@
 import type { ImmichProvider } from '$server/immich/provider';
-import type { AuthorizedAlbumPage, DirectShareOutcome, SharedLinkResponse } from '$server/immich/types';
+import type { DirectShareOutcome, SharedLinkResponse } from '$server/immich/types';
 import type { AuthContext } from '$server/immich/auth-context';
 import { parsePresentationDocument } from '$server/presentation/frontmatter';
 import { renderMarkdown } from '$server/presentation/markdown';
@@ -34,23 +34,23 @@ export async function assembleDirectShare(provider: ImmichProvider, context: Aut
 			...(asset.type === 'VIDEO' ? { videoHref: `/share/${context.shareRef.kind}/${encodeURIComponent(context.shareRef.value)}/media/${encodeURIComponent(asset.id)}/video/playback` } : {})
 		};
 	});
-	const page: AuthorizedAlbumPage = {
-		album: { id: share.album.id, title: share.album.albumName ?? 'Untitled album', description: document.markdown,
-			thumbnailAssetId: share.album.albumThumbnailAssetId ?? undefined, startDate: share.album.startDate ?? undefined,
-			endDate: share.album.endDate ?? undefined, updatedAt: share.album.updatedAt },
-		assets,
-		showMetadata: share.showMetadata,
-		allowDownload: share.allowDownload
+	const album = {
+		id: share.album.id,
+		title: share.album.albumName ?? 'Untitled album',
+		thumbnailAssetId: share.album.albumThumbnailAssetId ?? undefined,
+		startDate: share.album.startDate ?? undefined,
+		endDate: share.album.endDate ?? undefined,
+		updatedAt: share.album.updatedAt
 	};
 	const normalized: NormalizedPageModel = {
-		album: page.album,
+		album,
 		presentation: { ...document.config, template: template.template },
 		narrativeHtml: narrative.html,
 		assets: assets.map((asset) => document.config.gallery.captions[asset.id] ? { ...asset, caption: document.config.gallery.captions[asset.id] } : asset),
-		permissions: { showMetadata: page.showMetadata, allowDownload: page.allowDownload },
+		permissions: { showMetadata: share.showMetadata, allowDownload: share.allowDownload },
 		hero: hero ? { id: hero.id, thumbnail: assets.find((asset) => asset.id === hero.id)?.thumbnail ?? '' } : null,
 		markers: [], routeData: null,
-		showMetadata: page.showMetadata, allowDownload: page.allowDownload,
+		showMetadata: share.showMetadata, allowDownload: share.allowDownload,
 		warnings: [...document.warnings, ...narrative.warnings, ...(template.warning ? [template.warning] : [])], errors: []
 	};
 	if (displayDate) normalized.album = { ...normalized.album, startDate: displayDate.start, endDate: displayDate.end };

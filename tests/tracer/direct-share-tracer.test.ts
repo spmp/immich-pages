@@ -44,6 +44,36 @@ describe('direct-share tracer', () => {
 		expect(JSON.stringify(outcome)).not.toContain('https://immich.example');
 	});
 
+	it('keeps raw author content and private values out of the browser model', async () => {
+		const secret = 'TRACER_SECRET_DO_NOT_SERIALIZE';
+		const description = `---
+immich-presentation:
+  type: journey
+  version: 1
+  leakedSecret: ${secret}
+---
+Visible <em>story</em>
+
+<script>alert('xss')</script>
+[unsafe](javascript:alert('xss'))`;
+		const outcome = await assembleDirectShare(
+			createImmichProvider(vi.fn(async () => new Response(JSON.stringify({ ...v3Response, album: { ...v3Response.album, description } }))), 'https://immich.example'),
+			{ shareRef: { kind: 'key', value: 'opaque_ref' }, cookie: 'session=visitor', authorization: 'Bearer visitor' }, 'req-safe-model'
+		);
+		expect(outcome.kind).toBe('page');
+		if (outcome.kind !== 'page') return;
+		const serialized = JSON.stringify(outcome.page);
+		expect(outcome.page.narrativeHtml).toContain('Visible');
+		expect(outcome.page.narrativeHtml).not.toContain('<script');
+		expect(outcome.page.narrativeHtml).not.toContain('javascript:');
+		expect(outcome.page.album).not.toHaveProperty('description');
+		expect(serialized).not.toContain(secret);
+		expect(serialized).not.toContain('session=visitor');
+		expect(serialized).not.toContain('Bearer visitor');
+		expect(serialized).not.toContain('https://immich.example');
+		expect(serialized).not.toContain('originalPath');
+	});
+
 	it('classifies activation metadata deterministically', async () => {
 		const makeOutcome = async (description: string) => assembleDirectShare(
 			createImmichProvider(vi.fn(async () => new Response(JSON.stringify({ ...v3Response, album: { ...v3Response.album, description } }))), 'https://immich.example'),
