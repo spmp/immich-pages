@@ -1,6 +1,7 @@
 {
   "image": "immich-server:v1.143.1",
   "mode": "fixture",
+  "liveVerified": false,
   "observedVersion": "v1.143.1",
   "checks": {
     "serverVersion": true,
@@ -10,6 +11,6 @@
     "separateHost": true
   },
   "status": "passed",
-  "dockerImagePresent": false,
-  "dockerUnavailable": true
+  "dockerAvailable": false,
+  "dockerImagePresent": false
 }
