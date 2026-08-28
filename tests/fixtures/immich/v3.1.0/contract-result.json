@@ -5,6 +5,7 @@
   "liveVerified": false,
   "expectedVersion": "v3.1.0",
   "observedVersion": "v3.1.0",
+  "provenance": "fixture",
   "checks": {
     "serverVersion": true,
     "dtoFields": true,
@@ -12,6 +13,5 @@
     "requestScopedAuthorization": true,
     "separateHost": true
   },
-  "status": "passed",
-  "provenance": "fixture"
+  "status": "passed"
 }
