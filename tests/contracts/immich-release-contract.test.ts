@@ -128,6 +128,46 @@ describe('pinned Immich release contract', () => {
     }
   });
 
+  it('reports a sanitized observed-versus-expected version mismatch', async () => {
+    const server = createServer((_request, response) => {
+      response.setHeader('content-type', 'application/json');
+      response.end(JSON.stringify({ major: 3, minor: 0, patch: 1, secret: 'upstream-body-secret' }));
+    });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const address = server.address();
+    if (!address || typeof address === 'string') throw new Error('test server did not bind');
+    const tempDirectory = mkdtempSync(join(tmpdir(), 'immich-release-mismatch-'));
+    const resultPath = join(tempDirectory, 'mismatch-result.json');
+
+    try {
+      await expect(execFileAsync(process.execPath, ['scripts/verify-immich-release.mjs', '--live', '--result-path', resultPath], {
+        cwd: process.cwd(),
+        env: {
+          ...process.env,
+          IMMICH_RELEASE_BASE_URL: `http://127.0.0.1:${address.port}/secret-share?token=secret-token`,
+          IMMICH_RELEASE_SHARE_KEY: 'secret-share-key'
+        }
+      })).rejects.toThrow();
+
+      const output = readFileSync(resultPath, 'utf8');
+      const mismatch = JSON.parse(output);
+      expect(mismatch).toMatchObject({
+        expectedVersion: 'v3.1.0',
+        observedVersion: 'v3.0.1',
+        mode: 'endpoint',
+        errorCategory: 'version-mismatch',
+        liveVerified: false
+      });
+      expect(output).not.toContain('secret-token');
+      expect(output).not.toContain('secret-share-key');
+      expect(output).not.toContain('upstream-body-secret');
+      expect(output).not.toContain('/secret-share');
+    } finally {
+      server.close();
+      rmSync(tempDirectory, { recursive: true, force: true });
+    }
+  });
+
   it('does not contain an image runner or obsolete release fixture root', () => {
      expect(readFileSync('scripts/verify-immich-release.mjs', 'utf8')).not.toMatch(/docker|spawnSync|v1\.143\.1|v3\.0\.1/);
      expect(readFileSync('scripts/verify-immich-release.mjs', 'utf8')).toMatch(/expectedVersion/);
