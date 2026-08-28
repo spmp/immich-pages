@@ -35,4 +35,10 @@ describe('stale-assumption guard', () => {
   it('allows the Pages same-origin media boundary', () => {
     expect(scanText("thumbnail: '/share/key/ref/media/id/thumbnail'", 'synthetic')).toEqual([]);
   });
+
+  it('keeps historical planning records outside the active manifest', () => {
+    expect(SCAN_PATHS).not.toContain('01-09-SUMMARY.md');
+    expect(SCAN_PATHS).not.toContain('01-CONTEXT.md');
+    expect(SCAN_PATHS).not.toContain('01-RESEARCH.md');
+  });
 });

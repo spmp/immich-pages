@@ -18,6 +18,11 @@ export const SCAN_PATHS = [
   'tests/integration/media-proxy.test.ts',
   'tests/tracer/direct-share-tracer.test.ts',
   'scripts/verify-immich-release.mjs',
+  '.env.example',
+  'compose.yaml',
+  'README.md',
+  'docs/deployment.md',
+  '.planning/phases/01-secure-immich-foundation-and-direct-share-slice/01-VERIFICATION.md',
   'tests/fixtures/immich/v3.1.0/server-version.json',
   'tests/fixtures/immich/v3.1.0/shared-link-contract.json',
   'tests/fixtures/immich/v3.1.0/contract-result.json'
@@ -33,7 +38,8 @@ const patterns = [
   { name: 'invented media field', pattern: /(?:thumbnail|view)Path/ },
   { name: 'direct Immich media source', pattern: /(?:src|media(?:Url|URL))\s*[:=][^\n]*(?:https?:\/\/[^\s'"`]+\/api\/assets|IMMICH_BASE_URL|\/api\/assets)/i },
   { name: 'API-key fallback', pattern: /(?:IMMICH_(?:OWNER_)?API_KEY|\b(?:ownerKey|apiKey)\b)/ },
-  { name: 'active v1.143.1 evidence', pattern: /v1\.143\.1/ }
+  { name: 'active v1.143.1 evidence', pattern: /v1\.143\.1/ },
+  { name: 'stale active v3.0.1 evidence', pattern: /v3\.0\.1/ }
 ];
 
 /** @param {string} text @param {string} path */
