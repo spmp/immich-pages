@@ -51,7 +51,7 @@ describe('journal gallery contract', () => {
 		const asset = source('GalleryAsset');
 		const debug = readFileSync('src/lib/components/journal/journal-debug.ts', 'utf8');
 		expect(asset).toContain("reportJournalDebug('media-failure'");
-		expect(debug).toContain("env.PUBLIC_PAGES_DEBUG !== 'false'");
+  expect(debug).toContain("env.PUBLIC_PAGES_DEBUG === 'true'");
 		expect(debug).toContain("console.info('[immich-pages-debug]'");
 		expect(debug).toContain("'page-model-load'");
 		expect(debug).toContain("'lightbox'");

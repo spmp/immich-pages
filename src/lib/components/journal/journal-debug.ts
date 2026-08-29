@@ -12,7 +12,7 @@ type JournalDebugDetails = {
 	videoCount?: number;
 };
 
-const enabled = env.PUBLIC_PAGES_DEBUG !== 'false';
+const enabled = env.PUBLIC_PAGES_DEBUG === 'true';
 const counts = new Map<JournalDebugEvent, number>();
 
 /** Emit only bounded, allowlisted browser diagnostics for review deployments. */

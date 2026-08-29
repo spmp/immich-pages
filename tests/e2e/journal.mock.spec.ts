@@ -112,7 +112,7 @@ test('formats dates for the browser locale without hydration warnings and serves
   expect([...expectedBytes.subarray(0, 4)]).toEqual([0, 0, 1, 0]);
 });
 
-test('emits safe lifecycle diagnostics by default and can be disabled', async ({ page }) => {
+test('emits safe lifecycle diagnostics when enabled and can be disabled', async ({ page }) => {
   const debugMessages: string[] = [];
   page.on('console', (message) => {
     if (message.text().startsWith('[immich-pages-debug]')) debugMessages.push(message.text());
@@ -120,7 +120,7 @@ test('emits safe lifecycle diagnostics by default and can be disabled', async ({
   await page.goto('/share/key/opaque-ref');
   await expect(page.locator('#asset-550e8400-e29b-41d4-a716-446655440006 .unavailable')).toBeVisible();
 
-  const enabled = process.env.PUBLIC_PAGES_DEBUG !== 'false';
+  const enabled = process.env.PUBLIC_PAGES_DEBUG === 'true';
   if (enabled) {
     expect(debugMessages.some((message) => message.includes('"event":"page-model-load"'))).toBe(true);
     expect(debugMessages.some((message) => message.includes('"event":"gallery-state"'))).toBe(true);
