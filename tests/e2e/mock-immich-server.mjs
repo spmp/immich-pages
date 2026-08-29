@@ -64,7 +64,7 @@ const server = http.createServer((request, response) => {
     return;
   }
 
-  if (url.pathname === '/api/assets/550e8400-e29b-41d4-a716-446655440002/thumbnail' || url.pathname === '/api/assets/550e8400-e29b-41d4-a716-446655440005/thumbnail') {
+  if ((url.pathname === '/api/assets/550e8400-e29b-41d4-a716-446655440002/thumbnail' || url.pathname === '/api/assets/550e8400-e29b-41d4-a716-446655440005/thumbnail') && (url.searchParams.get('key') === 'opaque-ref' || url.searchParams.get('slug') === 'opaque-ref')) {
     if (request.headers.cookie !== 'immich_shared_link_token=fixture' || request.headers.authorization !== 'Bearer fixture') {
       response.writeHead(403, { 'content-type': 'application/json', 'set-cookie': 'secret=must-not-relay; Path=/' });
       response.end(JSON.stringify({ error: 'thumbnail request context rejected' }));
@@ -75,7 +75,7 @@ const server = http.createServer((request, response) => {
     return;
   }
 
-  if (url.pathname === '/api/assets/550e8400-e29b-41d4-a716-446655440005/video/playback') {
+  if (url.pathname === '/api/assets/550e8400-e29b-41d4-a716-446655440005/video/playback' && (url.searchParams.get('key') === 'opaque-ref' || url.searchParams.get('slug') === 'opaque-ref')) {
     if (request.headers.cookie !== 'immich_shared_link_token=fixture' || request.headers.authorization !== 'Bearer fixture') { response.writeHead(403); response.end(); return; }
     const data = Buffer.from('mock-video-bytes');
     const range = request.headers.range;

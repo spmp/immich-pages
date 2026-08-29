@@ -12,6 +12,10 @@ export function immichOrigin(baseUrl: string): string {
 	return parsed.origin;
 }
 
+export function shareQuery(context: AuthContext): string {
+	return `${context.shareRef.kind}=${encodeURIComponent(context.shareRef.value)}`;
+}
+
 export async function requestImmich(
 	baseUrl: string,
 	path: string,

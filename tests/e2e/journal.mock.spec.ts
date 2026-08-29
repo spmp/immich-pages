@@ -18,10 +18,12 @@ test('renders ordered responsive gallery and safe native video path', async ({ p
 });
 
 test('preserves ordinary image anchor fallback and rejects unshared media', async ({ page }) => {
-  await page.goto('/share/key/opaque-ref');
-  await expect(page.locator('#asset-550e8400-e29b-41d4-a716-446655440002 a')).toHaveAttribute('href', /thumbnail$/);
-  expect((await page.request.get('/share/key/opaque-ref/media/550e8400-e29b-41d4-a716-446655440004/video/playback')).status()).toBe(404);
-  const media = await page.request.get('/share/key/opaque-ref/media/550e8400-e29b-41d4-a716-446655440005/video/playback', { headers: { range: 'bytes=0-3' } });
-  expect(media.status()).toBe(206);
-  expect(media.headers()['content-type']).toContain('video/mp4');
+  for (const kind of ['key', 'slug']) {
+    await page.goto(`/share/${kind}/opaque-ref`);
+    await expect(page.locator('#asset-550e8400-e29b-41d4-a716-446655440002 a')).toHaveAttribute('href', /thumbnail$/);
+    expect((await page.request.get(`/share/${kind}/opaque-ref/media/550e8400-e29b-41d4-a716-446655440004/video/playback`)).status()).toBe(404);
+    const media = await page.request.get(`/share/${kind}/opaque-ref/media/550e8400-e29b-41d4-a716-446655440005/video/playback`, { headers: { range: 'bytes=0-3' } });
+    expect(media.status()).toBe(206);
+    expect(media.headers()['content-type']).toContain('video/mp4');
+  }
 });
