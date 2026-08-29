@@ -1,4 +1,8 @@
 import http from 'node:http';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+
+const videoFixture = readFileSync(fileURLToPath(new URL('../fixtures/video/chromium-2s-320x180-h264-aac.mp4', import.meta.url)));
 
 const page = {
   id: '550e8400-e29b-41d4-a716-446655440000',
@@ -87,10 +91,22 @@ const server = http.createServer((request, response) => {
 
   if (url.pathname === '/api/assets/550e8400-e29b-41d4-a716-446655440005/video/playback' && (url.searchParams.get('key') === 'opaque-ref' || url.searchParams.get('slug') === 'opaque-ref')) {
     if (request.headers.cookie !== 'immich_shared_link_token=fixture' || request.headers.authorization !== 'Bearer fixture') { response.writeHead(403); response.end(); return; }
-    const data = Buffer.from('mock-video-bytes');
     const range = request.headers.range;
-    if (range) { response.writeHead(206, { 'content-type': 'video/mp4', 'content-length': data.length, 'content-range': `bytes 0-${data.length - 1}/${data.length}`, 'accept-ranges': 'bytes' }); }
-    else response.writeHead(200, { 'content-type': 'video/mp4', 'content-length': data.length, 'accept-ranges': 'bytes' });
+    if (!range) {
+      response.writeHead(200, { 'content-type': 'video/mp4', 'content-length': videoFixture.length, 'accept-ranges': 'bytes' });
+      response.end(videoFixture);
+      return;
+    }
+    const match = range.match(/^bytes=(\d+)-(\d*)$/);
+    if (!match) { response.writeHead(416, { 'content-range': `bytes */${videoFixture.length}` }); response.end(); return; }
+    const start = Number(match[1]);
+    const requestedEnd = match[2] === '' ? videoFixture.length - 1 : Number(match[2]);
+    if (!Number.isSafeInteger(start) || !Number.isSafeInteger(requestedEnd) || start > requestedEnd || start >= videoFixture.length) {
+      response.writeHead(416, { 'content-range': `bytes */${videoFixture.length}` }); response.end(); return;
+    }
+    const end = Math.min(requestedEnd, videoFixture.length - 1);
+    const data = videoFixture.subarray(start, end + 1);
+    response.writeHead(206, { 'content-type': 'video/mp4', 'content-length': data.length, 'content-range': `bytes ${start}-${end}/${videoFixture.length}`, 'accept-ranges': 'bytes' });
     response.end(data);
     return;
   }

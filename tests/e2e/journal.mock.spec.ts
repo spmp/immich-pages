@@ -12,6 +12,12 @@ test('renders ordered responsive gallery and safe native video path', async ({ p
   await expect(assets).toHaveCount(3);
   await expect(assets.nth(0)).toHaveAttribute('id', 'asset-550e8400-e29b-41d4-a716-446655440002');
   await expect(assets.nth(1).locator('video')).toHaveAttribute('src', /\/video\/playback\?(key|slug)=opaque-ref$/);
+  const video = assets.nth(1).locator('video');
+  await expect.poll(async () => video.evaluate((element) => ({ readyState: (element as HTMLVideoElement).readyState, duration: (element as HTMLVideoElement).duration, width: (element as HTMLVideoElement).videoWidth, height: (element as HTMLVideoElement).videoHeight })), { timeout: 15_000 }).toMatchObject({ readyState: expect.any(Number), duration: expect.any(Number), width: 320, height: 180 });
+  const metadata = await video.evaluate((element) => ({ readyState: (element as HTMLVideoElement).readyState, duration: (element as HTMLVideoElement).duration }));
+  expect(metadata.readyState).toBeGreaterThanOrEqual(2);
+  expect(metadata.duration).toBeGreaterThan(1.9);
+  expect(metadata.duration).toBeLessThan(2.1);
   await expect(page.locator('.gallery-grid img').nth(0)).toHaveAttribute('loading', 'lazy');
   expect(await page.content()).not.toMatch(/original|download|127\.0\.0\.1:\d+/);
   await page.setViewportSize({ width: 1024, height: 768 });

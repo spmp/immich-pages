@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
 import { GET } from '../../src/routes/share/[kind]/[ref]/media/[assetId]/thumbnail/+server';
 import { GET as GET_VIDEO } from '../../src/routes/share/[kind]/[ref]/media/[assetId]/video/playback/+server';
 import v3 from '../fixtures/shared-link/v3-valid-page.json';
@@ -22,6 +23,7 @@ describe('bounded share-bound video boundary', () => {
 	beforeEach(() => vi.stubEnv('IMMICH_BASE_URL', 'https://immich.example'));
 	const videoId = '22222222-2222-4222-8222-222222222223';
 	const imageId = '22222222-2222-4222-8222-222222222222';
+	const fixture = readFileSync(new URL('../fixtures/video/chromium-2s-320x180-h264-aac.mp4', import.meta.url));
 	function share() { return { ...v3, assets: [{ ...v3.assets[0], id: videoId, type: 'VIDEO', width: 640, height: 360 }, { ...v3.assets[0], id: imageId, type: 'IMAGE' }] }; }
 	function request(range?: string) { return new Request('https://pages.example/share/key/opaque_ref/media/' + videoId + '/video/playback', { headers: { cookie: 'visitor=1', authorization: 'Bearer visitor', ...(range ? { range } : {}) } }); }
 	function fetchFor(body: BodyInit | null, headers: HeadersInit = {}, status = 200) {
@@ -60,8 +62,36 @@ describe('bounded share-bound video boundary', () => {
 	});
 
 	it('rejects an oversized declared response without reading it', async () => {
-		const fixture = fetchFor('ignored', { 'content-length': String(16 * 1024 * 1024 + 1), 'content-type': 'video/mp4' });
+		const fixture = fetchFor('ignored', { 'content-length': String(64 * 1024 * 1024 + 1), 'content-type': 'video/mp4' });
 		const response = await call(undefined, fixture.fetchMock);
 		expect(response.status).toBe(502);
+	});
+
+	it('returns the complete decodable fixture with truthful large-response metadata', async () => {
+		expect(fixture.byteLength).toBeGreaterThan(8 * 1024 * 1024);
+		expect(fixture.byteLength).toBeLessThan(64 * 1024 * 1024);
+		const upstream = fetchFor(fixture, { 'content-type': 'video/mp4', 'content-length': String(fixture.byteLength), 'accept-ranges': 'bytes', 'set-cookie': 'secret=x' });
+		const response = await call(undefined, upstream.fetchMock);
+		expect(response.status).toBe(200);
+		expect(response.headers.get('content-type')).toBe('video/mp4');
+		expect(response.headers.get('content-length')).toBe(String(fixture.byteLength));
+		expect(response.headers.get('accept-ranges')).toBe('bytes');
+		expect(response.headers.get('set-cookie')).toBeNull();
+		expect(Buffer.from(await response.arrayBuffer())).toEqual(fixture);
+	});
+
+	it.each([
+		['bytes=0-2047', 0, 2047],
+		['bytes=1048576-1050623', 1048576, 1050623],
+		['bytes=8388608-', 8388608, fixture.byteLength - 1]
+	] as const)('returns exact bytes and metadata for %s', async (range, start, expectedEnd) => {
+		const end = Math.min(expectedEnd, fixture.byteLength - 1);
+		const body = fixture.subarray(start, end + 1);
+		const upstream = fetchFor(body, { 'content-type': 'video/mp4', 'content-length': String(body.byteLength), 'content-range': `bytes ${start}-${end}/${fixture.byteLength}`, 'accept-ranges': 'bytes' }, 206);
+		const response = await call(range, upstream.fetchMock);
+		expect(response.status).toBe(206);
+		expect(response.headers.get('content-length')).toBe(String(body.byteLength));
+		expect(response.headers.get('content-range')).toBe(`bytes ${start}-${end}/${fixture.byteLength}`);
+		expect(Buffer.from(await response.arrayBuffer())).toEqual(body);
 	});
 });
