@@ -5,6 +5,33 @@
 	let failed = $state(false);
 	const isVideo = $derived(asset.type === 'VIDEO');
 	const label = $derived(asset.caption ?? asset.fileName ?? (isVideo ? 'Journey video' : 'Journey photograph'));
+	const dimensions = $derived(getLightboxDimensions(asset.width, asset.height));
+	const lightboxWidth = $derived(dimensions.width);
+	const lightboxHeight = $derived(dimensions.height);
+
+	function getLightboxDimensions(width: number | null | undefined, height: number | null | undefined) {
+		const validWidth = Number.isFinite(width) && (width as number) > 0 ? Math.round(width as number) : null;
+		const validHeight = Number.isFinite(height) && (height as number) > 0 ? Math.round(height as number) : null;
+		if (validWidth && validHeight) {
+			const boundedWidth = Math.min(validWidth, 8192);
+			const boundedHeight = Math.min(validHeight, 8192);
+			const ratio = boundedWidth / boundedHeight;
+			if (ratio >= 0.25 && ratio <= 4) return { width: boundedWidth, height: boundedHeight };
+		}
+		if (validWidth) {
+			const boundedWidth = Math.min(validWidth, 8192);
+			const boundedHeight = Math.min(8192, Math.max(1, Math.round(boundedWidth / 1.7777778)));
+			const ratio = boundedWidth / boundedHeight;
+			if (ratio >= 0.25 && ratio <= 4) return { width: boundedWidth, height: boundedHeight };
+		}
+		if (validHeight) {
+			const boundedHeight = Math.min(validHeight, 8192);
+			const boundedWidth = Math.min(8192, Math.max(1, Math.round(boundedHeight * 1.7777778)));
+			const ratio = boundedWidth / boundedHeight;
+			if (ratio >= 0.25 && ratio <= 4) return { width: boundedWidth, height: boundedHeight };
+		}
+		return { width: 1600, height: 900 };
+	}
 	function handleMediaError() {
 		failed = true;
 		reportJournalDebug('media-failure', { category: isVideo ? 'video' : 'image', status: 'unavailable', errorContext: isVideo ? 'video-load' : 'image-load' });
@@ -22,8 +49,8 @@
 		</video>
 		<span class="video-action">Play video</span>
 	{:else}
-		<a href={asset.thumbnail} aria-label={label} data-pswp-width={asset.width ?? 1200} data-pswp-height={asset.height ?? 900}>
-			<img src={asset.thumbnail} alt={label} loading="lazy" width={asset.width ?? 1200} height={asset.height ?? 900} onload={handleMediaLoad} onerror={handleMediaError} />
+		<a href={asset.thumbnail} aria-label={label} data-pswp-width={lightboxWidth} data-pswp-height={lightboxHeight}>
+			<img src={asset.thumbnail} alt={label} loading="lazy" width={lightboxWidth} height={lightboxHeight} onload={handleMediaLoad} onerror={handleMediaError} />
 		</a>
 	{/if}
 	{#if asset.caption || asset.fileName}<figcaption>{asset.caption ?? asset.fileName}</figcaption>{/if}

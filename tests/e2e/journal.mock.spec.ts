@@ -96,6 +96,7 @@ test('keeps the hero CTA usable and collapses the empty Phase 3 seam', async ({ 
 
 test('opens the image viewer with contained focus, announcements, and clean Back behavior', async ({ page }) => {
   await page.goto('/share/key/opaque-ref');
+  await expect(page.locator('[data-lightbox-status]')).toHaveAttribute('data-lightbox-status', 'ready');
   const image = page.locator('#asset-550e8400-e29b-41d4-a716-446655440002 a');
   await image.focus();
   await image.press('Enter');
@@ -103,14 +104,13 @@ test('opens the image viewer with contained focus, announcements, and clean Back
   await expect(viewer).toBeVisible();
   await expect(page).toHaveURL(/\/share\/key\/opaque-ref$/);
   await expect(viewer.locator('button[aria-label*="Close"], button[title*="Close"]')).toBeVisible();
-  await expect(viewer.locator('[aria-live="polite"]')).toContainText(/1\s*\/\s*\d+/);
+  await expect(page.locator('[data-pswp-announcement]')).toContainText(/1\s*\/\s*\d+/);
 
-  const focusStates = await page.evaluate(() => {
+  await expect.poll(() => page.evaluate(() => {
     const active = document.activeElement;
     const modal = document.querySelector('.pswp');
     return Boolean(active && modal?.contains(active));
-  });
-  expect(focusStates).toBe(true);
+  })).toBe(true);
   await page.keyboard.press('Tab');
   expect(await page.evaluate(() => document.querySelector('.pswp')?.contains(document.activeElement))).toBe(true);
   await page.keyboard.press('Shift+Tab');
@@ -120,6 +120,7 @@ test('opens the image viewer with contained focus, announcements, and clean Back
   await expect(viewer).toBeHidden();
   await expect(image).toBeFocused();
   expect(await page.evaluate(() => document.body.style.overflow)).toBe('');
+  await page.waitForTimeout(100);
 
   await image.click();
   await expect(viewer).toBeVisible();
