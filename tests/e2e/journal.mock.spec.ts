@@ -70,6 +70,7 @@ test('keeps the hero CTA usable and collapses the empty Phase 3 seam', async ({ 
   const seam = page.locator('[data-phase="3-map-seam"]');
   await expect(seam).toHaveCount(1);
   expect((await seam.boundingBox())?.height ?? -1).toBe(0);
+  await page.waitForTimeout(500);
   await page.getByRole('button', { name: 'Explore the gallery' }).click();
   await expect(page.locator('#gallery-title')).toBeFocused();
   await expect(page.locator('.eyebrow')).toHaveCount(0);

@@ -25,6 +25,11 @@
 		const end = formatter.format(new Date(`${endDateIso}T00:00:00.000Z`));
 		dateLabel = dateIso === endDateIso ? start : `${start} — ${end}`;
 	});
+
+	function explore() {
+		onExplore();
+		document.getElementById('gallery-title')?.focus({ preventScroll: true });
+	}
 </script>
 
 <header class="hero" aria-labelledby="page-title">
@@ -38,7 +43,7 @@
 		{#if !hero}<p class="eyebrow">Journey gallery</p>{/if}
 		<h1 id="page-title">{title}</h1>
 		{#if dateIso && endDateIso}<p class="date" aria-label="Journey dates" data-date-iso={date?.start}><span class="date-value">{dateLabel ?? (dateIso === endDateIso ? dateIso : `${dateIso} — ${endDateIso}`)}</span></p>{/if}
-		<button class="explore" type="button" onclick={onExplore}>Explore the gallery</button>
+		<button class="explore" type="button" onclick={explore}>Explore the gallery</button>
 	</div>
 </header>
 

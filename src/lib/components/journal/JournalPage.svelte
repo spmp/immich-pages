@@ -9,12 +9,11 @@
 	import { reportJournalDebug } from './journal-debug';
 
 	let { page }: { page: NormalizedPageModel } = $props();
-	let galleryHeading = $state<HTMLElement | null>(null);
 	const date = $derived(page.showMetadata && (page.album.startDate || page.album.endDate)
 		? { start: page.album.startDate ?? page.album.endDate!, end: page.album.endDate ?? page.album.startDate! } : undefined);
 
 	function exploreGallery() {
-		galleryHeading = document.getElementById('gallery-title');
+		const galleryHeading = document.getElementById('gallery-title');
 		galleryHeading?.scrollIntoView({ behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'start' });
 		galleryHeading?.focus({ preventScroll: true });
 	}
