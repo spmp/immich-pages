@@ -24,6 +24,7 @@ export const handle: Handle = async ({ event, resolve }) => {
 	const requestId = crypto.randomUUID();
 	event.locals.requestId = requestId;
 	const response = await resolve(event);
+	if (event.url.pathname === '/favicon.ico') response.headers.set('content-type', 'image/x-icon');
 	response.headers.set('x-request-id', requestId);
 	return response;
 };

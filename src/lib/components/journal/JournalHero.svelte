@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
 	import type { NormalizedPageModel } from '$server/presentation/model';
 
 	let { title, hero, date, onExplore }: {
@@ -8,7 +9,22 @@
 		onExplore: () => void;
 	} = $props();
 
-	const dateLabel = $derived(date && date.start === date.end ? date.start : date ? `${date.start} — ${date.end}` : undefined);
+	function stableDate(value: string): string | undefined {
+		const parsed = new Date(value);
+		return Number.isNaN(parsed.getTime()) ? undefined : parsed.toISOString().slice(0, 10);
+	}
+
+	const dateIso = $derived(date ? stableDate(date.start) : undefined);
+	const endDateIso = $derived(date ? stableDate(date.end) : undefined);
+	let dateLabel = $state<string | undefined>();
+
+	onMount(() => {
+		if (!dateIso || !endDateIso) return;
+		const formatter = new Intl.DateTimeFormat(undefined, { year: 'numeric', month: 'long', day: 'numeric' });
+		const start = formatter.format(new Date(`${dateIso}T00:00:00.000Z`));
+		const end = formatter.format(new Date(`${endDateIso}T00:00:00.000Z`));
+		dateLabel = dateIso === endDateIso ? start : `${start} — ${end}`;
+	});
 </script>
 
 <header class="hero" aria-labelledby="page-title">
@@ -21,7 +37,7 @@
 	<div class="hero-copy">
 		<p class="eyebrow">Journey gallery</p>
 		<h1 id="page-title">{title}</h1>
-		{#if dateLabel}<p class="date" aria-label="Journey dates">{dateLabel}</p>{/if}
+		{#if dateIso && endDateIso}<p class="date" aria-label="Journey dates" data-date-iso={date?.start}><span class="date-value">{dateLabel ?? (dateIso === endDateIso ? dateIso : `${dateIso} — ${endDateIso}`)}</span></p>{/if}
 		<button class="explore" type="button" onclick={onExplore}>Explore the gallery</button>
 	</div>
 </header>
