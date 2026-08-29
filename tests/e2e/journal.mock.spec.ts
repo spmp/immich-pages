@@ -1,6 +1,7 @@
+import { readFileSync } from 'node:fs';
 import { expect, test } from '@playwright/test';
 
-test.use({ extraHTTPHeaders: { authorization: 'Bearer fixture' } });
+test.use({ extraHTTPHeaders: { authorization: 'Bearer fixture' }, locale: 'en-GB' });
 test.beforeEach(async ({ context }) => { await context.addCookies([{ name: 'immich_shared_link_token', value: 'fixture', domain: '127.0.0.1', path: '/' }]); });
 
 test('renders ordered responsive gallery and safe native video path', async ({ page }) => {
@@ -26,4 +27,20 @@ test('preserves ordinary image anchor fallback and rejects unshared media', asyn
     expect(media.status()).toBe(206);
     expect(media.headers()['content-type']).toContain('video/mp4');
   }
+});
+
+test('formats dates for the browser locale without hydration warnings and serves a valid favicon', async ({ page }) => {
+  const consoleMessages: string[] = [];
+  page.on('console', (message) => consoleMessages.push(message.text()));
+  await page.goto('/share/key/opaque-ref');
+  const expected = new Intl.DateTimeFormat('en-GB', { year: 'numeric', month: 'long', day: 'numeric' }).format(new Date('2026-01-01T00:00:00.000Z'));
+  await expect(page.locator('[data-date-iso="2026-01-01T00:00:00.000Z"] .date-value')).toHaveText(expected);
+  await expect(page.locator('[data-date-iso="2026-01-01T00:00:00.000Z"]')).toHaveAttribute('data-date-iso', '2026-01-01T00:00:00.000Z');
+  expect(consoleMessages.filter((message) => /hydration|mismatch/i.test(message))).toEqual([]);
+
+  const favicon = await page.request.get('/favicon.ico');
+  const expectedBytes = readFileSync(new URL('../../static/favicon.ico', import.meta.url));
+  expect(Buffer.from(await favicon.body())).toEqual(expectedBytes);
+  expect(favicon.headers()['content-type']).toBe('image/x-icon');
+  expect([...expectedBytes.subarray(0, 4)]).toEqual([0, 0, 1, 0]);
 });

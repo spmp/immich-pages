@@ -31,6 +31,15 @@ describe('journal presentation contract', () => {
 		expect(source).toContain('overflow-wrap: anywhere');
 	});
 
+	it('formats date-only values after mount without changing the SSR contract', () => {
+		const source = component('JournalHero');
+		expect(source).toContain("onMount(() =>");
+		expect(source).toContain("Intl.DateTimeFormat(undefined, { year: 'numeric', month: 'long', day: 'numeric' })");
+		expect(source).toContain('data-date-iso');
+		expect(source).toContain('date-value');
+		expect(source).not.toContain('toLocaleString');
+	});
+
 	it('routes invalid presentation outcomes through the branded state', () => {
 		const source = route();
 		expect(source).toContain("outcome.kind === 'presentation-error'");

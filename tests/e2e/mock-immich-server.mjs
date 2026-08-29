@@ -14,6 +14,8 @@ const page = {
   album: {
     id: '550e8400-e29b-41d4-a716-446655440003',
     albumName: 'Mock Journey',
+    startDate: '2026-01-01T00:00:00.000Z',
+    endDate: '2026-01-01T00:00:00.000Z',
     description: '---\nimmich-presentation:\n  type: journey\n  version: 1\n---\nMock browser proof'
   },
    assets: [{
