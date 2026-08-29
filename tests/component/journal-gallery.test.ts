@@ -16,7 +16,7 @@ describe('journal gallery contract', () => {
 		expect(asset).toContain('height={asset.height}');
 	});
 
-	it('keeps PhotoSwipe browser-only and preserves ordinary anchors', () => {
+	 it('keeps PhotoSwipe browser-only and preserves ordinary anchors', () => {
 		const lightbox = source('Lightbox');
 		expect(lightbox).toContain('onMount');
 		expect(lightbox).toContain("import('photoswipe/lightbox')");
@@ -26,5 +26,17 @@ describe('journal gallery contract', () => {
 		expect(lightbox).toContain('focus');
 		expect(lightbox).toContain('overflow');
 		expect(lightbox).toContain('prefers-reduced-motion');
+	});
+
+	it('reports only redacted media failure diagnostics when explicitly enabled', () => {
+		const asset = source('GalleryAsset');
+		const debug = readFileSync('src/lib/components/journal/journal-debug.ts', 'utf8');
+		expect(asset).toContain("reportJournalDebug('media-failure'");
+		expect(debug).toContain("env.PUBLIC_PAGES_DEBUG === 'true'");
+		expect(debug).toContain("console.info('[immich-pages-debug]'");
+		expect(debug).toContain("'media-failure' | 'fallback' | 'empty'");
+		expect(debug).toContain("'image' | 'video' | 'hero' | 'gallery'");
+		expect(debug).toContain("'unavailable' | 'empty' | 'fallback'");
+		expect(debug).not.toMatch(/asset\.id|thumbnail|videoHref|description|cookie|authorization|URL|origin|requestId|response/i);
 	});
 });

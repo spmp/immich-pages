@@ -44,3 +44,23 @@ test('formats dates for the browser locale without hydration warnings and serves
   expect(favicon.headers()['content-type']).toBe('image/x-icon');
   expect([...expectedBytes.subarray(0, 4)]).toEqual([0, 0, 1, 0]);
 });
+
+test('keeps media diagnostics opt-in and secret-safe', async ({ page }) => {
+  const debugMessages: string[] = [];
+  page.on('console', (message) => {
+    if (message.text().startsWith('[immich-pages-debug]')) debugMessages.push(message.text());
+  });
+  await page.goto('/share/key/opaque-ref');
+  await expect(page.locator('#asset-550e8400-e29b-41d4-a716-446655440006 .unavailable')).toBeVisible();
+
+  const enabled = process.env.PUBLIC_PAGES_DEBUG === 'true';
+  if (enabled) {
+    expect(debugMessages.some((message) => message.includes('"event":"media-failure"'))).toBe(true);
+    expect(debugMessages.some((message) => message.includes('"status":"unavailable"'))).toBe(true);
+  } else {
+    expect(debugMessages).toEqual([]);
+  }
+  for (const message of debugMessages) {
+    expect(message).not.toMatch(/opaque-ref|fixture|authorization|cookie|description|Mock browser proof|https?:|127\.0\.0\.1|request.?id|response.?body/i);
+  }
+});

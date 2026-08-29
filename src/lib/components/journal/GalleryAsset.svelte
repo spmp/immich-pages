@@ -1,21 +1,26 @@
 <script lang="ts">
 	import type { NormalizedAsset } from '$server/presentation/model';
+	import { reportJournalDebug } from './journal-debug';
 	let { asset }: { asset: NormalizedAsset & { width?: number | null; height?: number | null; videoHref?: string } } = $props();
 	let failed = $state(false);
 	const isVideo = $derived(asset.type === 'VIDEO');
 	const label = $derived(asset.caption ?? asset.fileName ?? (isVideo ? 'Journey video' : 'Journey photograph'));
+	function handleMediaError() {
+		failed = true;
+		reportJournalDebug('media-failure', { category: isVideo ? 'video' : 'image', status: 'unavailable' });
+	}
 </script>
 
 <figure id={'asset-' + asset.id} class:failed>
 	{#if failed}<div class="unavailable" role="status">Media unavailable</div>
 	{:else if isVideo}
-		<video src={asset.videoHref} poster={asset.thumbnail} controls preload="metadata" aria-label={label} onerror={() => (failed = true)}>
+		<video src={asset.videoHref} poster={asset.thumbnail} controls preload="metadata" aria-label={label} onerror={handleMediaError}>
 			<track kind="captions" />
 		</video>
 		<span class="video-action">Play video</span>
 	{:else}
 		<a href={asset.thumbnail} aria-label={label} data-pswp-width={asset.width ?? 1200} data-pswp-height={asset.height ?? 900}>
-			<img src={asset.thumbnail} alt={label} loading="lazy" width={asset.width ?? 1200} height={asset.height ?? 900} onerror={() => (failed = true)} />
+			<img src={asset.thumbnail} alt={label} loading="lazy" width={asset.width ?? 1200} height={asset.height ?? 900} onerror={handleMediaError} />
 		</a>
 	{/if}
 	{#if asset.caption || asset.fileName}<figcaption>{asset.caption ?? asset.fileName}</figcaption>{/if}
