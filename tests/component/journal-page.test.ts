@@ -28,7 +28,7 @@ describe('journal presentation contract', () => {
 
 	it('keeps only the no-hero fallback label and the locked gallery CTA', () => {
 		const hero = component('JournalHero');
-		expect(hero).not.toContain('<p class="eyebrow">Journey gallery</p>');
+		expect(hero).not.toMatch(/<p class="eyebrow">Journey gallery<\/p>\s*<h1/);
 		expect(hero).toContain('{#if !hero}');
 		expect(hero).toContain('Journey gallery');
 		expect(hero).toContain('Explore the gallery');

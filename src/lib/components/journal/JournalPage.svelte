@@ -1,10 +1,12 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
 	import type { NormalizedPageModel } from '$server/presentation/model';
 	import JournalHero from './JournalHero.svelte';
 	import JournalNarrative from './JournalNarrative.svelte';
 	import JourneyMapSlot from './JourneyMapSlot.svelte';
 	import PresentationState from './PresentationState.svelte';
 	import JournalGallery from './JournalGallery.svelte';
+	import { reportJournalDebug } from './journal-debug';
 
 	let { page }: { page: NormalizedPageModel } = $props();
 	let galleryHeading = $state<HTMLElement | null>(null);
@@ -16,6 +18,11 @@
 		galleryHeading?.scrollIntoView({ behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'start' });
 		galleryHeading?.focus({ preventScroll: true });
 	}
+
+	onMount(() => {
+		if (!page.hero) reportJournalDebug('fallback', { category: 'hero', status: 'fallback' });
+		if (page.assets.length === 0) reportJournalDebug('empty', { category: 'gallery', status: 'empty' });
+	});
 </script>
 
 <svelte:head><title>{page.album.title}</title></svelte:head>

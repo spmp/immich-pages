@@ -35,7 +35,7 @@
 	{/if}
 	<div class="hero-shade" aria-hidden="true"></div>
 	<div class="hero-copy">
-		<p class="eyebrow">Journey gallery</p>
+		{#if !hero}<p class="eyebrow">Journey gallery</p>{/if}
 		<h1 id="page-title">{title}</h1>
 		{#if dateIso && endDateIso}<p class="date" aria-label="Journey dates" data-date-iso={date?.start}><span class="date-value">{dateLabel ?? (dateIso === endDateIso ? dateIso : `${dateIso} — ${endDateIso}`)}</span></p>{/if}
 		<button class="explore" type="button" onclick={onExplore}>Explore the gallery</button>

@@ -3,7 +3,7 @@ import { env } from '$env/dynamic/public';
 type JournalDebugEvent = 'media-failure' | 'fallback' | 'empty';
 type JournalDebugDetails = {
 	category?: 'image' | 'video' | 'hero' | 'gallery';
-	status?: 'unavailable' | 'empty' | 'fallback';
+	status?: 'unavailable' | 'empty' | 'fallback' | 'invalid' | 'temporary';
 };
 
 const enabled = env.PUBLIC_PAGES_DEBUG === 'true';
