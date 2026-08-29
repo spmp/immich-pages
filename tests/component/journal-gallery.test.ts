@@ -68,4 +68,12 @@ describe('journal gallery contract', () => {
 		expect(debug).toContain('template');
 		expect(debug).not.toMatch(/thumbnail|videoHref|description|cookie|authorization|requestId|response/i);
 	});
+
+	it('defines CSS-owned media frames separate from intrinsic lightbox dimensions', () => {
+		const asset = source('GalleryAsset');
+		expect(asset).toContain('gallery-media-frame');
+		expect(asset).toContain('height: 100%');
+		expect(asset).toContain('overflow: hidden');
+		expect(asset).toContain('object-fit: cover');
+	});
 });

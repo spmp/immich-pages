@@ -33,6 +33,58 @@ test('renders ordered responsive gallery and safe native video path', async ({ p
   await expect(page.locator('.gallery-grid')).toBeVisible();
 });
 
+test('keeps gallery frames bounded and landscape media useful at every responsive band', async ({ page }) => {
+  const viewports = [
+    { width: 390, height: 844, frameRatio: [0.95, 1.05] },
+    { width: 768, height: 1024, frameRatio: [0.70, 0.80] },
+    { width: 1024, height: 768, frameRatio: [0.70, 0.80] },
+    { width: 1440, height: 900, frameRatio: [0.70, 0.80] },
+    { width: 844, height: 390, frameRatio: [0.95, 1.05] }
+  ];
+
+  for (const viewport of viewports) {
+    await page.setViewportSize(viewport);
+    await page.goto('/share/key/opaque-ref');
+    const geometry = await page.locator('.gallery-grid').evaluate((grid, expectedRatio) => {
+      const rect = (element: Element) => {
+        const box = element.getBoundingClientRect();
+        return { left: box.left, right: box.right, top: box.top, bottom: box.bottom, width: box.width, height: box.height };
+      };
+      const gridRect = rect(grid);
+      const frames = [...grid.querySelectorAll<HTMLElement>('.gallery-media-frame')].map((frame) => {
+        const media = frame.querySelector<HTMLImageElement | HTMLVideoElement>('img, video');
+        const frameBox = rect(frame);
+        const mediaBox = media ? rect(media) : null;
+        const naturalWidth = media instanceof HTMLImageElement ? media.naturalWidth : media?.videoWidth ?? 0;
+        const naturalHeight = media instanceof HTMLImageElement ? media.naturalHeight : media?.videoHeight ?? 0;
+        return { frame: frameBox, media: mediaBox, naturalWidth, naturalHeight };
+      });
+      return { grid: gridRect, frames, expectedRatio };
+    }, viewport.frameRatio);
+
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+    for (const item of geometry.frames) {
+      expect(item.frame.left).toBeGreaterThanOrEqual(geometry.grid.left - 1);
+      expect(item.frame.right).toBeLessThanOrEqual(geometry.grid.right + 1);
+      expect(item.frame.top).toBeGreaterThanOrEqual(geometry.grid.top - 1);
+      expect(item.frame.bottom).toBeLessThanOrEqual(geometry.grid.bottom + 1);
+      expect(item.frame.height / item.frame.width).toBeGreaterThanOrEqual(geometry.expectedRatio[0]);
+      expect(item.frame.height / item.frame.width).toBeLessThanOrEqual(geometry.expectedRatio[1]);
+      if (item.media) {
+        expect(item.media.left).toBeGreaterThanOrEqual(item.frame.left - 1);
+        expect(item.media.right).toBeLessThanOrEqual(item.frame.right + 1);
+        expect(item.media.top).toBeGreaterThanOrEqual(item.frame.top - 1);
+        expect(item.media.bottom).toBeLessThanOrEqual(item.frame.bottom + 1);
+      }
+    }
+
+    const landscape = geometry.frames.find((item) => item.naturalWidth / item.naturalHeight > 1.3);
+    expect(landscape?.media).toBeTruthy();
+    expect((landscape!.media!.width / landscape!.frame.width)).toBeGreaterThanOrEqual(0.9);
+    expect((landscape!.media!.height / landscape!.frame.height)).toBeGreaterThanOrEqual(0.55);
+  }
+});
+
 test('preserves ordinary image anchor fallback and rejects unshared media', async ({ page }) => {
   for (const kind of ['key', 'slug']) {
     await page.goto(`/share/${kind}/opaque-ref`);
