@@ -31,6 +31,20 @@ describe('Immich v3 boundary contracts', () => {
 		expect(JSON.stringify(result)).not.toContain('private');
 	});
 
+	it('normalizes v3.1.0 album assets nested under album while retaining top-level individual assets', async () => {
+		const nestedAsset = { ...v3.assets[0], originalPath: '/private/nested.jpg' };
+		const nested = { ...v3, assets: [], album: { ...v3.album, assets: [nestedAsset] } };
+		const provider = createImmichProvider(vi.fn(async () => new Response(JSON.stringify(nested))), 'https://immich.example');
+		const resolved = await provider.getSharedLink(context);
+		expect(resolved.data?.assets).toHaveLength(1);
+		expect(resolved.data?.assets[0].id).toBe(nestedAsset.id);
+		expect(JSON.stringify(resolved)).not.toContain('originalPath');
+
+		const individual = { ...nested, type: 'INDIVIDUAL' as const, assets: [v3.assets[0]], album: undefined };
+		const individualResult = await createImmichProvider(vi.fn(async () => new Response(JSON.stringify(individual))), 'https://immich.example').getSharedLink(context);
+		expect(individualResult.data?.assets).toHaveLength(1);
+	});
+
 	it('rejects missing album and non-UUID identifiers', async () => {
 		const missing = { ...v3, album: undefined };
 		const invalid = { ...v3, assets: [{ ...v3.assets[0], id: 'asset' }] };

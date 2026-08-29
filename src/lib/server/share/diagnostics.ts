@@ -50,3 +50,22 @@ export function logDirectShareOutcome({
 	};
 	console.info(JSON.stringify(fields));
 }
+
+export function logShareAssetProjection({ requestId, type, topLevelAssetCount, nestedAlbumAssetCount, normalizedAssetCount, heroSelection }: {
+	requestId?: string;
+	type: 'ALBUM' | 'INDIVIDUAL';
+	topLevelAssetCount: number;
+	nestedAlbumAssetCount: number;
+	normalizedAssetCount: number;
+	heroSelection?: 'configured-filename' | 'configured-asset-id' | 'album-cover' | 'first-asset' | 'none';
+}) {
+	console.info(JSON.stringify({ event: 'direct-share.asset-projection', ...(requestId ? { requestId } : {}), type, topLevelAssetCount, nestedAlbumAssetCount, normalizedAssetCount, ...(heroSelection ? { heroSelection } : {}) }));
+}
+
+export function logShareMediaStatus({ requestId, media, status }: { requestId: string; media: 'thumbnail' | 'video'; status: 'success' | 'unauthorized' | 'not-found' | 'upstream-error' }) {
+	console.info(JSON.stringify({ event: `direct-share.${media}`, requestId, status }));
+}
+
+export function logShareHeroSelection({ requestId, selection }: { requestId: string; selection: 'configured-filename' | 'configured-asset-id' | 'album-cover' | 'first-asset' | 'none' }) {
+	console.info(JSON.stringify({ event: 'direct-share.hero-selection', requestId, selection }));
+}

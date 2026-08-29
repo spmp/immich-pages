@@ -3,7 +3,8 @@ import type { DirectShareOutcome, SharedLinkResponse } from '$server/immich/type
 import type { AuthContext } from '$server/immich/auth-context';
 import { parsePresentationDocument } from '$server/presentation/frontmatter';
 import { renderMarkdown } from '$server/presentation/markdown';
-import { deriveDisplayDate, normalizeTemplate, selectHero, type NormalizedPageModel } from '$server/presentation/model';
+import { deriveDisplayDate, heroSelection, normalizeTemplate, selectHero, type NormalizedPageModel } from '$server/presentation/model';
+import { logShareHeroSelection } from '$server/share/diagnostics';
 
 export async function assembleDirectShare(provider: ImmichProvider, context: AuthContext, requestId: string): Promise<DirectShareOutcome> {
 	let result: Awaited<ReturnType<ImmichProvider['getSharedLink']>>;
@@ -20,6 +21,7 @@ export async function assembleDirectShare(provider: ImmichProvider, context: Aut
 	if (document.kind === 'invalid') return { kind: 'invalid-metadata', metadataReason: document.reason };
 	const narrative = await renderMarkdown(document.markdown);
 	const hero = selectHero(document.config, share);
+	logShareHeroSelection({ requestId, selection: heroSelection(document.config, share) });
 	const template = normalizeTemplate(document.config);
 	const displayDate = deriveDisplayDate(document.config, share);
 	const mediaShareQuery = `?${context.shareRef.kind}=${encodeURIComponent(context.shareRef.value)}`;

@@ -52,3 +52,11 @@ export function selectHero(config: PresentationConfig, share: SharedLinkResponse
 	}
 	return assets[0];
 }
+
+export function heroSelection(config: PresentationConfig, share: SharedLinkResponse): 'configured-filename' | 'configured-asset-id' | 'album-cover' | 'first-asset' | 'none' {
+	const assets = share.assets;
+	if (config.hero.filename && assets.filter((asset) => asset.originalFileName?.toLocaleLowerCase() === config.hero.filename!.toLocaleLowerCase()).length === 1) return 'configured-filename';
+	if (config.hero.assetId && assets.some((asset) => asset.id === config.hero.assetId)) return 'configured-asset-id';
+	if (share.album?.albumThumbnailAssetId && assets.some((asset) => asset.id === share.album?.albumThumbnailAssetId)) return 'album-cover';
+	return assets.length > 0 ? 'first-asset' : 'none';
+}

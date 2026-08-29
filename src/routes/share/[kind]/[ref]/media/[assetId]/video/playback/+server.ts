@@ -3,6 +3,7 @@ import { authContextFromRequest } from '$server/immich/auth-context';
 import { createImmichProvider } from '$server/immich/provider';
 import { parseSharedLinkRef } from '$server/share/ref';
 import { z } from 'zod';
+import { logShareMediaStatus } from '$server/share/diagnostics';
 
 const MAX_VIDEO_RESPONSE_BYTES = 16 * 1024 * 1024;
 const MAX_VIDEO_RANGE_BYTES = 8 * 1024 * 1024;
@@ -53,17 +54,17 @@ async function boundedBody(response: Response, max: number, declared: number | n
 	});
 }
 
-export const GET: RequestHandler = async ({ params, request, fetch }) => {
+export const GET: RequestHandler = async ({ params, request, locals, fetch }) => {
 	const shareRef = parseSharedLinkRef(params.kind, params.ref);
 	if (!shareRef || !z.uuidv4().safeParse(params.assetId).success) return new Response('Media not found', { status: 404 });
 	const parsedRange = rangeValue(request.headers.get('range'));
 	if ('invalid' in parsedRange) return new Response('Range not satisfiable', { status: 416, headers: { 'content-range': 'bytes */*', 'cache-control': 'private, no-store' } });
 	let result: Awaited<ReturnType<ReturnType<typeof createImmichProvider>['getVideoPlayback']>>;
 	try { result = await createImmichProvider(fetch).getVideoPlayback(authContextFromRequest(request, shareRef), params.assetId, parsedRange.value); }
-	catch { return new Response('Immich is unavailable', { status: 502 }); }
-	if (result.error === 'asset-mismatch' || result.error === 'not-video' || result.status === 404) return new Response('Media not found', { status: 404 });
-	if (result.status === 401 || result.status === 403) return new Response('Media not authorized', { status: 403 });
-	if (!result.response) return new Response('Immich is unavailable', { status: 502 });
+	catch { logShareMediaStatus({ requestId: locals?.requestId ?? 'unknown', media: 'video', status: 'upstream-error' }); return new Response('Immich is unavailable', { status: 502 }); }
+	if (result.error === 'asset-mismatch' || result.error === 'not-video' || result.status === 404) { logShareMediaStatus({ requestId: locals?.requestId ?? 'unknown', media: 'video', status: 'not-found' }); return new Response('Media not found', { status: 404 }); }
+	if (result.status === 401 || result.status === 403) { logShareMediaStatus({ requestId: locals?.requestId ?? 'unknown', media: 'video', status: 'unauthorized' }); return new Response('Media not authorized', { status: 403 }); }
+	if (!result.response) { logShareMediaStatus({ requestId: locals?.requestId ?? 'unknown', media: 'video', status: 'upstream-error' }); return new Response('Immich is unavailable', { status: 502 }); }
 	if (result.status === 416) return new Response(null, { status: 416, headers: safeHeaders(result.response) });
 	if (result.status !== 200 && result.status !== 206) return new Response('Immich is unavailable', { status: 502 });
 	const lengthText = result.response.headers.get('content-length');
@@ -76,5 +77,6 @@ export const GET: RequestHandler = async ({ params, request, fetch }) => {
 		if (!match || Number(match[2]) < Number(match[1]) || Number(match[2]) - Number(match[1]) + 1 > MAX_VIDEO_RANGE_BYTES || (length !== null && Number(match[2]) - Number(match[1]) + 1 !== length)) return new Response('Media response unavailable', { status: 502 });
 	}
 	const body = await boundedBody(result.response, parsedRange.max, length);
+	logShareMediaStatus({ requestId: locals?.requestId ?? 'unknown', media: 'video', status: 'success' });
 	return new Response(body, { status: result.status, headers: safeHeaders(result.response) });
 };

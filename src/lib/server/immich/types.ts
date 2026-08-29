@@ -25,7 +25,7 @@ export const SharedLinkResponseSchema = z.object({
 	password: z.string().nullable(),
 	userId: IdentifierSchema,
 	key: z.string().min(1),
-	type: z.literal('ALBUM'),
+	type: z.enum(['ALBUM', 'INDIVIDUAL']),
 	createdAt: z.string().min(1),
 	expiresAt: z.string().nullable(),
 	album: z.object({
@@ -35,7 +35,8 @@ export const SharedLinkResponseSchema = z.object({
 		albumThumbnailAssetId: IdentifierSchema.nullable().optional(),
 		startDate: z.string().max(128).nullable().optional(),
 		endDate: z.string().max(128).nullable().optional(),
-		updatedAt: z.string().max(128).optional()
+		updatedAt: z.string().max(128).optional(),
+		assets: z.array(AssetResponseSchema).optional()
 	}).optional(),
 	assets: z.array(AssetResponseSchema),
 	allowUpload: z.boolean(),

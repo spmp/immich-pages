@@ -1,6 +1,13 @@
 import { readBoundedText, requestImmich, shareQuery } from './client';
 import { AssetResponseSchema, SharedLinkResponseSchema, type SharedLinkResponse } from './types';
 import type { AuthContext } from './auth-context';
+import { logShareAssetProjection } from '$server/share/diagnostics';
+
+function normalizeSharedLinkAssets(share: SharedLinkResponse): SharedLinkResponse {
+	logShareAssetProjection({ type: share.type, topLevelAssetCount: share.assets.length, nestedAlbumAssetCount: share.album?.assets?.length ?? 0, normalizedAssetCount: share.type === 'ALBUM' && share.assets.length === 0 ? share.album?.assets?.length ?? 0 : share.assets.length });
+	if (share.type !== 'ALBUM' || share.assets.length > 0 || !share.album?.assets) return share;
+	return { ...share, assets: share.album.assets };
+}
 
 export type ImmichProvider = {
 	getSharedLink: (context: AuthContext) => Promise<{ status: number; data?: SharedLinkResponse; error?: 'malformed' }>;
@@ -18,7 +25,7 @@ export function createImmichProvider(fetchImpl: typeof fetch = fetch, baseUrl = 
 			if (!response.ok) return { status: response.status };
 			try {
 				const parsed = SharedLinkResponseSchema.safeParse(JSON.parse(await readBoundedText(response)));
-				return parsed.success ? { status: response.status, data: parsed.data } : { status: 422, error: 'malformed' };
+				return parsed.success ? { status: response.status, data: normalizeSharedLinkAssets(parsed.data) } : { status: 422, error: 'malformed' };
 			} catch {
 				return { status: 422, error: 'malformed' };
 			}
