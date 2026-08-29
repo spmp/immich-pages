@@ -15,10 +15,23 @@ describe('journal presentation contract', () => {
 	});
 
 	it('keeps the map seam empty and the narrative server-rendered', () => {
-		expect(component('JourneyMapSlot')).not.toMatch(/maplibre|<canvas|<iframe|tile layer/i);
+		const seam = component('JourneyMapSlot');
+		expect(seam).not.toMatch(/maplibre|<canvas|<iframe|tile layer/i);
+		expect(seam).toContain('data-phase="3-map-seam"');
+		expect(seam).toContain('height: 0');
+		expect(seam).toContain('overflow: hidden');
+		expect(seam).not.toMatch(/Journey map extension point/);
 		expect(component('JournalNarrative')).toContain('{@html html}');
 		expect(route()).toContain('<JournalPage');
 		expect(route()).not.toContain('fetch(');
+	});
+
+	it('keeps only the no-hero fallback label and the locked gallery CTA', () => {
+		const hero = component('JournalHero');
+		expect(hero).not.toContain('<p class="eyebrow">Journey gallery</p>');
+		expect(hero).toContain('{#if !hero}');
+		expect(hero).toContain('Journey gallery');
+		expect(hero).toContain('Explore the gallery');
 	});
 
 	it('declares responsive layout and accessible gallery targets', () => {

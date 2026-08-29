@@ -64,3 +64,13 @@ test('keeps media diagnostics opt-in and secret-safe', async ({ page }) => {
     expect(message).not.toMatch(/opaque-ref|fixture|authorization|cookie|description|Mock browser proof|https?:|127\.0\.0\.1|request.?id|response.?body/i);
   }
 });
+
+test('keeps the hero CTA usable and collapses the empty Phase 3 seam', async ({ page }) => {
+  await page.goto('/share/key/opaque-ref');
+  const seam = page.locator('[data-phase="3-map-seam"]');
+  await expect(seam).toHaveCount(1);
+  expect((await seam.boundingBox())?.height ?? -1).toBe(0);
+  await page.getByRole('button', { name: 'Explore the gallery' }).click();
+  await expect(page.locator('#gallery-title')).toBeFocused();
+  await expect(page.locator('.eyebrow')).toHaveCount(0);
+});
