@@ -16,7 +16,7 @@ describe('journal gallery contract', () => {
 		expect(asset).toContain('height={asset.height}');
 	});
 
-	 it('keeps PhotoSwipe browser-only and preserves ordinary anchors', () => {
+	it('keeps PhotoSwipe browser-only and preserves ordinary anchors', () => {
 		const lightbox = source('Lightbox');
 		expect(lightbox).toContain('onMount');
 		expect(lightbox).toContain("import('photoswipe/lightbox')");
@@ -26,6 +26,25 @@ describe('journal gallery contract', () => {
 		expect(lightbox).toContain('focus');
 		expect(lightbox).toContain('overflow');
 		expect(lightbox).toContain('prefers-reduced-motion');
+	});
+
+	it('defines the complete lightbox lifecycle and safe fallback contract', () => {
+		const lightbox = source('Lightbox');
+		const asset = source('GalleryAsset');
+		expect(lightbox).toContain("import 'photoswipe/style.css'");
+		expect(lightbox).toContain('data-pswp-modal');
+		expect(lightbox).toContain('popstate');
+		expect(lightbox).toContain('keydown');
+		expect(lightbox).toContain('aria-live="polite"');
+		expect(lightbox).toContain('focus trap');
+		expect(lightbox).toContain('history.pushState');
+		expect(lightbox).toContain('history.back');
+		expect(lightbox).toContain('removeEventListener');
+		expect(asset).toContain('Math.min');
+		expect(asset).toContain('8192');
+		expect(asset).toContain('0.25');
+		expect(asset).toContain('data-pswp-width={lightboxWidth}');
+		expect(asset).toContain('data-pswp-height={lightboxHeight}');
 	});
 
 	it('reports only redacted media failure diagnostics when explicitly enabled', () => {

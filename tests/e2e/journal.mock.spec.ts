@@ -93,3 +93,38 @@ test('keeps the hero CTA usable and collapses the empty Phase 3 seam', async ({ 
   await expect(page.locator('#gallery-title')).toBeFocused();
   await expect(page.locator('.eyebrow')).toHaveCount(0);
 });
+
+test('opens the image viewer with contained focus, announcements, and clean Back behavior', async ({ page }) => {
+  await page.goto('/share/key/opaque-ref');
+  const image = page.locator('#asset-550e8400-e29b-41d4-a716-446655440002 a');
+  await image.focus();
+  await image.press('Enter');
+  const viewer = page.locator('.pswp');
+  await expect(viewer).toBeVisible();
+  await expect(page).toHaveURL(/\/share\/key\/opaque-ref$/);
+  await expect(viewer.locator('button[aria-label*="Close"], button[title*="Close"]')).toBeVisible();
+  await expect(viewer.locator('[aria-live="polite"]')).toContainText(/1\s*\/\s*\d+/);
+
+  const focusStates = await page.evaluate(() => {
+    const active = document.activeElement;
+    const modal = document.querySelector('.pswp');
+    return Boolean(active && modal?.contains(active));
+  });
+  expect(focusStates).toBe(true);
+  await page.keyboard.press('Tab');
+  expect(await page.evaluate(() => document.querySelector('.pswp')?.contains(document.activeElement))).toBe(true);
+  await page.keyboard.press('Shift+Tab');
+  expect(await page.evaluate(() => document.querySelector('.pswp')?.contains(document.activeElement))).toBe(true);
+
+  await page.keyboard.press('Escape');
+  await expect(viewer).toBeHidden();
+  await expect(image).toBeFocused();
+  expect(await page.evaluate(() => document.body.style.overflow)).toBe('');
+
+  await image.click();
+  await expect(viewer).toBeVisible();
+  await page.goBack();
+  await expect(viewer).toBeHidden();
+  await expect(page).toHaveURL(/\/share\/key\/opaque-ref$/);
+  await expect(image).toBeFocused();
+});
