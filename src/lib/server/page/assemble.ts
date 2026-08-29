@@ -4,7 +4,7 @@ import type { AuthContext } from '$server/immich/auth-context';
 import { parsePresentationDocument } from '$server/presentation/frontmatter';
 import { renderMarkdown } from '$server/presentation/markdown';
 import { deriveDisplayDate, heroSelection, normalizeTemplate, selectHero, type NormalizedPageModel } from '$server/presentation/model';
-import { logShareHeroSelection } from '$server/share/diagnostics';
+import { logMetadataParse, logModelOutput, logShareHeroSelection } from '$server/share/diagnostics';
 
 export async function assembleDirectShare(provider: ImmichProvider, context: AuthContext, requestId: string): Promise<DirectShareOutcome> {
 	let result: Awaited<ReturnType<ImmichProvider['getSharedLink']>>;
@@ -17,11 +17,12 @@ export async function assembleDirectShare(provider: ImmichProvider, context: Aut
 	if (share.password) return { kind: 'password-required' };
 	if (share.type !== 'ALBUM' || !share.album) return { kind: 'unsupported' };
 	const document = parsePresentationDocument(share.album.description);
-	if (document.kind === 'absent' || document.kind === 'unrelated') return { kind: 'non-page' };
-	if (document.kind === 'invalid') return { kind: 'invalid-metadata', metadataReason: document.reason };
+	if (document.kind === 'absent' || document.kind === 'unrelated') { logMetadataParse({ result: document.kind }); return { kind: 'non-page' }; }
+	if (document.kind === 'invalid') { logMetadataParse({ result: 'invalid', reason: document.reason }); return { kind: 'invalid-metadata', metadataReason: document.reason }; }
+	logMetadataParse({ result: 'valid' });
 	const narrative = await renderMarkdown(document.markdown);
 	const hero = selectHero(document.config, share);
-	logShareHeroSelection({ requestId, selection: heroSelection(document.config, share) });
+	logShareHeroSelection({ selection: heroSelection(document.config, share) });
 	const template = normalizeTemplate(document.config);
 	const displayDate = deriveDisplayDate(document.config, share);
 	const mediaShareQuery = `?${context.shareRef.kind}=${encodeURIComponent(context.shareRef.value)}`;
@@ -57,5 +58,6 @@ export async function assembleDirectShare(provider: ImmichProvider, context: Aut
 		warnings: [...document.warnings, ...narrative.warnings, ...(template.warning ? [template.warning] : [])], errors: []
 	};
 	if (displayDate) normalized.album = { ...normalized.album, startDate: displayDate.start, endDate: displayDate.end };
+	logModelOutput({ assetCount: assets.length, imageCount: assets.filter((asset) => asset.type !== 'VIDEO').length, videoCount: assets.filter((asset) => asset.type === 'VIDEO').length, heroPresent: Boolean(normalized.hero) });
 	return { kind: 'page', page: normalized };
 }

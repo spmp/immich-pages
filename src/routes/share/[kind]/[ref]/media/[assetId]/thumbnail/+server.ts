@@ -14,19 +14,19 @@ export const GET: RequestHandler = async ({ params, request, locals, fetch }) =>
 	try {
 		result = await createImmichProvider(fetch).getThumbnail(authContextFromRequest(request, shareRef), params.assetId);
 	} catch {
-		logShareMediaStatus({ requestId: locals?.requestId ?? 'unknown', media: 'thumbnail', status: 'upstream-error' });
+		logShareMediaStatus({ media: 'thumbnail', status: 'failure', failureCategory: 'upstream' });
 		error(502, 'Immich is unavailable');
 	}
-	if (result.status === 401 || result.status === 403) { logShareMediaStatus({ requestId: locals?.requestId ?? 'unknown', media: 'thumbnail', status: 'unauthorized' }); error(403, 'Media not authorized'); }
-	if (result.status === 404 || result.error === 'asset-mismatch') { logShareMediaStatus({ requestId: locals?.requestId ?? 'unknown', media: 'thumbnail', status: 'not-found' }); error(404, 'Media not found'); }
-	if (!result.response?.ok) { logShareMediaStatus({ requestId: locals?.requestId ?? 'unknown', media: 'thumbnail', status: 'upstream-error' }); error(502, 'Immich is unavailable'); }
+	if (result.status === 401 || result.status === 403) { logShareMediaStatus({ media: 'thumbnail', status: 'failure', failureCategory: 'unauthorized' }); error(403, 'Media not authorized'); }
+	if (result.status === 404 || result.error === 'asset-mismatch') { logShareMediaStatus({ media: 'thumbnail', status: 'failure', failureCategory: 'not-found' }); error(404, 'Media not found'); }
+	if (!result.response?.ok) { logShareMediaStatus({ media: 'thumbnail', status: 'failure', failureCategory: 'upstream' }); error(502, 'Immich is unavailable'); }
 	try {
 		const body = await readBoundedBytes(result.response, IMMICH_MAX_MEDIA_BYTES);
 		const contentType = result.response.headers.get('content-type');
-		logShareMediaStatus({ requestId: locals?.requestId ?? 'unknown', media: 'thumbnail', status: 'success' });
+		logShareMediaStatus({ media: 'thumbnail', status: 'success' });
 		return new Response(body.buffer as ArrayBuffer, { headers: { 'content-type': contentType?.startsWith('image/') ? contentType : 'application/octet-stream', 'cache-control': 'private, no-store' } });
 	} catch {
-		logShareMediaStatus({ requestId: locals?.requestId ?? 'unknown', media: 'thumbnail', status: 'upstream-error' });
+		logShareMediaStatus({ media: 'thumbnail', status: 'failure', failureCategory: 'oversized' });
 		error(502, 'Immich response unavailable');
 	}
 };

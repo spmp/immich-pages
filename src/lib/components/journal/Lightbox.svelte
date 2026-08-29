@@ -17,7 +17,7 @@
 				instance.on('close', () => { document.body.style.overflow = previousOverflow; opener?.focus(); opener = null; reportJournalDebug('lightbox', { status: 'closed' }); });
 				instance.init();
 				reportJournalDebug('lightbox', { status: 'initialized' });
-			} catch { reportJournalDebug('lightbox', { status: 'failure' }); }
+			} catch { reportJournalDebug('lightbox', { status: 'failure', errorContext: 'lightbox-load' }); }
 		})();
 		return () => { document.body.style.overflow = previousOverflow; lightbox?.destroy(); };
 	});

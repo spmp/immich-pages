@@ -6,7 +6,7 @@
 	import { reportJournalDebug } from './journal-debug';
 	let { assets, shareKind, shareRef }: { assets: NormalizedAsset[]; shareKind?: string; shareRef?: string } = $props();
 	const enriched = $derived(assets.map((asset) => ({ ...asset, videoHref: asset.videoHref ?? (asset.type === 'VIDEO' && shareKind && shareRef ? `/share/${shareKind}/${encodeURIComponent(shareRef)}/media/${encodeURIComponent(asset.id)}/video/playback` : undefined) })));
-	onMount(() => reportJournalDebug('gallery-state', { category: 'gallery', status: enriched.length === 0 ? 'empty' : 'success', assetCount: enriched.length }));
+	onMount(() => reportJournalDebug('gallery-state', { category: 'gallery', status: enriched.length === 0 ? 'empty' : 'success', assetCount: enriched.length, imageCount: enriched.filter((asset) => asset.type !== 'VIDEO').length, videoCount: enriched.filter((asset) => asset.type === 'VIDEO').length, ...(enriched.length === 0 ? { errorContext: 'gallery-load' as const } : {}) }));
 </script>
 
 <section class="gallery" aria-labelledby="gallery-title">

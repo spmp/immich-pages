@@ -33,7 +33,7 @@
 	}
 
 	function reportHero(status: 'success' | 'failure') {
-		reportJournalDebug('hero-load', { category: 'hero', status });
+		reportJournalDebug('hero-load', { category: 'hero', status, ...(status === 'failure' ? { errorContext: 'hero-load' as const } : {}) });
 	}
 </script>
 

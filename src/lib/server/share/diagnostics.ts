@@ -23,14 +23,12 @@ const statusCategory = (status: number) => {
 };
 
 export function logDirectShareOutcome({
-	requestId,
 	outcome,
 	method,
 	pathname,
 	status,
 	metadataReason
 }: {
-	requestId: string;
 	outcome: OutcomeKind;
 	method: string;
 	pathname: string;
@@ -40,7 +38,6 @@ export function logDirectShareOutcome({
 	const resolvedStatus = status ?? statusByOutcome[outcome];
 	const fields = {
 		event: 'direct-share.outcome',
-		requestId,
 		outcomeKind: outcome,
 		status: resolvedStatus,
 		statusCategory: statusCategory(resolvedStatus),
@@ -49,6 +46,26 @@ export function logDirectShareOutcome({
 		...(metadataReason ? { metadataReason } : {})
 	};
 	console.info(JSON.stringify(fields));
+}
+
+export function logDirectShareBoundary({ phase, method, pathname, status }: { phase: 'start' | 'end'; method: string; pathname: string; status?: number }) {
+	console.info(JSON.stringify({ event: `direct-share.request-${phase}`, method, pathname: redactPathname(pathname), ...(status === undefined ? {} : { status, statusCategory: statusCategory(status) }) }));
+}
+
+export function logImmichRequest({ endpoint, status, failureCategory }: { endpoint: 'shared-link' | 'thumbnail' | 'video' | 'version'; status: number | 'failure'; failureCategory?: 'timeout' | 'network' | 'response-too-large' | 'invalid-response' }) {
+	console.info(JSON.stringify({ event: 'direct-share.immich-request', endpoint, status, ...(failureCategory ? { failureCategory } : {}) }));
+}
+
+export function logSharedLinkResponse({ type, topLevelAssetCount, nestedAlbumAssetCount, normalizedAssetCount }: { type: 'ALBUM' | 'INDIVIDUAL'; topLevelAssetCount: number; nestedAlbumAssetCount: number; normalizedAssetCount: number }) {
+	console.info(JSON.stringify({ event: 'direct-share.response-parsed', type, topLevelAssetCount, nestedAlbumAssetCount, normalizedAssetCount }));
+}
+
+export function logMetadataParse({ result, reason }: { result: 'absent' | 'unrelated' | 'valid' | 'invalid'; reason?: MetadataFailureReason }) {
+	console.info(JSON.stringify({ event: 'direct-share.metadata-parse', result, ...(reason ? { reason } : {}) }));
+}
+
+export function logModelOutput({ assetCount, imageCount, videoCount, heroPresent }: { assetCount: number; imageCount: number; videoCount: number; heroPresent: boolean }) {
+	console.info(JSON.stringify({ event: 'direct-share.model-output', assetCount, imageCount, videoCount, heroPresent }));
 }
 
 export function logShareAssetProjection({ requestId, type, topLevelAssetCount, nestedAlbumAssetCount, normalizedAssetCount, heroSelection }: {
@@ -62,10 +79,10 @@ export function logShareAssetProjection({ requestId, type, topLevelAssetCount, n
 	console.info(JSON.stringify({ event: 'direct-share.asset-projection', ...(requestId ? { requestId } : {}), type, topLevelAssetCount, nestedAlbumAssetCount, normalizedAssetCount, ...(heroSelection ? { heroSelection } : {}) }));
 }
 
-export function logShareMediaStatus({ requestId, media, status }: { requestId: string; media: 'thumbnail' | 'video'; status: 'success' | 'unauthorized' | 'not-found' | 'upstream-error' }) {
-	console.info(JSON.stringify({ event: `direct-share.${media}`, requestId, status }));
+export function logShareMediaStatus({ media, status, failureCategory }: { media: 'thumbnail' | 'video'; status: 'success' | 'failure'; failureCategory?: 'unauthorized' | 'not-found' | 'upstream' | 'oversized' | 'invalid-range' }) {
+	console.info(JSON.stringify({ event: `direct-share.${media}`, status, ...(failureCategory ? { failureCategory } : {}) }));
 }
 
-export function logShareHeroSelection({ requestId, selection }: { requestId: string; selection: 'configured-filename' | 'configured-asset-id' | 'album-cover' | 'first-asset' | 'none' }) {
-	console.info(JSON.stringify({ event: 'direct-share.hero-selection', requestId, selection }));
+export function logShareHeroSelection({ selection }: { selection: 'configured-filename' | 'configured-asset-id' | 'album-cover' | 'first-asset' | 'none' }) {
+	console.info(JSON.stringify({ event: 'direct-share.hero-selection', selection }));
 }

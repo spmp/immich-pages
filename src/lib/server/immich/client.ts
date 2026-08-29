@@ -1,4 +1,5 @@
 import { upstreamHeaders, type AuthContext } from './auth-context';
+import { logImmichRequest } from '$server/share/diagnostics';
 
 export const IMMICH_REQUEST_TIMEOUT_MS = 5_000;
 export const IMMICH_MAX_RESPONSE_BYTES = 1_048_576;
@@ -21,7 +22,7 @@ export async function requestImmich(
 	path: string,
 	context: AuthContext,
 	fetchImpl: typeof fetch = fetch,
-	options: { timeoutMs?: number; headers?: HeadersInit } = {}
+	options: { timeoutMs?: number; headers?: HeadersInit; endpoint?: 'shared-link' | 'thumbnail' | 'video' | 'version' } = {}
 ): Promise<Response> {
 	const origin = immichOrigin(baseUrl);
 	const apiPath = path.startsWith('/api/') ? path.slice(4) : path.startsWith('api/') ? path.slice(3) : path;
@@ -31,7 +32,12 @@ export async function requestImmich(
 	try {
 		const headers = upstreamHeaders(context);
 		for (const [name, value] of new Headers(options.headers)) headers.set(name, value);
-		return await fetchImpl(target, { headers, signal: controller.signal });
+		const response = await fetchImpl(target, { headers, signal: controller.signal });
+		if (options.endpoint) logImmichRequest({ endpoint: options.endpoint, status: response.status });
+		return response;
+	} catch (error) {
+		if (options.endpoint) logImmichRequest({ endpoint: options.endpoint, status: 'failure', failureCategory: error instanceof DOMException && error.name === 'AbortError' ? 'timeout' : 'network' });
+		throw error;
 	} finally {
 		clearTimeout(timeout);
 	}

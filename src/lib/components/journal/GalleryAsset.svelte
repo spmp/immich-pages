@@ -7,7 +7,7 @@
 	const label = $derived(asset.caption ?? asset.fileName ?? (isVideo ? 'Journey video' : 'Journey photograph'));
 	function handleMediaError() {
 		failed = true;
-		reportJournalDebug('media-failure', { category: isVideo ? 'video' : 'image', status: 'unavailable' });
+		reportJournalDebug('media-failure', { category: isVideo ? 'video' : 'image', status: 'unavailable', errorContext: isVideo ? 'video-load' : 'image-load' });
 	}
 	function handleMediaLoad() {
 		reportJournalDebug('media-load', { category: isVideo ? 'video' : 'image', status: 'success' });

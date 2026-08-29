@@ -1,10 +1,11 @@
 import { readBoundedText, requestImmich, shareQuery } from './client';
 import { AssetResponseSchema, SharedLinkResponseSchema, type SharedLinkResponse } from './types';
 import type { AuthContext } from './auth-context';
-import { logShareAssetProjection } from '$server/share/diagnostics';
+import { logSharedLinkResponse, logShareAssetProjection } from '$server/share/diagnostics';
 
 function normalizeSharedLinkAssets(share: SharedLinkResponse): SharedLinkResponse {
-	logShareAssetProjection({ type: share.type, topLevelAssetCount: share.assets.length, nestedAlbumAssetCount: share.album?.assets?.length ?? 0, normalizedAssetCount: share.type === 'ALBUM' && share.assets.length === 0 ? share.album?.assets?.length ?? 0 : share.assets.length });
+	const normalizedAssetCount = share.type === 'ALBUM' && share.assets.length === 0 ? share.album?.assets?.length ?? 0 : share.assets.length;
+	logShareAssetProjection({ type: share.type, topLevelAssetCount: share.assets.length, nestedAlbumAssetCount: share.album?.assets?.length ?? 0, normalizedAssetCount });
 	if (share.type !== 'ALBUM' || share.assets.length > 0 || !share.album?.assets) return share;
 	return { ...share, assets: share.album.assets };
 }
@@ -21,11 +22,14 @@ export function createImmichProvider(fetchImpl: typeof fetch = fetch, baseUrl = 
 	return {
 		async getSharedLink(context) {
 			const url = `/api/shared-links/me?${shareQuery(context)}`;
-			const response = await requestImmich(baseUrl, url, context, fetchImpl);
+			const response = await requestImmich(baseUrl, url, context, fetchImpl, { endpoint: 'shared-link' });
 			if (!response.ok) return { status: response.status };
 			try {
 				const parsed = SharedLinkResponseSchema.safeParse(JSON.parse(await readBoundedText(response)));
-				return parsed.success ? { status: response.status, data: normalizeSharedLinkAssets(parsed.data) } : { status: 422, error: 'malformed' };
+				if (!parsed.success) return { status: 422, error: 'malformed' };
+				const data = normalizeSharedLinkAssets(parsed.data);
+				logSharedLinkResponse({ type: data.type, topLevelAssetCount: parsed.data.assets.length, nestedAlbumAssetCount: parsed.data.album?.assets?.length ?? 0, normalizedAssetCount: data.assets.length });
+				return { status: response.status, data };
 			} catch {
 				return { status: 422, error: 'malformed' };
 			}
@@ -34,7 +38,7 @@ export function createImmichProvider(fetchImpl: typeof fetch = fetch, baseUrl = 
 			const share = await this.getSharedLink(context);
 			if (!share.data) return { status: share.status, error: share.error };
 			if (!share.data.assets.some((asset) => asset.id === assetId && AssetResponseSchema.safeParse(asset).success)) return { status: 404, error: 'asset-mismatch' };
-			const response = await requestImmich(baseUrl, `/api/assets/${encodeURIComponent(assetId)}/thumbnail?${shareQuery(context)}`, context, fetchImpl);
+			const response = await requestImmich(baseUrl, `/api/assets/${encodeURIComponent(assetId)}/thumbnail?${shareQuery(context)}`, context, fetchImpl, { endpoint: 'thumbnail' });
 			return { status: response.status, response };
 		},
 		async getVideoPlayback(context, assetId, range) {
@@ -43,11 +47,11 @@ export function createImmichProvider(fetchImpl: typeof fetch = fetch, baseUrl = 
 			const asset = share.data.assets.find((candidate) => candidate.id === assetId);
 			if (!asset) return { status: 404, error: 'asset-mismatch' };
 			if (asset.type !== 'VIDEO') return { status: 404, error: 'not-video' };
-			const response = await requestImmich(baseUrl, `/api/assets/${encodeURIComponent(assetId)}/video/playback?${shareQuery(context)}`, context, fetchImpl, { headers: range ? { Range: range } : undefined });
+			const response = await requestImmich(baseUrl, `/api/assets/${encodeURIComponent(assetId)}/video/playback?${shareQuery(context)}`, context, fetchImpl, { endpoint: 'video', headers: range ? { Range: range } : undefined });
 			return { status: response.status, response };
 		},
 		async getVersion() {
-			const response = await requestImmich(baseUrl, '/api/server/version', { shareRef: { kind: 'key', value: 'health' }, cookie: null, authorization: null }, fetchImpl);
+			const response = await requestImmich(baseUrl, '/api/server/version', { shareRef: { kind: 'key', value: 'health' }, cookie: null, authorization: null }, fetchImpl, { endpoint: 'version' });
 			if (!response.ok) return { status: response.status };
 			try {
 				const body = JSON.parse(await readBoundedText(response)) as unknown;

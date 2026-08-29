@@ -61,10 +61,10 @@ export const GET: RequestHandler = async ({ params, request, locals, fetch }) =>
 	if ('invalid' in parsedRange) return new Response('Range not satisfiable', { status: 416, headers: { 'content-range': 'bytes */*', 'cache-control': 'private, no-store' } });
 	let result: Awaited<ReturnType<ReturnType<typeof createImmichProvider>['getVideoPlayback']>>;
 	try { result = await createImmichProvider(fetch).getVideoPlayback(authContextFromRequest(request, shareRef), params.assetId, parsedRange.value); }
-	catch { logShareMediaStatus({ requestId: locals?.requestId ?? 'unknown', media: 'video', status: 'upstream-error' }); return new Response('Immich is unavailable', { status: 502 }); }
-	if (result.error === 'asset-mismatch' || result.error === 'not-video' || result.status === 404) { logShareMediaStatus({ requestId: locals?.requestId ?? 'unknown', media: 'video', status: 'not-found' }); return new Response('Media not found', { status: 404 }); }
-	if (result.status === 401 || result.status === 403) { logShareMediaStatus({ requestId: locals?.requestId ?? 'unknown', media: 'video', status: 'unauthorized' }); return new Response('Media not authorized', { status: 403 }); }
-	if (!result.response) { logShareMediaStatus({ requestId: locals?.requestId ?? 'unknown', media: 'video', status: 'upstream-error' }); return new Response('Immich is unavailable', { status: 502 }); }
+	catch { logShareMediaStatus({ media: 'video', status: 'failure', failureCategory: 'upstream' }); return new Response('Immich is unavailable', { status: 502 }); }
+	if (result.error === 'asset-mismatch' || result.error === 'not-video' || result.status === 404) { logShareMediaStatus({ media: 'video', status: 'failure', failureCategory: 'not-found' }); return new Response('Media not found', { status: 404 }); }
+	if (result.status === 401 || result.status === 403) { logShareMediaStatus({ media: 'video', status: 'failure', failureCategory: 'unauthorized' }); return new Response('Media not authorized', { status: 403 }); }
+	if (!result.response) { logShareMediaStatus({ media: 'video', status: 'failure', failureCategory: 'upstream' }); return new Response('Immich is unavailable', { status: 502 }); }
 	if (result.status === 416) return new Response(null, { status: 416, headers: safeHeaders(result.response) });
 	if (result.status !== 200 && result.status !== 206) return new Response('Immich is unavailable', { status: 502 });
 	const lengthText = result.response.headers.get('content-length');
@@ -77,6 +77,6 @@ export const GET: RequestHandler = async ({ params, request, locals, fetch }) =>
 		if (!match || Number(match[2]) < Number(match[1]) || Number(match[2]) - Number(match[1]) + 1 > MAX_VIDEO_RANGE_BYTES || (length !== null && Number(match[2]) - Number(match[1]) + 1 !== length)) return new Response('Media response unavailable', { status: 502 });
 	}
 	const body = await boundedBody(result.response, parsedRange.max, length);
-	logShareMediaStatus({ requestId: locals?.requestId ?? 'unknown', media: 'video', status: 'success' });
+	logShareMediaStatus({ media: 'video', status: 'success' });
 	return new Response(body, { status: result.status, headers: safeHeaders(result.response) });
 };

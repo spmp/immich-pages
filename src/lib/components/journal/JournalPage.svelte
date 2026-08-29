@@ -19,8 +19,8 @@
 	}
 
 	onMount(() => {
-		reportJournalDebug('page-model-load', { assetCount: page.assets.length, heroPresent: Boolean(page.hero), template: 'journal' });
-		if (!page.hero) reportJournalDebug('fallback', { category: 'hero', status: 'fallback' });
+		reportJournalDebug('page-model-load', { assetCount: page.assets.length, imageCount: page.assets.filter((asset) => asset.type !== 'VIDEO').length, videoCount: page.assets.filter((asset) => asset.type === 'VIDEO').length, heroPresent: Boolean(page.hero), template: 'journal' });
+		if (!page.hero) reportJournalDebug('fallback', { category: 'hero', status: 'fallback', errorContext: 'page-model' });
 	});
 </script>
 

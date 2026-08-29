@@ -7,6 +7,9 @@ type JournalDebugDetails = {
 	assetCount?: number;
 	heroPresent?: boolean;
 	template?: 'journal';
+	errorContext?: 'page-model' | 'hero-load' | 'gallery-load' | 'image-load' | 'video-load' | 'lightbox-load';
+	imageCount?: number;
+	videoCount?: number;
 };
 
 const enabled = env.PUBLIC_PAGES_DEBUG !== 'false';
@@ -25,6 +28,9 @@ export function reportJournalDebug(event: JournalDebugEvent, details: JournalDeb
 		...(details.status ? { status: details.status } : {}),
 		...(details.assetCount === undefined ? {} : { assetCount: Math.max(0, Math.min(10000, Math.floor(details.assetCount))) }),
 		...(details.heroPresent === undefined ? {} : { heroPresent: details.heroPresent }),
-		...(details.template ? { template: details.template } : {})
+		...(details.template ? { template: details.template } : {}),
+		...(details.errorContext ? { errorContext: details.errorContext } : {}),
+		...(details.imageCount === undefined ? {} : { imageCount: Math.max(0, Math.min(10000, Math.floor(details.imageCount))) }),
+		...(details.videoCount === undefined ? {} : { videoCount: Math.max(0, Math.min(10000, Math.floor(details.videoCount))) })
 	}));
 }
