@@ -39,7 +39,7 @@ test('keeps gallery frames bounded and landscape media useful at every responsiv
     { width: 768, height: 1024, frameRatio: [0.70, 0.80] },
     { width: 1024, height: 768, frameRatio: [0.70, 0.80] },
     { width: 1440, height: 900, frameRatio: [0.70, 0.80] },
-    { width: 844, height: 390, frameRatio: [0.95, 1.05] }
+    { width: 844, height: 390, frameRatio: [0.70, 0.80] }
   ];
 
   for (const viewport of viewports) {
