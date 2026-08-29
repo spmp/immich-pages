@@ -31,10 +31,10 @@ describe('Immich v3 boundary contracts', () => {
 		expect(JSON.stringify(result)).not.toContain('private');
 	});
 
-	it('normalizes v3.1.0 album assets nested under album while retaining top-level individual assets', async () => {
+	it('hydrates v3.1.0 album assets through metadata search while retaining individual shares', async () => {
+		const nested = { ...v3, assets: [], album: { ...v3.album, assetCount: 1 } };
 		const nestedAsset = { ...v3.assets[0], originalPath: '/private/nested.jpg' };
-		const nested = { ...v3, assets: [], album: { ...v3.album, assets: [nestedAsset] } };
-		const provider = createImmichProvider(vi.fn(async () => new Response(JSON.stringify(nested))), 'https://immich.example');
+		const provider = createImmichProvider(vi.fn(async (input: URL | RequestInfo) => new Response(JSON.stringify(new URL(input.toString()).pathname === '/api/shared-links/me' ? nested : { albums: {}, assets: { items: [nestedAsset] } }))), 'https://immich.example');
 		const resolved = await provider.getSharedLink(context);
 		expect(resolved.data?.assets).toHaveLength(1);
 		expect(resolved.data?.assets[0].id).toBe(nestedAsset.id);

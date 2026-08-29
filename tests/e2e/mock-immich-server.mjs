@@ -18,20 +18,18 @@ const page = {
     endDate: '2026-01-01T00:00:00.000Z',
     description: '---\nimmich-presentation:\n  type: journey\n  version: 1\n---\nMock browser proof'
   },
-   assets: [{
-     id: '550e8400-e29b-41d4-a716-446655440002',
-     type: 'IMAGE',
-     originalFileName: 'mock-proof.jpg', width: 1200, height: 800
-   }, {
-     id: '550e8400-e29b-41d4-a716-446655440005',
-     type: 'VIDEO', originalFileName: 'mock-clip.mp4', width: 640, height: 360, duration: 1000
-   }, {
-     id: '550e8400-e29b-41d4-a716-446655440006',
-     type: 'IMAGE', originalFileName: 'failing-photo.jpg', width: 800, height: 1200
-   }],
+   assets: [],
   showMetadata: true,
-  allowDownload: false
+   allowDownload: false
 };
+
+const assets = [{
+  id: '550e8400-e29b-41d4-a716-446655440002', type: 'IMAGE', originalFileName: 'mock-proof.jpg', width: 1200, height: 800
+}, {
+  id: '550e8400-e29b-41d4-a716-446655440005', type: 'VIDEO', originalFileName: 'mock-clip.mp4', width: 640, height: 360, duration: 1000
+}, {
+  id: '550e8400-e29b-41d4-a716-446655440006', type: 'IMAGE', originalFileName: 'failing-photo.jpg', width: 800, height: 1200
+}];
 
 const server = http.createServer((request, response) => {
   const url = new URL(request.url ?? '/', 'http://mock-immich.test');
@@ -62,7 +60,17 @@ const server = http.createServer((request, response) => {
       ? { ...page, album: { ...page.album, description: 'An ordinary album' } }
       : page;
     response.writeHead(200, { 'content-type': 'application/json', 'set-cookie': 'secret=must-not-relay; Path=/' });
-    response.end(JSON.stringify(body));
+    response.end(JSON.stringify({ ...body, album: { ...body.album, assetCount: assets.length } }));
+    return;
+  }
+
+  if (request.method === 'POST' && url.pathname === '/api/search/metadata' && (url.searchParams.has('key') || url.searchParams.has('slug'))) {
+    let body = '';
+    request.on('data', (chunk) => { body += chunk; });
+    request.on('end', () => {
+      response.writeHead(200, { 'content-type': 'application/json' });
+      response.end(JSON.stringify({ albums: {}, assets: { items: assets } }));
+    });
     return;
   }
 

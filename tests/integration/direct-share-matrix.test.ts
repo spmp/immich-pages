@@ -19,6 +19,30 @@ describe('v3 direct-share matrix', () => {
 		expect(result).toEqual({ kind: 'non-page' });
 	});
 
+	it('hydrates v3.1 album shares through authorized metadata search', async () => {
+		const shared = { ...v3, album: { ...v3.album, assetCount: 1 }, assets: [] };
+		const calls: Array<{ url: URL; init?: RequestInit }> = [];
+		const fetchMock = vi.fn(async (input: URL | RequestInfo, init?: RequestInit) => {
+			const url = new URL(input.toString());
+			calls.push({ url, init });
+			if (url.pathname === '/api/shared-links/me') return new Response(JSON.stringify(shared));
+			return new Response(JSON.stringify({ albums: {}, assets: { items: v3.assets } }));
+		});
+		const result = await assembleDirectShare(createImmichProvider(fetchMock, 'https://immich.example'), { shareRef: { kind: 'slug', value: 'opaque-ref' }, cookie: 'visitor=1', authorization: 'Bearer visitor' }, 'hydrated');
+
+		expect(result.kind).toBe('page');
+		if (result.kind !== 'page') return;
+		expect(result.page.assets).toHaveLength(1);
+		expect(result.page.hero?.id).toBe(v3.assets[0].id);
+		expect(calls).toHaveLength(2);
+		expect(calls[1].url.pathname).toBe('/api/search/metadata');
+		expect(calls[1].url.search).toBe('?slug=opaque-ref');
+		expect(calls[1].init?.method).toBe('POST');
+		expect(JSON.parse(String(calls[1].init?.body))).toEqual({ albumIds: [v3.album.id], page: 1, size: 1000 });
+		expect(new Headers(calls[1].init?.headers).get('cookie')).toBe('visitor=1');
+		expect(new Headers(calls[1].init?.headers).get('authorization')).toBe('Bearer visitor');
+	});
+
 	it('keeps process health independent from Immich', async () => {
 		expect(getHealth().status).toBe(200);
 	});

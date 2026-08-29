@@ -22,7 +22,7 @@ export async function requestImmich(
 	path: string,
 	context: AuthContext,
 	fetchImpl: typeof fetch = fetch,
-	options: { timeoutMs?: number; headers?: HeadersInit; endpoint?: 'shared-link' | 'thumbnail' | 'video' | 'version' } = {}
+	options: { timeoutMs?: number; headers?: HeadersInit; method?: string; body?: BodyInit | null; endpoint?: 'shared-link' | 'album-assets' | 'thumbnail' | 'video' | 'version' } = {}
 ): Promise<Response> {
 	const origin = immichOrigin(baseUrl);
 	const apiPath = path.startsWith('/api/') ? path.slice(4) : path.startsWith('api/') ? path.slice(3) : path;
@@ -32,7 +32,7 @@ export async function requestImmich(
 	try {
 		const headers = upstreamHeaders(context);
 		for (const [name, value] of new Headers(options.headers)) headers.set(name, value);
-		const response = await fetchImpl(target, { headers, signal: controller.signal });
+		const response = await fetchImpl(target, { method: options.method ?? 'GET', body: options.body, headers, signal: controller.signal });
 		if (options.endpoint) logImmichRequest({ endpoint: options.endpoint, status: response.status });
 		return response;
 	} catch (error) {

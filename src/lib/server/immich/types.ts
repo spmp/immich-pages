@@ -36,6 +36,7 @@ export const SharedLinkResponseSchema = z.object({
 		startDate: z.string().max(128).nullable().optional(),
 		endDate: z.string().max(128).nullable().optional(),
 		updatedAt: z.string().max(128).optional(),
+		assetCount: z.number().int().nonnegative().optional(),
 		assets: z.array(AssetResponseSchema).optional()
 	}).optional(),
 	assets: z.array(AssetResponseSchema),
@@ -46,6 +47,11 @@ export const SharedLinkResponseSchema = z.object({
 });
 
 export type SharedLinkResponse = z.infer<typeof SharedLinkResponseSchema>;
+
+export const SearchResponseSchema = z.object({
+	assets: z.object({ items: z.array(AssetResponseSchema) }),
+	albums: z.unknown().optional()
+});
 
 export type AuthorizedAlbumPage = {
 	album: { id: string; title: string; description: string; thumbnailAssetId?: string; startDate?: string; endDate?: string; updatedAt?: string };

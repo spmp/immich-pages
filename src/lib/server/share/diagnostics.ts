@@ -52,8 +52,16 @@ export function logDirectShareBoundary({ phase, method, pathname, status }: { ph
 	console.info(JSON.stringify({ event: `direct-share.request-${phase}`, method, pathname: redactPathname(pathname), ...(status === undefined ? {} : { status, statusCategory: statusCategory(status) }) }));
 }
 
-export function logImmichRequest({ endpoint, status, failureCategory }: { endpoint: 'shared-link' | 'thumbnail' | 'video' | 'version'; status: number | 'failure'; failureCategory?: 'timeout' | 'network' | 'response-too-large' | 'invalid-response' }) {
+export function logImmichRequest({ endpoint, status, failureCategory }: { endpoint: 'shared-link' | 'album-assets' | 'thumbnail' | 'video' | 'version'; status: number | 'failure'; failureCategory?: 'timeout' | 'network' | 'response-too-large' | 'invalid-response' }) {
 	console.info(JSON.stringify({ event: 'direct-share.immich-request', endpoint, status, ...(failureCategory ? { failureCategory } : {}) }));
+}
+
+export function logAlbumAssetsRequest({ status, failureCategory }: { status: number | 'failure'; failureCategory?: 'timeout' | 'network' | 'response-too-large' | 'invalid-response' }) {
+	console.info(JSON.stringify({ event: 'direct-share.album-assets-request', status, ...(failureCategory ? { failureCategory } : {}) }));
+}
+
+export function logAlbumAssetsResponse({ declaredCount, normalizedCount }: { declaredCount: number; normalizedCount: number }) {
+	console.info(JSON.stringify({ event: 'direct-share.album-assets-response', declaredCount, normalizedCount }));
 }
 
 export function logSharedLinkResponse({ type, topLevelAssetCount, nestedAlbumAssetCount, normalizedAssetCount }: { type: 'ALBUM' | 'INDIVIDUAL'; topLevelAssetCount: number; nestedAlbumAssetCount: number; normalizedAssetCount: number }) {

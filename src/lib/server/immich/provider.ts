@@ -1,14 +1,7 @@
 import { readBoundedText, requestImmich, shareQuery } from './client';
-import { AssetResponseSchema, SharedLinkResponseSchema, type SharedLinkResponse } from './types';
+import { AssetResponseSchema, SearchResponseSchema, SharedLinkResponseSchema, type SharedLinkResponse } from './types';
 import type { AuthContext } from './auth-context';
-import { logSharedLinkResponse, logShareAssetProjection } from '$server/share/diagnostics';
-
-function normalizeSharedLinkAssets(share: SharedLinkResponse): SharedLinkResponse {
-	const normalizedAssetCount = share.type === 'ALBUM' && share.assets.length === 0 ? share.album?.assets?.length ?? 0 : share.assets.length;
-	logShareAssetProjection({ type: share.type, topLevelAssetCount: share.assets.length, nestedAlbumAssetCount: share.album?.assets?.length ?? 0, normalizedAssetCount });
-	if (share.type !== 'ALBUM' || share.assets.length > 0 || !share.album?.assets) return share;
-	return { ...share, assets: share.album.assets };
-}
+import { logAlbumAssetsRequest, logAlbumAssetsResponse, logSharedLinkResponse, logShareAssetProjection } from '$server/share/diagnostics';
 
 export type ImmichProvider = {
 	getSharedLink: (context: AuthContext) => Promise<{ status: number; data?: SharedLinkResponse; error?: 'malformed' }>;
@@ -27,8 +20,14 @@ export function createImmichProvider(fetchImpl: typeof fetch = fetch, baseUrl = 
 			try {
 				const parsed = SharedLinkResponseSchema.safeParse(JSON.parse(await readBoundedText(response)));
 				if (!parsed.success) return { status: 422, error: 'malformed' };
-				const data = normalizeSharedLinkAssets(parsed.data);
-				logSharedLinkResponse({ type: data.type, topLevelAssetCount: parsed.data.assets.length, nestedAlbumAssetCount: parsed.data.album?.assets?.length ?? 0, normalizedAssetCount: data.assets.length });
+				let data = parsed.data;
+				if (data.type === 'ALBUM' && data.assets.length === 0 && data.album) {
+					const albumAssets = await fetchAlbumAssets(baseUrl, context, data.album.id, data.album.assetCount ?? 0, fetchImpl);
+					if (!albumAssets) return { status: 502 };
+					data = { ...data, assets: albumAssets };
+				}
+				logShareAssetProjection({ type: data.type, topLevelAssetCount: parsed.data.assets.length, nestedAlbumAssetCount: data.album?.assets?.length ?? 0, normalizedAssetCount: data.assets.length });
+				logSharedLinkResponse({ type: data.type, topLevelAssetCount: parsed.data.assets.length, nestedAlbumAssetCount: data.album?.assets?.length ?? 0, normalizedAssetCount: data.assets.length });
 				return { status: response.status, data };
 			} catch {
 				return { status: 422, error: 'malformed' };
@@ -62,4 +61,33 @@ export function createImmichProvider(fetchImpl: typeof fetch = fetch, baseUrl = 
 			}
 		}
 	};
+}
+
+async function fetchAlbumAssets(baseUrl: string, context: AuthContext, albumId: string, declaredCount: number, fetchImpl: typeof fetch): Promise<SharedLinkResponse['assets'] | null> {
+		let response: Response;
+		try {
+			response = await requestImmich(baseUrl, `/api/search/metadata?${shareQuery(context)}`, context, fetchImpl, {
+			method: 'POST',
+			body: JSON.stringify({ albumIds: [albumId], page: 1, size: 1000 }),
+			headers: { 'content-type': 'application/json' },
+			endpoint: 'album-assets'
+			});
+		} catch (error) {
+			logAlbumAssetsRequest({ status: 'failure', failureCategory: error instanceof Error && error.message === 'response-too-large' ? 'response-too-large' : error instanceof DOMException && error.name === 'AbortError' ? 'timeout' : 'network' });
+			return null;
+		}
+		logAlbumAssetsRequest({ status: response.status });
+		if (!response.ok) return null;
+		try {
+			const parsed = SearchResponseSchema.safeParse(JSON.parse(await readBoundedText(response)));
+			if (!parsed.success) {
+				logAlbumAssetsRequest({ status: 'failure', failureCategory: 'invalid-response' });
+				return null;
+			}
+			logAlbumAssetsResponse({ declaredCount, normalizedCount: parsed.data.assets.items.length });
+			return parsed.data.assets.items;
+		} catch (error) {
+			logAlbumAssetsRequest({ status: 'failure', failureCategory: error instanceof Error && error.message === 'response-too-large' ? 'response-too-large' : 'invalid-response' });
+			return null;
+		}
 }
