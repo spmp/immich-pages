@@ -5,6 +5,7 @@
 	let failed = $state(false);
 	const isVideo = $derived(asset.type === 'VIDEO');
 	const label = $derived(asset.caption ?? asset.fileName ?? (isVideo ? 'Journey video' : 'Journey photograph'));
+	const orientation = $derived(getPresentationOrientation(asset.width, asset.height));
 	const dimensions = $derived(getLightboxDimensions(asset.width, asset.height));
 	const lightboxWidth = $derived(dimensions.width);
 	const lightboxHeight = $derived(dimensions.height);
@@ -32,6 +33,12 @@
 		}
 		return { width: 1600, height: 900 };
 	}
+	function getPresentationOrientation(width: number | null | undefined, height: number | null | undefined) {
+		if (Number.isFinite(width) && Number.isFinite(height) && (width as number) > 0 && (height as number) > 0) {
+			return (height as number) > (width as number) ? 'portrait' : 'landscape';
+		}
+		return 'landscape';
+	}
 	function handleMediaError() {
 		failed = true;
 		reportJournalDebug('media-failure', { category: isVideo ? 'video' : 'image', status: 'unavailable', errorContext: isVideo ? 'video-load' : 'image-load' });
@@ -41,7 +48,7 @@
 	}
 </script>
 
-	<figure id={'asset-' + asset.id} class:failed>
+	<figure id={'asset-' + asset.id} class:failed class:portrait={orientation === 'portrait'} class:landscape={orientation === 'landscape'}>
 	{#if failed}<div class="unavailable" role="status">Media unavailable</div>
 	{:else if isVideo}
 		<div class="gallery-media-frame">
@@ -69,5 +76,9 @@
 	img, video { display: block; width: 100%; height: 100%; aspect-ratio: auto; object-fit: cover; }
 	figcaption { padding: 4px 8px 8px; color: #626860; font-size: 14px; line-height: 1.3; overflow-wrap: anywhere; }
 	.unavailable { min-height: 120px; display: grid; place-items: center; color: #626860; }
-	@media (min-width: 640px) { .gallery-media-frame { aspect-ratio: 4 / 3; } img, video { object-fit: contain; } }
+	@media (min-width: 640px) {
+		.gallery-media-frame { aspect-ratio: 4 / 3; }
+		figure.portrait .gallery-media-frame { aspect-ratio: 2 / 3; }
+		img, video { object-fit: contain; }
+	}
 </style>

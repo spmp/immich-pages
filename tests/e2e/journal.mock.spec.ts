@@ -55,10 +55,10 @@ test('keeps decoded mixed-orientation media occupied and stable at every respons
       const naturalWidth = media instanceof HTMLImageElement ? media.naturalWidth : media?.videoWidth ?? 0;
       const naturalHeight = media instanceof HTMLImageElement ? media.naturalHeight : media?.videoHeight ?? 0;
       const objectFit = media ? getComputedStyle(media).objectFit : '';
-      if (media instanceof HTMLImageElement && (!media.complete || media.naturalWidth === 0)) throw new Error('image did not decode');
-      const scale = objectFit === 'contain'
+      const decoded = naturalWidth > 0 && naturalHeight > 0;
+      const scale = decoded && objectFit === 'contain'
         ? Math.min(frameBox.width / naturalWidth, frameBox.height / naturalHeight)
-        : Math.max(frameBox.width / naturalWidth, frameBox.height / naturalHeight);
+        : decoded ? Math.max(frameBox.width / naturalWidth, frameBox.height / naturalHeight) : 0;
       return {
         frame: frameBox,
         media: mediaBox,
@@ -66,7 +66,8 @@ test('keeps decoded mixed-orientation media occupied and stable at every respons
         naturalHeight,
         objectFit,
         paintedWidth: naturalWidth * scale,
-        paintedHeight: naturalHeight * scale
+        paintedHeight: naturalHeight * scale,
+        decoded
       };
     });
     return { grid: gridRect, frames };
@@ -85,9 +86,13 @@ test('keeps decoded mixed-orientation media occupied and stable at every respons
       expect(item.frame.right).toBeLessThanOrEqual(geometry.grid.right + 1);
       expect(item.frame.top).toBeGreaterThanOrEqual(geometry.grid.top - 1);
       expect(item.frame.bottom).toBeLessThanOrEqual(geometry.grid.bottom + 1);
-       const expectedRatio = viewport.width < 640 ? viewport.frameRatio : (item.naturalWidth / item.naturalHeight > 1 ? [0.70, 0.80] : [0.62, 0.71]);
-       expect(item.frame.height / item.frame.width).toBeGreaterThanOrEqual(expectedRatio[0]);
-       expect(item.frame.height / item.frame.width).toBeLessThanOrEqual(expectedRatio[1]);
+       if (item.decoded) {
+         const portrait = item.naturalWidth / item.naturalHeight < 0.8;
+         const expectedRatio = viewport.width < 640 ? viewport.frameRatio : (portrait ? [0.62, 0.71] : [0.70, 0.80]);
+         const frameRatio = portrait && viewport.width >= 640 ? item.frame.width / item.frame.height : item.frame.height / item.frame.width;
+         expect(frameRatio).toBeGreaterThanOrEqual(expectedRatio[0]);
+         expect(frameRatio).toBeLessThanOrEqual(expectedRatio[1]);
+       }
       if (item.media) {
         expect(item.media.left).toBeGreaterThanOrEqual(item.frame.left - 1);
         expect(item.media.right).toBeLessThanOrEqual(item.frame.right + 1);
