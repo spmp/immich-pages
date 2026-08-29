@@ -77,7 +77,7 @@ describe('bounded share-bound video boundary', () => {
 		expect(response.headers.get('content-length')).toBe(String(fixture.byteLength));
 		expect(response.headers.get('accept-ranges')).toBe('bytes');
 		expect(response.headers.get('set-cookie')).toBeNull();
-		expect(Buffer.from(await response.arrayBuffer())).toEqual(fixture);
+		expect(Buffer.compare(Buffer.from(await response.arrayBuffer()), fixture)).toBe(0);
 	});
 
 	it.each([
@@ -92,6 +92,6 @@ describe('bounded share-bound video boundary', () => {
 		expect(response.status).toBe(206);
 		expect(response.headers.get('content-length')).toBe(String(body.byteLength));
 		expect(response.headers.get('content-range')).toBe(`bytes ${start}-${end}/${fixture.byteLength}`);
-		expect(Buffer.from(await response.arrayBuffer())).toEqual(body);
+		expect(Buffer.compare(Buffer.from(await response.arrayBuffer()), body)).toBe(0);
 	});
 });

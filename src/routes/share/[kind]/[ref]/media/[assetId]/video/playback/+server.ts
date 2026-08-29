@@ -5,8 +5,8 @@ import { parseSharedLinkRef } from '$server/share/ref';
 import { z } from 'zod';
 import { logShareMediaStatus } from '$server/share/diagnostics';
 
-const MAX_VIDEO_RESPONSE_BYTES = 16 * 1024 * 1024;
-const MAX_VIDEO_RANGE_BYTES = 8 * 1024 * 1024;
+const MAX_VIDEO_RESPONSE_BYTES = 64 * 1024 * 1024;
+const MAX_VIDEO_RANGE_BYTES = 64 * 1024 * 1024;
 const RANGE = /^bytes=(\d+)-(\d+)$/;
 const OPEN_RANGE = /^bytes=(\d+)-$/;
 
@@ -28,7 +28,7 @@ function rangeValue(value: string | null): { value?: string; max: number } | { i
 
 function safeHeaders(upstream: Response): Headers {
 	const headers = new Headers();
-	for (const name of ['content-type', 'content-range', 'accept-ranges']) {
+	for (const name of ['content-type', 'content-length', 'content-range', 'accept-ranges']) {
 		const value = upstream.headers.get(name);
 		if (value) headers.set(name, value);
 	}
@@ -69,7 +69,7 @@ export const GET: RequestHandler = async ({ params, request, locals, fetch }) =>
 	if (result.status !== 200 && result.status !== 206) return new Response('Immich is unavailable', { status: 502 });
 	const lengthText = result.response.headers.get('content-length');
 	const length = lengthText === null ? null : Number(lengthText);
-	if (length !== null && (!Number.isSafeInteger(length) || length > parsedRange.max)) return new Response('Media response unavailable', { status: 502 });
+	if (length !== null && (!Number.isSafeInteger(length) || length < 0 || length > parsedRange.max)) return new Response('Media response unavailable', { status: 502 });
 	const contentRange = result.response.headers.get('content-range');
 	if (result.status === 206 && (!contentRange || !/^bytes \d+-\d+\/\d+$/.test(contentRange))) return new Response('Media response unavailable', { status: 502 });
 	if (result.status === 206 && contentRange) {

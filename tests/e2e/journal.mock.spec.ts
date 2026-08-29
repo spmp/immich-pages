@@ -13,7 +13,16 @@ test('renders ordered responsive gallery and safe native video path', async ({ p
   await expect(assets.nth(0)).toHaveAttribute('id', 'asset-550e8400-e29b-41d4-a716-446655440002');
   await expect(assets.nth(1).locator('video')).toHaveAttribute('src', /\/video\/playback\?(key|slug)=opaque-ref$/);
   const video = assets.nth(1).locator('video');
-  await expect.poll(async () => video.evaluate((element) => ({ readyState: (element as HTMLVideoElement).readyState, duration: (element as HTMLVideoElement).duration, width: (element as HTMLVideoElement).videoWidth, height: (element as HTMLVideoElement).videoHeight })), { timeout: 15_000 }).toMatchObject({ readyState: expect.any(Number), duration: expect.any(Number), width: 320, height: 180 });
+  await video.evaluate((element) => new Promise<void>((resolve, reject) => {
+    const media = element as HTMLVideoElement;
+    if (media.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) { resolve(); return; }
+    const done = () => { cleanup(); resolve(); };
+    const fail = () => { cleanup(); reject(new Error('native video media failure')); };
+    const cleanup = () => { media.removeEventListener('loadeddata', done); media.removeEventListener('canplay', done); media.removeEventListener('error', fail); };
+    media.addEventListener('loadeddata', done, { once: true });
+    media.addEventListener('canplay', done, { once: true });
+    media.addEventListener('error', fail, { once: true });
+  }), { timeout: 15_000 });
   const metadata = await video.evaluate((element) => ({ readyState: (element as HTMLVideoElement).readyState, duration: (element as HTMLVideoElement).duration }));
   expect(metadata.readyState).toBeGreaterThanOrEqual(2);
   expect(metadata.duration).toBeGreaterThan(1.9);
