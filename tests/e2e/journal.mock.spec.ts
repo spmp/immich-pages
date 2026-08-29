@@ -9,7 +9,7 @@ test('renders ordered responsive gallery and safe native video path', async ({ p
   await page.goto('/share/key/opaque-ref');
   await expect(page.getByRole('heading', { name: 'Mock Journey' })).toBeVisible();
   const assets = page.locator('[id^="asset-"]');
-  await expect(assets).toHaveCount(3);
+   await expect(assets).toHaveCount(4);
   await expect(assets.nth(0)).toHaveAttribute('id', 'asset-550e8400-e29b-41d4-a716-446655440002');
   await expect(assets.nth(1).locator('video')).toHaveAttribute('src', /\/video\/playback\?(key|slug)=opaque-ref$/);
   const video = assets.nth(1).locator('video');
@@ -33,34 +33,51 @@ test('renders ordered responsive gallery and safe native video path', async ({ p
   await expect(page.locator('.gallery-grid')).toBeVisible();
 });
 
-test('keeps gallery frames bounded and landscape media useful at every responsive band', async ({ page }) => {
+test('keeps decoded mixed-orientation media occupied and stable at every responsive band', async ({ page }) => {
   const viewports = [
     { width: 390, height: 844, frameRatio: [0.95, 1.05] },
-    { width: 768, height: 1024, frameRatio: [0.70, 0.80] },
-    { width: 1024, height: 768, frameRatio: [0.70, 0.80] },
-    { width: 1440, height: 900, frameRatio: [0.70, 0.80] },
-    { width: 844, height: 390, frameRatio: [0.70, 0.80] }
+    { width: 768, height: 1024, frameRatio: [0.62, 0.80] },
+    { width: 1024, height: 768, frameRatio: [0.62, 0.80] },
+    { width: 1440, height: 900, frameRatio: [0.62, 0.80] },
+    { width: 844, height: 390, frameRatio: [0.62, 0.80] }
   ];
+
+  const measure = async () => page.locator('.gallery-grid').evaluate((grid) => {
+    const rect = (element: Element) => {
+      const box = element.getBoundingClientRect();
+      return { left: box.left, right: box.right, top: box.top, bottom: box.bottom, width: box.width, height: box.height };
+    };
+    const gridRect = rect(grid);
+    const frames = [...grid.querySelectorAll<HTMLElement>('.gallery-media-frame')].map((frame) => {
+      const media = frame.querySelector<HTMLImageElement | HTMLVideoElement>('img, video');
+      const frameBox = rect(frame);
+      const mediaBox = media ? rect(media) : null;
+      const naturalWidth = media instanceof HTMLImageElement ? media.naturalWidth : media?.videoWidth ?? 0;
+      const naturalHeight = media instanceof HTMLImageElement ? media.naturalHeight : media?.videoHeight ?? 0;
+      const objectFit = media ? getComputedStyle(media).objectFit : '';
+      if (media instanceof HTMLImageElement && (!media.complete || media.naturalWidth === 0)) throw new Error('image did not decode');
+      const scale = objectFit === 'contain'
+        ? Math.min(frameBox.width / naturalWidth, frameBox.height / naturalHeight)
+        : Math.max(frameBox.width / naturalWidth, frameBox.height / naturalHeight);
+      return {
+        frame: frameBox,
+        media: mediaBox,
+        naturalWidth,
+        naturalHeight,
+        objectFit,
+        paintedWidth: naturalWidth * scale,
+        paintedHeight: naturalHeight * scale
+      };
+    });
+    return { grid: gridRect, frames };
+  });
 
   for (const viewport of viewports) {
     await page.setViewportSize(viewport);
     await page.goto('/share/key/opaque-ref');
-    const geometry = await page.locator('.gallery-grid').evaluate((grid, expectedRatio) => {
-      const rect = (element: Element) => {
-        const box = element.getBoundingClientRect();
-        return { left: box.left, right: box.right, top: box.top, bottom: box.bottom, width: box.width, height: box.height };
-      };
-      const gridRect = rect(grid);
-      const frames = [...grid.querySelectorAll<HTMLElement>('.gallery-media-frame')].map((frame) => {
-        const media = frame.querySelector<HTMLImageElement | HTMLVideoElement>('img, video');
-        const frameBox = rect(frame);
-        const mediaBox = media ? rect(media) : null;
-        const naturalWidth = media instanceof HTMLImageElement ? media.naturalWidth : media?.videoWidth ?? 0;
-        const naturalHeight = media instanceof HTMLImageElement ? media.naturalHeight : media?.videoHeight ?? 0;
-        return { frame: frameBox, media: mediaBox, naturalWidth, naturalHeight };
-      });
-      return { grid: gridRect, frames, expectedRatio };
-    }, viewport.frameRatio);
+    await expect(page.locator('.gallery-grid img').nth(0)).toHaveJSProperty('naturalWidth', 1200);
+    await expect(page.locator('.gallery-grid img').nth(1)).toHaveJSProperty('naturalWidth', 800);
+    const geometry = await measure();
 
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
     for (const item of geometry.frames) {
@@ -68,8 +85,9 @@ test('keeps gallery frames bounded and landscape media useful at every responsiv
       expect(item.frame.right).toBeLessThanOrEqual(geometry.grid.right + 1);
       expect(item.frame.top).toBeGreaterThanOrEqual(geometry.grid.top - 1);
       expect(item.frame.bottom).toBeLessThanOrEqual(geometry.grid.bottom + 1);
-      expect(item.frame.height / item.frame.width).toBeGreaterThanOrEqual(geometry.expectedRatio[0]);
-      expect(item.frame.height / item.frame.width).toBeLessThanOrEqual(geometry.expectedRatio[1]);
+       const expectedRatio = viewport.width < 640 ? viewport.frameRatio : (item.naturalWidth / item.naturalHeight > 1 ? [0.70, 0.80] : [0.62, 0.71]);
+       expect(item.frame.height / item.frame.width).toBeGreaterThanOrEqual(expectedRatio[0]);
+       expect(item.frame.height / item.frame.width).toBeLessThanOrEqual(expectedRatio[1]);
       if (item.media) {
         expect(item.media.left).toBeGreaterThanOrEqual(item.frame.left - 1);
         expect(item.media.right).toBeLessThanOrEqual(item.frame.right + 1);
@@ -78,11 +96,37 @@ test('keeps gallery frames bounded and landscape media useful at every responsiv
       }
     }
 
-    const landscape = geometry.frames.find((item) => item.naturalWidth / item.naturalHeight > 1.3);
-    expect(landscape?.media).toBeTruthy();
-    expect((landscape!.media!.width / landscape!.frame.width)).toBeGreaterThanOrEqual(0.9);
-    expect((landscape!.media!.height / landscape!.frame.height)).toBeGreaterThanOrEqual(0.55);
+     const loaded = geometry.frames.filter((item) => item.naturalWidth > 0);
+     const landscape = loaded.find((item) => item.naturalWidth / item.naturalHeight > 1.3)!;
+     const portrait = loaded.find((item) => item.naturalWidth / item.naturalHeight < 0.8)!;
+     expect(landscape.paintedWidth / landscape.frame.width).toBeGreaterThanOrEqual(0.9);
+     expect(landscape.paintedHeight / landscape.frame.height).toBeGreaterThanOrEqual(viewport.width < 640 ? 0.95 : 0.70);
+     expect(portrait.paintedWidth / portrait.frame.width).toBeGreaterThanOrEqual(viewport.width < 640 ? 0.95 : 0.90);
+     expect(portrait.paintedHeight / portrait.frame.height).toBeGreaterThanOrEqual(viewport.width < 640 ? 0.95 : 0.90);
+     const baseline = loaded.map((item) => ({ width: item.frame.width, height: item.frame.height, paintedWidth: item.paintedWidth, paintedHeight: item.paintedHeight }));
+     await page.reload();
+     const reloaded = (await measure()).frames.filter((item) => item.naturalWidth > 0);
+     reloaded.forEach((item, index) => {
+       expect(Math.abs(item.frame.width - baseline[index].width)).toBeLessThanOrEqual(1);
+       expect(Math.abs(item.frame.height - baseline[index].height)).toBeLessThanOrEqual(1);
+       expect(Math.abs(item.paintedWidth - baseline[index].paintedWidth)).toBeLessThanOrEqual(1);
+       expect(Math.abs(item.paintedHeight - baseline[index].paintedHeight)).toBeLessThanOrEqual(1);
+     });
   }
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/share/key/opaque-ref');
+  const initial = (await measure()).frames.filter((item) => item.naturalWidth > 0)[1];
+  await page.setViewportSize({ width: 844, height: 390 });
+  await page.setViewportSize({ width: 390, height: 844 });
+  const returned = (await measure()).frames.filter((item) => item.naturalWidth > 0)[1];
+  expect(Math.abs(returned.frame.width - initial.frame.width)).toBeLessThanOrEqual(1);
+  expect(Math.abs(returned.frame.height - initial.frame.height)).toBeLessThanOrEqual(1);
+  await page.goto('/share/key/non-page');
+  await page.goBack();
+  const navigated = (await measure()).frames.filter((item) => item.naturalWidth > 0)[1];
+  expect(Math.abs(navigated.frame.width - initial.frame.width)).toBeLessThanOrEqual(1);
+  expect(Math.abs(navigated.frame.height - initial.frame.height)).toBeLessThanOrEqual(1);
 });
 
 test('preserves ordinary image anchor fallback and rejects unshared media', async ({ page }) => {

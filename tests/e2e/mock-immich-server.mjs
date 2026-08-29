@@ -3,6 +3,18 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 const videoFixture = readFileSync(fileURLToPath(new URL('../fixtures/video/chromium-2s-320x180-h264-aac.mp4', import.meta.url)));
+const landscapeFixture = readFileSync(fileURLToPath(new URL('../fixtures/images/landscape-1200x800.png', import.meta.url)));
+const portraitFixture = readFileSync(fileURLToPath(new URL('../fixtures/images/portrait-800x1200.png', import.meta.url)));
+
+const assets = [{
+  id: '550e8400-e29b-41d4-a716-446655440002', type: 'IMAGE', originalFileName: 'mock-proof.jpg', width: 1200, height: 800
+}, {
+  id: '550e8400-e29b-41d4-a716-446655440005', type: 'VIDEO', originalFileName: 'mock-clip.mp4', width: 640, height: 360, duration: 1000
+}, {
+  id: '550e8400-e29b-41d4-a716-446655440007', type: 'IMAGE', originalFileName: 'portrait-proof.jpg', width: 800, height: 1200
+}, {
+  id: '550e8400-e29b-41d4-a716-446655440006', type: 'IMAGE', originalFileName: 'failing-photo.jpg', width: 800, height: 1200
+}];
 
 const page = {
   id: '550e8400-e29b-41d4-a716-446655440000',
@@ -22,18 +34,10 @@ const page = {
     endDate: '2026-01-01T00:00:00.000Z',
     description: '---\nimmich-presentation:\n  type: journey\n  version: 1\n---\nMock browser proof'
   },
-   assets: [],
+  assets,
   showMetadata: true,
    allowDownload: false
 };
-
-const assets = [{
-  id: '550e8400-e29b-41d4-a716-446655440002', type: 'IMAGE', originalFileName: 'mock-proof.jpg', width: 1200, height: 800
-}, {
-  id: '550e8400-e29b-41d4-a716-446655440005', type: 'VIDEO', originalFileName: 'mock-clip.mp4', width: 640, height: 360, duration: 1000
-}, {
-  id: '550e8400-e29b-41d4-a716-446655440006', type: 'IMAGE', originalFileName: 'failing-photo.jpg', width: 800, height: 1200
-}];
 
 const server = http.createServer((request, response) => {
   const url = new URL(request.url ?? '/', 'http://mock-immich.test');
@@ -78,14 +82,15 @@ const server = http.createServer((request, response) => {
     return;
   }
 
-  if ((url.pathname === '/api/assets/550e8400-e29b-41d4-a716-446655440002/thumbnail' || url.pathname === '/api/assets/550e8400-e29b-41d4-a716-446655440005/thumbnail') && (url.searchParams.get('key') === 'opaque-ref' || url.searchParams.get('slug') === 'opaque-ref')) {
+  if ((url.pathname === '/api/assets/550e8400-e29b-41d4-a716-446655440002/thumbnail' || url.pathname === '/api/assets/550e8400-e29b-41d4-a716-446655440007/thumbnail') && (url.searchParams.get('key') === 'opaque-ref' || url.searchParams.get('slug') === 'opaque-ref')) {
     if (request.headers.cookie !== 'immich_shared_link_token=fixture' || request.headers.authorization !== 'Bearer fixture') {
       response.writeHead(403, { 'content-type': 'application/json', 'set-cookie': 'secret=must-not-relay; Path=/' });
       response.end(JSON.stringify({ error: 'thumbnail request context rejected' }));
       return;
     }
-    response.writeHead(200, { 'content-type': 'image/svg+xml' });
-    response.end('<svg xmlns="http://www.w3.org/2000/svg" width="2" height="2"><rect width="2" height="2" fill="teal"/></svg>');
+    const fixture = url.pathname.includes('550e8400-e29b-41d4-a716-446655440007') ? portraitFixture : landscapeFixture;
+    response.writeHead(200, { 'content-type': 'image/png', 'content-length': fixture.length });
+    response.end(fixture);
     return;
   }
 

@@ -76,4 +76,14 @@ describe('journal gallery contract', () => {
 		expect(asset).toContain('overflow: hidden');
 		expect(asset).toContain('object-fit: cover');
 	});
+
+	it('exposes orientation-aware frame geometry without coupling it to viewer dimensions', () => {
+		const asset = source('GalleryAsset');
+		expect(asset).toContain('portrait');
+		expect(asset).toContain('landscape');
+		expect(asset).toContain('aspect-ratio: 2 / 3');
+		expect(asset).toContain('aspect-ratio: 4 / 3');
+		expect(asset).toContain('data-pswp-width={lightboxWidth}');
+		expect(asset).toContain('data-pswp-height={lightboxHeight}');
+	});
 });
