@@ -2,8 +2,11 @@
 	import type { NormalizedAsset } from '$server/presentation/model';
 	import GalleryAsset from './GalleryAsset.svelte';
 	import Lightbox from './Lightbox.svelte';
+	import { onMount } from 'svelte';
+	import { reportJournalDebug } from './journal-debug';
 	let { assets, shareKind, shareRef }: { assets: NormalizedAsset[]; shareKind?: string; shareRef?: string } = $props();
 	const enriched = $derived(assets.map((asset) => ({ ...asset, videoHref: asset.videoHref ?? (asset.type === 'VIDEO' && shareKind && shareRef ? `/share/${shareKind}/${encodeURIComponent(shareRef)}/media/${encodeURIComponent(asset.id)}/video/playback` : undefined) })));
+	onMount(() => reportJournalDebug('gallery-state', { category: 'gallery', status: enriched.length === 0 ? 'empty' : 'success', assetCount: enriched.length }));
 </script>
 
 <section class="gallery" aria-labelledby="gallery-title">

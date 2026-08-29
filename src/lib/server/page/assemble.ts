@@ -22,16 +22,17 @@ export async function assembleDirectShare(provider: ImmichProvider, context: Aut
 	const hero = selectHero(document.config, share);
 	const template = normalizeTemplate(document.config);
 	const displayDate = deriveDisplayDate(document.config, share);
+	const mediaShareQuery = `?${context.shareRef.kind}=${encodeURIComponent(context.shareRef.value)}`;
 	const assets = share.assets.map((asset) => {
 		const normalized = {
 			id: asset.id, type: asset.type, fileName: asset.originalFileName,
-			thumbnail: `/share/${context.shareRef.kind}/${encodeURIComponent(context.shareRef.value)}/media/${encodeURIComponent(asset.id)}/thumbnail`
+			thumbnail: `/share/${context.shareRef.kind}/${encodeURIComponent(context.shareRef.value)}/media/${encodeURIComponent(asset.id)}/thumbnail${mediaShareQuery}`
 		};
 		return {
 			...normalized,
 			...(asset.width !== undefined ? { width: asset.width } : {}),
 			...(asset.height !== undefined ? { height: asset.height } : {}),
-			...(asset.type === 'VIDEO' ? { videoHref: `/share/${context.shareRef.kind}/${encodeURIComponent(context.shareRef.value)}/media/${encodeURIComponent(asset.id)}/video/playback` } : {})
+			...(asset.type === 'VIDEO' ? { videoHref: `/share/${context.shareRef.kind}/${encodeURIComponent(context.shareRef.value)}/media/${encodeURIComponent(asset.id)}/video/playback${mediaShareQuery}` } : {})
 		};
 	});
 	const album = {

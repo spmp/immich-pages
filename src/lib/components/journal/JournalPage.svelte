@@ -19,8 +19,8 @@
 	}
 
 	onMount(() => {
+		reportJournalDebug('page-model-load', { assetCount: page.assets.length, heroPresent: Boolean(page.hero), template: 'journal' });
 		if (!page.hero) reportJournalDebug('fallback', { category: 'hero', status: 'fallback' });
-		if (page.assets.length === 0) reportJournalDebug('empty', { category: 'gallery', status: 'empty' });
 	});
 </script>
 

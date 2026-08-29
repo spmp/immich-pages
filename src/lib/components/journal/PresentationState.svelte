@@ -5,7 +5,7 @@
 
 	let { state = 'temporary', retryHref = '.', copy: copyOverride }: { state?: PresentationStateKind; retryHref?: string; copy?: { heading: string; body: string; action: string } } = $props();
 	const copy = $derived(copyOverride ?? presentationCopy(state));
-	onMount(() => reportJournalDebug('fallback', { category: 'gallery', status: state === 'invalid' ? 'invalid' : state }));
+	onMount(() => { reportJournalDebug('presentation-state', { status: state === 'invalid' ? 'invalid' : state }); reportJournalDebug('fallback', { category: 'gallery', status: state === 'invalid' ? 'invalid' : state }); });
 </script>
 
 <section class="presentation-state" aria-labelledby="state-title" role="status">

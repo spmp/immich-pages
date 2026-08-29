@@ -9,18 +9,21 @@
 		failed = true;
 		reportJournalDebug('media-failure', { category: isVideo ? 'video' : 'image', status: 'unavailable' });
 	}
+	function handleMediaLoad() {
+		reportJournalDebug('media-load', { category: isVideo ? 'video' : 'image', status: 'success' });
+	}
 </script>
 
 <figure id={'asset-' + asset.id} class:failed>
 	{#if failed}<div class="unavailable" role="status">Media unavailable</div>
 	{:else if isVideo}
-		<video src={asset.videoHref} poster={asset.thumbnail} controls preload="metadata" aria-label={label} onerror={handleMediaError}>
+		<video src={asset.videoHref} poster={asset.thumbnail} controls preload="metadata" aria-label={label} onloadstart={handleMediaLoad} onerror={handleMediaError}>
 			<track kind="captions" />
 		</video>
 		<span class="video-action">Play video</span>
 	{:else}
 		<a href={asset.thumbnail} aria-label={label} data-pswp-width={asset.width ?? 1200} data-pswp-height={asset.height ?? 900}>
-			<img src={asset.thumbnail} alt={label} loading="lazy" width={asset.width ?? 1200} height={asset.height ?? 900} onerror={handleMediaError} />
+			<img src={asset.thumbnail} alt={label} loading="lazy" width={asset.width ?? 1200} height={asset.height ?? 900} onload={handleMediaLoad} onerror={handleMediaError} />
 		</a>
 	{/if}
 	{#if asset.caption || asset.fileName}<figcaption>{asset.caption ?? asset.fileName}</figcaption>{/if}

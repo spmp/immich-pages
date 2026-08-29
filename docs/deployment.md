@@ -20,6 +20,9 @@ routes are `/share/key/<opaque-ref>` and `/share/slug/<opaque-ref>`.
 ## Environment and container
 
 Set `IMMICH_BASE_URL` to the explicit trusted Immich origin. Set
+`PUBLIC_PAGES_DEBUG=false` in production to disable safe browser lifecycle
+diagnostics; diagnostics are enabled by default when unset for development
+review.
 `IMMICH_SUPPORTED_VERSION=3.1.0` so `/health/immich` checks the current Immich
 release target. Do not set an owner credential or API key for visitor rendering.
 The adapter-node image is a

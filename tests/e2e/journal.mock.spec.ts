@@ -11,7 +11,7 @@ test('renders ordered responsive gallery and safe native video path', async ({ p
   const assets = page.locator('[id^="asset-"]');
   await expect(assets).toHaveCount(3);
   await expect(assets.nth(0)).toHaveAttribute('id', 'asset-550e8400-e29b-41d4-a716-446655440002');
-  await expect(assets.nth(1).locator('video')).toHaveAttribute('src', /\/video\/playback$/);
+  await expect(assets.nth(1).locator('video')).toHaveAttribute('src', /\/video\/playback\?(key|slug)=opaque-ref$/);
   await expect(page.locator('.gallery-grid img').nth(0)).toHaveAttribute('loading', 'lazy');
   expect(await page.content()).not.toMatch(/original|download|127\.0\.0\.1:\d+/);
   await page.setViewportSize({ width: 1024, height: 768 });
@@ -21,7 +21,7 @@ test('renders ordered responsive gallery and safe native video path', async ({ p
 test('preserves ordinary image anchor fallback and rejects unshared media', async ({ page }) => {
   for (const kind of ['key', 'slug']) {
     await page.goto(`/share/${kind}/opaque-ref`);
-    await expect(page.locator('#asset-550e8400-e29b-41d4-a716-446655440002 a')).toHaveAttribute('href', /thumbnail$/);
+    await expect(page.locator('#asset-550e8400-e29b-41d4-a716-446655440002 a')).toHaveAttribute('href', /thumbnail\?(key|slug)=opaque-ref$/);
     expect((await page.request.get(`/share/${kind}/opaque-ref/media/550e8400-e29b-41d4-a716-446655440004/video/playback`)).status()).toBe(404);
     const media = await page.request.get(`/share/${kind}/opaque-ref/media/550e8400-e29b-41d4-a716-446655440005/video/playback`, { headers: { range: 'bytes=0-3' } });
     expect(media.status()).toBe(206);
@@ -45,7 +45,7 @@ test('formats dates for the browser locale without hydration warnings and serves
   expect([...expectedBytes.subarray(0, 4)]).toEqual([0, 0, 1, 0]);
 });
 
-test('keeps media diagnostics opt-in and secret-safe', async ({ page }) => {
+test('emits safe lifecycle diagnostics by default and can be disabled', async ({ page }) => {
   const debugMessages: string[] = [];
   page.on('console', (message) => {
     if (message.text().startsWith('[immich-pages-debug]')) debugMessages.push(message.text());
@@ -53,8 +53,11 @@ test('keeps media diagnostics opt-in and secret-safe', async ({ page }) => {
   await page.goto('/share/key/opaque-ref');
   await expect(page.locator('#asset-550e8400-e29b-41d4-a716-446655440006 .unavailable')).toBeVisible();
 
-  const enabled = process.env.PUBLIC_PAGES_DEBUG === 'true';
+  const enabled = process.env.PUBLIC_PAGES_DEBUG !== 'false';
   if (enabled) {
+    expect(debugMessages.some((message) => message.includes('"event":"page-model-load"'))).toBe(true);
+    expect(debugMessages.some((message) => message.includes('"event":"gallery-state"'))).toBe(true);
+    expect(debugMessages.some((message) => message.includes('"event":"hero-load"'))).toBe(true);
     expect(debugMessages.some((message) => message.includes('"event":"media-failure"'))).toBe(true);
     expect(debugMessages.some((message) => message.includes('"status":"unavailable"'))).toBe(true);
   } else {

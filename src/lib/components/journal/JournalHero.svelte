@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import type { NormalizedPageModel } from '$server/presentation/model';
+	import { reportJournalDebug } from './journal-debug';
 
 	let { title, hero, date, onExplore }: {
 		title: string;
@@ -30,11 +31,15 @@
 		onExplore();
 		document.getElementById('gallery-title')?.focus({ preventScroll: true });
 	}
+
+	function reportHero(status: 'success' | 'failure') {
+		reportJournalDebug('hero-load', { category: 'hero', status });
+	}
 </script>
 
 <header class="hero" aria-labelledby="page-title">
 	{#if hero}
-		<img class="hero-image" src={hero.thumbnail} alt="" fetchpriority="high" />
+		<img class="hero-image" src={hero.thumbnail} alt="" fetchpriority="high" onload={() => reportHero('success')} onerror={() => reportHero('failure')} />
 	{:else}
 		<div class="hero-fallback" aria-hidden="true"></div>
 	{/if}
