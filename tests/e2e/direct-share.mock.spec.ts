@@ -17,7 +17,7 @@ test('renders a key share with safe projected media and preserves query state', 
    await expect(page.locator('img').first()).toHaveAttribute('src', '/share/key/opaque-ref/media/550e8400-e29b-41d4-a716-446655440002/thumbnail?key=opaque-ref');
   const media = await page.request.get('/share/key/opaque-ref/media/550e8400-e29b-41d4-a716-446655440002/thumbnail');
   expect(media.status()).toBe(200);
-  expect(media.headers()['content-type']).toContain('image/svg+xml');
+  expect(media.headers()['content-type']).toContain('image/png');
   expect(await media.body()).toBeTruthy();
   expect(page.url()).toContain('/share/key/opaque-ref?view=gallery');
 });
