@@ -20,7 +20,10 @@ export type FrontmatterOutcome =
 
 function unknownCount(value: Record<string, unknown>): number {
 	const known = new Set(['type', 'version', 'template', 'hero', 'date', 'dateRange', 'map', 'gallery']);
-	return Object.keys(value).filter((key) => !known.has(key)).length;
+	if (Object.keys(value).some((key) => !known.has(key))) return 1;
+	const map = value.map;
+	if (map && typeof map === 'object' && !Array.isArray(map) && Object.keys(map).some((key) => !new Set(['enabled', 'source', 'styleName', 'markerActivation']).has(key))) return 1;
+	return 0;
 }
 
 function withinBounds(value: unknown, depth = 0): boolean {
