@@ -28,6 +28,7 @@ export const MapMarkerResponseSchema = z.object({
 	country: z.string().nullable()
 });
 export const MapMarkerResponseArraySchema = z.array(MapMarkerResponseSchema);
+export type MapMarkerResponse = z.infer<typeof MapMarkerResponseSchema>;
 
 export const SharedLinkResponseSchema = z.object({
 	id: IdentifierSchema,

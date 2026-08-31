@@ -25,9 +25,10 @@ export function deriveAutoRoute(markers: readonly MapMarker[], assets: readonly 
 		.filter((item): item is { marker: MapMarker; source: { asset: SharedAsset; position: number } } => Boolean(item.source))
 		.sort((a, b) => timestamp(a.source.asset) - timestamp(b.source.asset) || a.source.position - b.source.position);
 	const retained: MapMarker[] = [];
+	let overflow = false;
 	for (const item of ordered) {
-		if (retained.length >= MAX_ROUTE_VERTICES) break;
+		if (retained.length >= MAX_ROUTE_VERTICES) { overflow = true; break; }
 		if (!retained.length || distanceMeters(retained[retained.length - 1], item.marker) > DUPLICATE_DISTANCE_METERS) retained.push(item.marker);
 	}
-	return { routeData: retained.length >= 2 ? { type: 'LineString', coordinates: retained.map(({ lon, lat }) => [lon, lat]) } : null, warnings: [] };
+	return { routeData: retained.length >= 2 ? { type: 'LineString', coordinates: retained.map(({ lon, lat }) => [lon, lat]) } : null, warnings: overflow ? ['map-route-limit'] : [] };
 }

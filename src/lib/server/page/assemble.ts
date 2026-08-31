@@ -61,11 +61,15 @@ export async function assembleDirectShare(provider: ImmichProvider, context: Aut
 		warnings: [...document.warnings, ...narrative.warnings, ...(template.warning ? [template.warning] : [])], errors: []
 	};
 	if (document.config.map.enabled) {
-		const markerResponse = await provider.getMapMarkers(context, share.album.id);
+		const markerResponse = share.showMetadata ? await provider.getMapMarkers(context, share.album.id) : { status: 200, data: [] };
 		const projected = markerResponse.data ? projectMapMarkers(markerResponse.data, share.assets) : { markers: [], warnings: ['map-no-location'] as const };
 		normalized.markers = projected.markers;
 		normalized.warnings.push(...projected.warnings);
-		if (document.config.map.source === 'auto') normalized.routeData = deriveAutoRoute(projected.markers, share.assets).routeData;
+		if (document.config.map.source === 'auto') {
+			const route = deriveAutoRoute(projected.markers, share.assets);
+			normalized.routeData = route.routeData;
+			normalized.warnings.push(...route.warnings);
+		}
 		else normalized.warnings.push('map-source-unsupported');
 		const style = resolveMapStyle({ styleName: document.config.map.styleName });
 		if (style.kind === 'resolved') normalized.mapStyle = style;

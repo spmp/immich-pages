@@ -1,4 +1,4 @@
-export type MapWarning = 'map-marker-limit' | 'collocated-marker-limit' | 'map-source-unsupported' | 'map-no-location' | 'map-style-unavailable';
+export type MapWarning = 'map-marker-limit' | 'collocated-marker-limit' | 'map-source-unsupported' | 'map-no-location' | 'map-style-unavailable' | 'map-route-limit';
 
 export type MapMarker = {
 	id: string;
