@@ -43,6 +43,19 @@ describe('v3 direct-share matrix', () => {
 		expect(new Headers(calls[1].init?.headers).get('authorization')).toBe('Bearer visitor');
 	});
 
+	it('retrieves only the exact share-aware map marker contract', async () => {
+		const marker = { id: v3.assets[0].id, lat: 51.5, lon: -0.1, city: null, state: null, country: 'UK' };
+		const fetchMock = vi.fn(async (input: URL | RequestInfo, init?: RequestInit) => {
+			const url = new URL(input.toString());
+			expect(url.pathname).toBe('/api/albums/550e8400-e29b-41d4-a716-446655440003/map-markers');
+			expect(url.search).toBe('?key=opaque-ref');
+			expect([...new Headers(init?.headers).keys()].sort()).toEqual(['authorization', 'cookie']);
+			return new Response(JSON.stringify([marker]));
+		});
+		const result = await createImmichProvider(fetchMock, 'https://immich.example').getMapMarkers({ shareRef: { kind: 'key', value: 'opaque-ref' }, cookie: 'visitor=1', authorization: 'Bearer visitor' }, v3.album.id);
+		expect(result).toEqual({ status: 200, data: [marker] });
+	});
+
 	it('keeps process health independent from Immich', async () => {
 		expect(getHealth().status).toBe(200);
 	});

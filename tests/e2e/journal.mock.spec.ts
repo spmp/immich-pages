@@ -195,6 +195,22 @@ test('keeps the hero CTA usable and collapses the empty Phase 3 seam', async ({ 
   await expect(page.locator('.eyebrow')).toHaveCount(0);
 });
 
+test('renders the local MapLibre journey and focuses an authorized gallery asset', async ({ page }) => {
+  const externalRequests: string[] = [];
+  page.on('request', (request) => {
+    if (request.url().includes('map') && !request.url().includes('127.0.0.1')) externalRequests.push(request.url());
+  });
+  await page.goto('/share/key/map-ref');
+  await expect(page.getByRole('heading', { name: 'Journey map' })).toBeVisible();
+  await expect(page.locator('.journey-slot.enabled canvas').first()).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByText('Interactive journey map')).toBeVisible();
+  await page.getByRole('button', { name: 'London' }).click();
+  await expect(page).toHaveURL(/#asset-550e8400-e29b-41d4-a716-446655440002$/);
+  await expect(page.locator('#asset-550e8400-e29b-41d4-a716-446655440002')).toHaveClass(/map-focus-highlight/);
+  expect(externalRequests).toEqual([]);
+  expect(await page.content()).not.toMatch(/Bearer fixture|immich_shared_link_token|originalPath|assetResponseDto/i);
+});
+
 test('opens the image viewer with contained focus, announcements, and clean Back behavior', async ({ page }) => {
   await page.goto('/share/key/opaque-ref');
   await expect(page.locator('[data-lightbox-status]')).toHaveAttribute('data-lightbox-status', 'ready');

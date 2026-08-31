@@ -39,6 +39,11 @@ const page = {
    allowDownload: false
 };
 
+const mapMarkers = [
+  { id: assets[0].id, lat: 51.5074, lon: -0.1278, city: 'London', state: null, country: 'United Kingdom' },
+  { id: assets[2].id, lat: 48.8566, lon: 2.3522, city: 'Paris', state: null, country: 'France' }
+];
+
 const server = http.createServer((request, response) => {
   const url = new URL(request.url ?? '/', 'http://mock-immich.test');
   if (url.pathname === '/api/server/version') {
@@ -66,9 +71,34 @@ const server = http.createServer((request, response) => {
     }
     const body = ref === 'non-page'
       ? { ...page, album: { ...page.album, description: 'An ordinary album' } }
-      : page;
+      : ref === 'map-ref'
+        ? { ...page, assets: assets.map((asset, index) => index === 0 ? { ...asset, localDateTime: '2026-01-01T00:00:00.000Z' } : index === 2 ? { ...asset, localDateTime: '2026-01-02T00:00:00.000Z' } : asset), album: { ...page.album, description: '---\nimmich-presentation:\n  type: journey\n  version: 1\n  map:\n    enabled: true\n    source: auto\n    styleName: quiet-atlas\n---\nMap browser proof' } }
+        : page;
     response.writeHead(200, { 'content-type': 'application/json', 'set-cookie': 'secret=must-not-relay; Path=/' });
     response.end(JSON.stringify({ ...body, album: { ...body.album, assetCount: assets.length } }));
+    return;
+  }
+
+  if (url.pathname === `/api/albums/${page.album.id}/map-markers` && (url.searchParams.has('key') || url.searchParams.has('slug'))) {
+    if (request.headers.cookie !== 'immich_shared_link_token=fixture' || request.headers.authorization !== 'Bearer fixture') {
+      response.writeHead(403, { 'content-type': 'application/json' });
+      response.end(JSON.stringify({ error: 'map request context rejected' }));
+      return;
+    }
+    if (url.searchParams.get('key') !== 'opaque-ref' && url.searchParams.get('slug') !== 'opaque-ref' && url.searchParams.get('key') !== 'map-ref' && url.searchParams.get('slug') !== 'map-ref') {
+      response.writeHead(404, { 'content-type': 'application/json' });
+      response.end(JSON.stringify({ error: 'map share mismatch' }));
+      return;
+    }
+    response.writeHead(200, { 'content-type': 'application/json' });
+    response.end(JSON.stringify(mapMarkers));
+    return;
+  }
+
+  if (url.pathname === '/api/map-style.json') {
+    if (request.method === 'OPTIONS') { response.writeHead(204, { 'access-control-allow-origin': 'http://127.0.0.1:4173', 'access-control-allow-methods': 'GET', 'access-control-allow-headers': 'authorization, content-type' }); response.end(); return; }
+    response.writeHead(200, { 'content-type': 'application/json', 'access-control-allow-origin': 'http://127.0.0.1:4173' });
+    response.end(readFileSync(fileURLToPath(new URL('../fixtures/map/style.json', import.meta.url))));
     return;
   }
 

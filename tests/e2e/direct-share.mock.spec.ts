@@ -48,3 +48,9 @@ test('rejects a request without the disposable visitor context', async ({ browse
   expect(response.status()).toBe(403);
   await context.close();
 });
+
+test('keeps map-marker retrieval tied to the explicit share reference', async ({ page }) => {
+  await page.goto('/share/slug/map-ref');
+  await expect(page.getByRole('heading', { name: 'Journey map' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'London, United Kingdom' })).toBeVisible();
+});

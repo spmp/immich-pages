@@ -3,6 +3,7 @@ import { defineConfig } from 'vitest/config';
 import { readFileSync } from 'node:fs';
 
 export default defineConfig({
+  optimizeDeps: { exclude: ['maplibre-gl'] },
   plugins: [sveltekit(), {
     name: 'favicon-content-type',
     enforce: 'pre',
