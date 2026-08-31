@@ -16,7 +16,7 @@ describe('journal presentation contract', () => {
 
 	it('keeps the map seam empty and the narrative server-rendered', () => {
 		const seam = component('JourneyMapSlot');
-		expect(seam).not.toMatch(/maplibre|<canvas|<iframe|tile layer/i);
+		expect(seam).toMatch(/import\('maplibre-gl'\)/);
 		expect(seam).toContain('data-phase="3-map-seam"');
 		expect(seam).toContain('height: 0');
 		expect(seam).toContain('overflow: hidden');

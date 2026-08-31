@@ -3,6 +3,7 @@
 	import type { MapMarker, MapRoute } from '$server/map/types';
 	import { focusGalleryAsset, type MarkerActivation } from './map-focus';
 	import 'maplibre-gl/dist/maplibre-gl.css';
+	const MAX_COLLOCATED_LEAVES = 500;
 
 	let { routeData = null, markers = [], enabled = false, activation = 'gallery', style, warnings = [] }: { routeData?: MapRoute | null; markers?: MapMarker[]; enabled?: boolean; activation?: MarkerActivation; style?: string; warnings?: string[] } = $props();
 	let mapElement = $state<HTMLDivElement | undefined>(undefined);
@@ -50,7 +51,7 @@
 						const feature = event.features?.[0]; const source = map.getSource('journey-markers'); if (!feature || !source) return;
 						try {
 							const count = Number(feature.properties?.point_count ?? 0);
-							const leaves = leafMarkers(await source.getClusterLeaves(Number(feature.properties.cluster_id), 500, 0));
+							const leaves = leafMarkers(await source.getClusterLeaves(Number(feature.properties.cluster_id), MAX_COLLOCATED_LEAVES, 0));
 							const collocated = leaves.length > 1 && leaves.every((leaf) => leaf.lat === leaves[0].lat && leaf.lon === leaves[0].lon);
 							if (collocated) { clusterLeaves = leaves; clusterMessage = count > 500 ? 'collocated-marker-limit' : ''; return; }
 							const zoom = await source.getClusterExpansionZoom(Number(feature.properties.cluster_id)); map.easeTo({ center: feature.geometry.coordinates, zoom });

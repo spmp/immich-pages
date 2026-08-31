@@ -12,7 +12,7 @@ function usableCoordinate(marker: MapMarkerResponse): boolean {
 }
 
 function labelFor(marker: MapMarkerResponse): string | undefined {
-	const label = [marker.city, marker.state, marker.country].filter(Boolean).join(', ');
+	const label = [marker.city, marker.state, marker.country].map((value) => value?.trim() || null).filter(Boolean).join(', ');
 	return label ? label.slice(0, 256) : undefined;
 }
 

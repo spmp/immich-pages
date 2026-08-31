@@ -15,4 +15,16 @@ describe('journey map component contract', () => {
 	it('checks membership before exact gallery focus and highlight', () => {
 		expect(focus).toMatch(/allowedIds\.has\(assetId\)/); expect(focus).toContain('asset-${assetId}'); expect(focus).toContain('scrollIntoView'); expect(focus).toContain('map-focus-highlight');
 	});
+	it('keeps semantic fallbacks and accessibility surfaces independent of WebGL', () => {
+		expect(source).toContain('Map unavailable; the narrative and gallery remain available.');
+		expect(source).toContain('No location data is available for this journey.');
+		expect(source).toContain('aria-live="polite"');
+		expect(source).toContain('prefers-reduced-motion');
+		expect(source).toContain('min-height: 280px');
+	});
+	it('keeps bounded clusters and all semantic marker choices reachable', () => {
+		expect(source).toContain('getClusterLeaves(Number(feature.properties.cluster_id), MAX_COLLOCATED_LEAVES, 0)');
+		expect(source).toContain('markers as marker');
+		expect(source).toContain('MAX_COLLOCATED_LEAVES');
+	});
 });

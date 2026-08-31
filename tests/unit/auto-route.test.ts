@@ -21,4 +21,17 @@ describe('automatic map route', () => {
 		expect(deriveAutoRoute([], []).routeData).toBeNull();
 		expect(deriveAutoRoute([marker('a', 0, 0)], [asset('a', '2024-01-01')]).routeData).toBeNull();
 	});
+
+	it('caps route vertices and reports explicit overflow', () => {
+		const assets = Array.from({ length: 501 }, (_, n) => asset(`asset-${n}`, `2024-01-${String((n % 28) + 1).padStart(2, '0')}T${String(Math.floor(n / 28)).padStart(2, '0')}:00:00Z`));
+		const markers = assets.map((item, n) => marker(item.id, n % 90, n % 180));
+		const result = deriveAutoRoute(markers, assets);
+		expect(result.routeData?.coordinates).toHaveLength(500);
+		expect(result.warnings).toContain('map-route-limit');
+	});
+
+	it('does not make route requests or include unreferenced markers', () => {
+		const result = deriveAutoRoute([marker('foreign', 1, 1)], [asset('authorized', '2024-01-01')]);
+		expect(result).toEqual({ routeData: null, warnings: [] });
+	});
 });
