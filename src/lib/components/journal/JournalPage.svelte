@@ -28,7 +28,7 @@
 
 <main class="journal">
 	<JournalHero title={page.album.title} hero={page.hero} {date} onExplore={exploreGallery} />
-	<JourneyMapSlot routeData={page.routeData} markers={page.markers} />
+	<JourneyMapSlot routeData={page.routeData} markers={page.markers} enabled={page.presentation.map.enabled} activation={page.presentation.map.markerActivation} style={page.mapStyle?.url} warnings={page.warnings} />
 	<JournalNarrative html={page.narrativeHtml} />
 	<section class="gallery"><JournalGallery assets={page.assets} /></section>
 	<!-- GalleryAsset owns id={'asset-' + asset.id}, loading="lazy", and mixed media markup. -->
