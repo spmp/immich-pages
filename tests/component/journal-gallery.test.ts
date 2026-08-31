@@ -86,4 +86,13 @@ describe('journal gallery contract', () => {
 		expect(asset).toContain('data-pswp-width={lightboxWidth}');
 		expect(asset).toContain('data-pswp-height={lightboxHeight}');
 	});
+
+	it('keeps marker handoff targets focusable and lightbox-compatible', () => {
+		const asset = source('GalleryAsset');
+		const page = source('JournalPage');
+		expect(asset).toContain('tabindex="-1"');
+		expect(asset).toContain('map-focus-highlight');
+		expect(page).toContain('markerActivation');
+		expect(page).toContain('mapStyle?.url');
+	});
 });

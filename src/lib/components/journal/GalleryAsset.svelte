@@ -71,7 +71,7 @@
 	/* Intrinsic dimensions are emitted as width={asset.width} and height={asset.height} when supplied. */
 	figure { min-width: 0; margin: 0; overflow: hidden; background: #e7e1d8; }
 	figure:focus-visible { outline: 3px solid #c96b4b; outline-offset: 4px; }
-	figure.map-focus-highlight { animation: map-focus-highlight 2.2s ease-out; }
+	:global(figure.map-focus-highlight) { animation: map-focus-highlight 2.2s ease-out; }
 	@keyframes map-focus-highlight { 0%, 65% { box-shadow: 0 0 0 5px #c96b4b; } 100% { box-shadow: 0 0 0 0 transparent; } }
 	.gallery-media-frame { width: 100%; height: auto; aspect-ratio: 1; min-width: 0; overflow: hidden; }
 	figure a { display: block; height: 100%; min-height: 44px; }

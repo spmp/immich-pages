@@ -10,6 +10,7 @@ describe('journey map component contract', () => {
 	});
 	it('uses approved style and server marker data without browser Immich access', () => {
 		expect(source).toContain('clusterRadius: 48'); expect(source).toContain('clusterMaxZoom: 14'); expect(source).not.toMatch(/fetch\(|\/api\/|authorization|cookie/i);
+		expect(source).toContain('getClusterExpansionZoom'); expect(source).toContain('getClusterLeaves'); expect(source).toContain('collocated-marker-limit');
 	});
 	it('checks membership before exact gallery focus and highlight', () => {
 		expect(focus).toMatch(/allowedIds\.has\(assetId\)/); expect(focus).toContain('asset-${assetId}'); expect(focus).toContain('scrollIntoView'); expect(focus).toContain('map-focus-highlight');

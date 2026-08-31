@@ -2,7 +2,7 @@ export type MarkerActivation = 'gallery' | 'lightbox';
 
 /** Move map selection into the already-rendered, authorized gallery. */
 export function focusGalleryAsset(assetId: string, allowedIds: ReadonlySet<string> | readonly string[], activation: MarkerActivation = 'gallery'): boolean {
-	const allowed = allowedIds instanceof Set ? allowedIds.has(assetId) : allowedIds.includes(assetId);
+	const allowed = allowedIds instanceof Set ? allowedIds.has(assetId) : Array.from(allowedIds).includes(assetId);
 	if (!allowed || typeof document === 'undefined') return false;
 	const figure = document.getElementById(`asset-${assetId}`);
 	if (!figure) return false;
