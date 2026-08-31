@@ -28,4 +28,22 @@ describe('presentation frontmatter', () => {
 		expect(unknown).toMatchObject({ kind: 'valid', warnings: ['unknown-fields'] });
 		expect(JSON.stringify(unknown)).not.toContain('secret');
 	});
+
+	it('defaults map activation off and accepts only named presentation settings', () => {
+		const defaultMap = parsePresentationDocument('---\nimmich-presentation:\n  type: journey\n  version: 1\n---');
+		expect(defaultMap.kind).toBe('valid');
+		if (defaultMap.kind === 'valid') expect(defaultMap.config.map).toEqual({ enabled: false, source: 'auto', styleName: 'quiet-atlas', markerActivation: 'gallery' });
+		const enabled = parsePresentationDocument('---\nimmich-presentation:\n  type: journey\n  version: 1\n  map:\n    enabled: true\n    source: waypoints\n    styleName: quiet-atlas\n    markerActivation: lightbox\n---');
+		expect(enabled.kind).toBe('valid');
+		if (enabled.kind === 'valid') expect(enabled.config.map).toMatchObject({ enabled: true, source: 'waypoints', markerActivation: 'lightbox' });
+	});
+
+	it('does not permit arbitrary style URLs to become schema values', () => {
+		const result = parsePresentationDocument('---\nimmich-presentation:\n  type: journey\n  version: 1\n  map:\n    enabled: true\n    styleUrl: https://evil.example/style.json\n---');
+		expect(result.kind).toBe('valid');
+		if (result.kind === 'valid') {
+			expect(result.config.map).not.toHaveProperty('styleUrl');
+			expect(result.warnings).toContain('unknown-fields');
+		}
+	});
 });
