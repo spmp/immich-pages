@@ -1,11 +1,7 @@
 import http from 'node:http';
+import { readFileSync } from 'node:fs';
 
-const page = {
-  album: { id: '550e8400-e29b-41d4-a716-446655440003', albumName: 'Recreated Journey', description: '---\nimmich-presentation:\n  type: journey\n  version: 1\n---\nRecreated safely.' },
-  assets: [{ id: '550e8400-e29b-41d4-a716-446655440002', type: 'IMAGE', originalFileName: 'recreated.jpg' }],
-  showMetadata: true,
-  allowDownload: false
-};
+const page = JSON.parse(readFileSync(new URL('./shared-link-response.json', import.meta.url), 'utf8'));
 
 http.createServer((request, response) => {
   if (request.url === '/api/server/version') {

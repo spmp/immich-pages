@@ -25,6 +25,7 @@ services:
     command: ["node", "/fixture/server.mjs"]
     volumes:
       - ./server.mjs:/fixture/server.mjs:ro
+      - ./shared-link-response.json:/fixture/shared-link-response.json:ro
     networks: [stateless]
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3001/api/server/version').then(r => { if (!r.ok) process.exit(1) }).catch(() => process.exit(1))"]
