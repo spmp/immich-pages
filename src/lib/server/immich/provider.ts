@@ -1,5 +1,5 @@
 import { readBoundedText, requestImmich, shareQuery } from './client';
-import { AssetResponseSchema, SearchResponseSchema, SharedLinkResponseSchema, type SharedLinkResponse } from './types';
+import { AssetResponseSchema, MapMarkerResponseArraySchema, SearchResponseSchema, SharedLinkResponseSchema, type SharedLinkResponse } from './types';
 import type { AuthContext } from './auth-context';
 import { logAlbumAssetsRequest, logAlbumAssetsResponse, logSharedLinkResponse, logShareAssetProjection } from '$server/share/diagnostics';
 
@@ -7,6 +7,7 @@ export type ImmichProvider = {
 	getSharedLink: (context: AuthContext) => Promise<{ status: number; data?: SharedLinkResponse; error?: 'malformed' }>;
 	getThumbnail: (context: AuthContext, assetId: string) => Promise<{ status: number; response?: Response; error?: 'malformed' | 'asset-mismatch' }>;
 	getVideoPlayback: (context: AuthContext, assetId: string, range?: string) => Promise<{ status: number; response?: Response; error?: 'malformed' | 'asset-mismatch' | 'not-video' }>;
+	getMapMarkers: (context: AuthContext, albumId: string) => Promise<{ status: number; data?: unknown; error?: 'malformed' }>;
 	getVersion: () => Promise<{ status: number; version?: string }>;
 };
 
@@ -48,6 +49,14 @@ export function createImmichProvider(fetchImpl: typeof fetch = fetch, baseUrl = 
 			if (asset.type !== 'VIDEO') return { status: 404, error: 'not-video' };
 			const response = await requestImmich(baseUrl, `/api/assets/${encodeURIComponent(assetId)}/video/playback?${shareQuery(context)}`, context, fetchImpl, { endpoint: 'video', headers: range ? { Range: range } : undefined });
 			return { status: response.status, response };
+		},
+		async getMapMarkers(context, albumId) {
+			const response = await requestImmich(baseUrl, `/api/albums/${encodeURIComponent(albumId)}/map-markers?${shareQuery(context)}`, context, fetchImpl, { endpoint: 'map-markers' });
+			if (!response.ok) return { status: response.status };
+			try {
+				const parsed = MapMarkerResponseArraySchema.safeParse(JSON.parse(await readBoundedText(response)));
+				return parsed.success ? { status: response.status, data: parsed.data } : { status: 422, error: 'malformed' };
+			} catch { return { status: 422, error: 'malformed' }; }
 		},
 		async getVersion() {
 			const response = await requestImmich(baseUrl, '/api/server/version', { shareRef: { kind: 'key', value: 'health' }, cookie: null, authorization: null }, fetchImpl, { endpoint: 'version' });

@@ -16,8 +16,10 @@ export const PresentationSchema = z.object({
 	dateRange: z.object({ start: DateText.optional(), end: DateText.optional() }).optional(),
 	map: z.object({
 		enabled: z.boolean().default(false),
-		source: z.enum(['auto', 'waypoints', 'geojson', 'brouter-web']).default('auto')
-	}).default({ enabled: false, source: 'auto' }),
+		source: z.enum(['auto', 'waypoints', 'geojson', 'brouter-web']).default('auto'),
+		styleName: z.enum(['quiet-atlas']).default('quiet-atlas'),
+		markerActivation: z.enum(['gallery', 'lightbox']).default('gallery')
+	}).default({ enabled: false, source: 'auto', styleName: 'quiet-atlas', markerActivation: 'gallery' }),
 	gallery: z.object({
 		sort: z.literal('album').default('album'),
 		showCaptions: z.boolean().default(true),

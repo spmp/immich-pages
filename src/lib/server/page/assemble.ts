@@ -5,6 +5,9 @@ import { parsePresentationDocument } from '$server/presentation/frontmatter';
 import { renderMarkdown } from '$server/presentation/markdown';
 import { deriveDisplayDate, heroSelection, normalizeTemplate, selectHero, type NormalizedPageModel } from '$server/presentation/model';
 import { logMetadataParse, logModelOutput, logShareHeroSelection } from '$server/share/diagnostics';
+import { projectMapMarkers } from '$server/map/markers';
+import { deriveAutoRoute } from '$server/map/auto-route';
+import { resolveMapStyle } from '$server/map/style-registry';
 
 export async function assembleDirectShare(provider: ImmichProvider, context: AuthContext, requestId: string): Promise<DirectShareOutcome> {
 	let result: Awaited<ReturnType<ImmichProvider['getSharedLink']>>;
@@ -57,6 +60,17 @@ export async function assembleDirectShare(provider: ImmichProvider, context: Aut
 		showMetadata: share.showMetadata, allowDownload: share.allowDownload,
 		warnings: [...document.warnings, ...narrative.warnings, ...(template.warning ? [template.warning] : [])], errors: []
 	};
+	if (document.config.map.enabled) {
+		const markerResponse = await provider.getMapMarkers(context, share.album.id);
+		const projected = markerResponse.data ? projectMapMarkers(markerResponse.data, share.assets) : { markers: [], warnings: ['map-no-location'] as const };
+		normalized.markers = projected.markers;
+		normalized.warnings.push(...projected.warnings);
+		if (document.config.map.source === 'auto') normalized.routeData = deriveAutoRoute(projected.markers, share.assets).routeData;
+		else normalized.warnings.push('map-source-unsupported');
+		const style = resolveMapStyle({ styleName: document.config.map.styleName });
+		if (style.kind === 'resolved') normalized.mapStyle = style;
+		else normalized.warnings.push('map-style-unavailable');
+	}
 	if (displayDate) normalized.album = { ...normalized.album, startDate: displayDate.start, endDate: displayDate.end };
 	logModelOutput({ assetCount: assets.length, imageCount: assets.filter((asset) => asset.type !== 'VIDEO').length, videoCount: assets.filter((asset) => asset.type === 'VIDEO').length, heroPresent: Boolean(normalized.hero) });
 	return { kind: 'page', page: normalized };

@@ -1,5 +1,6 @@
 import type { SharedLinkResponse } from '$server/immich/types';
 import type { PresentationConfig } from './schema';
+import type { MapMarker, MapRoute } from '$server/map/types';
 
 export type NormalizedAsset = { id: string; type: string; fileName?: string; thumbnail: string; caption?: string; width?: number | null; height?: number | null; videoHref?: string };
 export type NormalizedPageModel = {
@@ -11,8 +12,9 @@ export type NormalizedPageModel = {
 	showMetadata: boolean;
 	allowDownload: boolean;
 	hero: { id: string; thumbnail: string } | null;
-	markers: [];
-	routeData: null;
+	markers: MapMarker[];
+	routeData: MapRoute | null;
+	mapStyle?: { name: 'quiet-atlas'; url: string };
 	warnings: string[];
 	errors: string[];
 };

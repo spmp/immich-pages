@@ -19,6 +19,16 @@ export const AssetResponseSchema = z.object({
 
 export type SharedAsset = z.infer<typeof AssetResponseSchema>;
 
+export const MapMarkerResponseSchema = z.object({
+	id: IdentifierSchema,
+	lat: z.number().finite(),
+	lon: z.number().finite(),
+	city: z.string().nullable(),
+	state: z.string().nullable(),
+	country: z.string().nullable()
+});
+export const MapMarkerResponseArraySchema = z.array(MapMarkerResponseSchema);
+
 export const SharedLinkResponseSchema = z.object({
 	id: IdentifierSchema,
 	description: z.string().nullable(),
@@ -61,8 +71,8 @@ export type AuthorizedAlbumPage = {
 	narrativeHtml?: string;
 	presentation?: unknown;
 	hero?: { id: string; thumbnail: string } | null;
-	markers?: [];
-	routeData?: null;
+  markers?: import('../map/types').MapMarker[];
+  routeData?: import('../map/types').MapRoute | null;
 	warnings?: string[];
 	errors?: string[];
 };
