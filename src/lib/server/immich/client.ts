@@ -22,7 +22,7 @@ export async function requestImmich(
 	path: string,
 	context: AuthContext,
 	fetchImpl: typeof fetch = fetch,
-	options: { timeoutMs?: number; headers?: HeadersInit; method?: string; body?: BodyInit | null; endpoint?: 'shared-link' | 'album-assets' | 'thumbnail' | 'video' | 'version' } = {}
+	options: { timeoutMs?: number; headers?: HeadersInit; method?: string; body?: BodyInit | null; endpoint?: 'shared-link' | 'album-assets' | 'thumbnail' | 'video' | 'version' | 'map-markers' } = {}
 ): Promise<Response> {
 	const origin = immichOrigin(baseUrl);
 	const apiPath = path.startsWith('/api/') ? path.slice(4) : path.startsWith('api/') ? path.slice(3) : path;
