@@ -9,7 +9,12 @@ describe('journey map component contract', () => {
 		expect(source).toContain('onMount'); expect(source).toContain("import('maplibre-gl')"); expect(source).toContain('enabled = false'); expect(source).toContain('map?.remove()');
 	});
 	it('uses approved style and server marker data without browser Immich access', () => {
-		expect(source).toContain('clusterRadius: 48'); expect(source).toContain('clusterMaxZoom: 14'); expect(source).not.toMatch(/fetch\(|\/api\/|authorization|cookie/i);
+		expect(source).toContain('clusterRadius'); expect(source).toContain('clusterMaxZoom: 14'); expect(source).toContain('clustering = true'); expect(source).toContain('showMarkerList = false'); expect(source).toContain('markerColor'); expect(source).not.toMatch(/fetch\(|\/api\/|authorization|cookie/i);
+		expect(source).toContain('routeColor'); expect(source).toContain('routeWidth');
+		expect(source).toContain('routeStartColor'); expect(source).toContain('routeEndColor'); expect(source).toContain('journey-route-start'); expect(source).toContain('journey-route-end');
+		expect(source.indexOf("id: 'journey-route'")).toBeLessThan(source.indexOf("id: 'journey-points'"));
+		expect(source).toContain('data-route-layer-ready={routeLayerReady}');
+		expect(source).toContain('map.on(\'error\', reportMapError)');
 		expect(source).toContain('getClusterExpansionZoom'); expect(source).toContain('getClusterLeaves'); expect(source).toContain('collocated-marker-limit');
 	});
 	it('checks membership before exact gallery focus and highlight', () => {
@@ -21,6 +26,13 @@ describe('journey map component contract', () => {
 		expect(source).toContain('aria-live="polite"');
 		expect(source).toContain('prefers-reduced-motion');
 		expect(source).toContain('min-height: 280px');
+	});
+	it('renders deterministic safe copy for every route failure category', () => {
+		expect(source).toContain('brouter-profile-unsupported');
+		expect(source).toContain('brouter-endpoint-unsafe');
+		expect(source).toContain('brouter-timeout');
+		expect(source).toContain('brouter-response-too-large');
+		expect(source).toContain('showing locations only.');
 	});
 	it('keeps bounded clusters and all semantic marker choices reachable', () => {
 		expect(source).toContain('getClusterLeaves(Number(feature.properties.cluster_id), MAX_COLLOCATED_LEAVES, 0)');

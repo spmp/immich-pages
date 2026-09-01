@@ -59,4 +59,18 @@ describe('v3 direct-share matrix', () => {
 	it('keeps process health independent from Immich', async () => {
 		expect(getHealth().status).toBe(200);
 	});
+
+	it('preserves page content and authorized markers when an explicit route fails', async () => {
+		const description = `---\nimmich-presentation:\n  type: journey\n  version: 1\n  map:\n    enabled: true\n    source: waypoints\n    waypoints:\n      - [10, 20]\n---\n# Safe story`;
+		const shared = { ...v3, album: { ...v3.album, description }, assets: [v3.assets[0]] };
+		const marker = { id: v3.assets[0].id, lat: 20, lon: 10, city: null, state: null, country: 'UK' };
+		const result = await assembleDirectShare(createImmichProvider(vi.fn(async (input: URL | RequestInfo) => new Response(new URL(input.toString()).pathname.endsWith('map-markers') ? JSON.stringify([marker]) : JSON.stringify(shared))), 'https://immich.example'), { shareRef: { kind: 'key', value: 'opaque' }, cookie: null, authorization: null }, 'route-failure');
+		expect(result.kind).toBe('page');
+		if (result.kind !== 'page') return;
+		expect(result.page.routeData).toBeNull();
+		expect(result.page.markers).toEqual([{ id: marker.id, lat: 20, lon: 10, label: 'UK' }]);
+		expect(result.page.narrativeHtml).toContain('Safe story');
+		expect(result.page.assets).toHaveLength(1);
+		expect(result.page.warnings).toContain('map-route-invalid');
+	});
 });
