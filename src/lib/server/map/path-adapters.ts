@@ -1,12 +1,12 @@
 import type { SharedAsset } from '$server/immich/types';
 import { deriveAutoRoute } from './auto-route';
+import { MAX_ROUTE_BYTES, MAX_ROUTE_SEGMENTS, normalizeRouteGeometry } from './geometry';
 import type { MapMarker, MapWarning, PathResult } from './types';
 
 export type Waypoint = [number, number];
 export type PathSource = 'auto' | 'waypoints' | 'geojson' | 'brouter-web';
 
-export const MAX_ROUTE_BYTES = 64 * 1024;
-export const MAX_ROUTE_SEGMENTS = 64;
+export { MAX_ROUTE_BYTES, MAX_ROUTE_SEGMENTS } from './geometry';
 
 type PathContext = { markers: readonly MapMarker[]; assets: readonly SharedAsset[] };
 type Adapter<Input> = (input: Input, context: PathContext) => PathResult | Promise<PathResult>;
@@ -29,7 +29,7 @@ const adapters: Record<PathSource, Adapter<unknown>> = {
 		return result.routeData ? { kind: 'resolved', route: result.routeData, warnings: result.warnings } : { kind: 'unavailable', warnings: result.warnings };
 	},
 	waypoints: (input) => resolveWaypoints(input),
-	geojson: () => ({ kind: 'unavailable', warnings: ['map-route-invalid'] }),
+	geojson: (input) => normalizeRouteGeometry(input),
 	'brouter-web': () => ({ kind: 'unavailable', warnings: ['map-source-unsupported'] })
 };
 
