@@ -1,4 +1,4 @@
-export type MapWarning = 'map-marker-limit' | 'collocated-marker-limit' | 'map-source-unsupported' | 'map-no-location' | 'map-style-unavailable' | 'map-route-limit';
+export type MapWarning = 'map-marker-limit' | 'collocated-marker-limit' | 'map-source-unsupported' | 'map-no-location' | 'map-style-unavailable' | 'map-route-limit' | 'map-route-invalid';
 
 export type MapMarker = {
 	id: string;
@@ -8,9 +8,13 @@ export type MapMarker = {
 };
 
 export type MapRoute = {
-	type: 'LineString';
-	coordinates: Array<[number, number]>;
+	type: 'LineString' | 'MultiLineString';
+	coordinates: Array<[number, number]> | Array<Array<[number, number]>>;
 };
+
+export type PathResult =
+	| { kind: 'resolved'; route: MapRoute; warnings: MapWarning[] }
+	| { kind: 'unavailable'; warnings: MapWarning[] };
 
 export type MapModel = {
 	enabled: boolean;

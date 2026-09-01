@@ -18,8 +18,18 @@ export const PresentationSchema = z.object({
 		enabled: z.boolean().default(false),
 		source: z.enum(['auto', 'waypoints', 'geojson', 'brouter-web']).default('auto'),
 		styleName: z.enum(['quiet-atlas']).default('quiet-atlas'),
-		markerActivation: z.enum(['gallery', 'lightbox']).default('gallery')
-	}).default({ enabled: false, source: 'auto', styleName: 'quiet-atlas', markerActivation: 'gallery' }),
+		markerActivation: z.enum(['gallery', 'lightbox']).default('gallery'),
+		showMarkerList: z.boolean().default(false),
+		clustering: z.boolean().default(true),
+		clusterRadius: z.number().int().min(8).max(128).default(24),
+		waypoints: z.array(z.array(z.number()).length(2)).max(500).optional(),
+		geojson: z.string().max(64 * 1024).optional(),
+		markerColor: z.string().regex(/^#[0-9a-fA-F]{6}$/).default('#c96b4b'),
+		routeColor: z.string().regex(/^#[0-9a-fA-F]{6}$/).default('#c96b4b'),
+		routeWidth: z.number().int().min(1).max(8).default(3),
+		routeStartColor: z.string().regex(/^#[0-9a-fA-F]{6}$/).default('#356859'),
+		routeEndColor: z.string().regex(/^#[0-9a-fA-F]{6}$/).default('#c96b4b')
+	}).default({ enabled: false, source: 'auto', styleName: 'quiet-atlas', markerActivation: 'gallery', showMarkerList: false, clustering: true, clusterRadius: 24, markerColor: '#c96b4b', routeColor: '#c96b4b', routeWidth: 3, routeStartColor: '#356859', routeEndColor: '#c96b4b' }),
 	gallery: z.object({
 		sort: z.literal('album').default('album'),
 		showCaptions: z.boolean().default(true),
