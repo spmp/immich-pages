@@ -29,7 +29,7 @@ const adapters: Record<PathSource, Adapter<unknown>> = {
 		return result.routeData ? { kind: 'resolved', route: result.routeData, warnings: result.warnings } : { kind: 'unavailable', warnings: result.warnings };
 	},
 	waypoints: (input) => resolveWaypoints(input),
-	geojson: (input) => normalizeRouteGeometry(input),
+	geojson: (input) => input === undefined ? { kind: 'unavailable', warnings: ['map-source-unsupported'] } : normalizeRouteGeometry(input),
 	'brouter-web': () => ({ kind: 'unavailable', warnings: ['map-source-unsupported'] })
 };
 
