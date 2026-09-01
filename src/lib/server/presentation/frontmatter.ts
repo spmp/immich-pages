@@ -22,7 +22,7 @@ function unknownCount(value: Record<string, unknown>): number {
 	const known = new Set(['type', 'version', 'template', 'hero', 'date', 'dateRange', 'map', 'gallery']);
 	if (Object.keys(value).some((key) => !known.has(key))) return 1;
 	const map = value.map;
-	if (map && typeof map === 'object' && !Array.isArray(map) && Object.keys(map).some((key) => !new Set(['enabled', 'source', 'styleName', 'markerActivation']).has(key))) return 1;
+	if (map && typeof map === 'object' && !Array.isArray(map) && Object.keys(map).some((key) => !new Set(['enabled', 'source', 'styleName', 'markerActivation', 'showMarkerList', 'clustering', 'clusterRadius', 'waypoints', 'geojson', 'url', 'markerColor', 'routeColor', 'routeWidth', 'routeStartColor', 'routeEndColor']).has(key))) return 1;
 	return 0;
 }
 

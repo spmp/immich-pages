@@ -1,4 +1,4 @@
-export type MapWarning = 'map-marker-limit' | 'collocated-marker-limit' | 'map-source-unsupported' | 'map-no-location' | 'map-style-unavailable' | 'map-route-limit' | 'map-route-invalid';
+export type MapWarning = 'map-marker-limit' | 'collocated-marker-limit' | 'map-source-unsupported' | 'map-no-location' | 'map-style-unavailable' | 'map-route-limit' | 'map-route-invalid' | 'brouter-permalink-invalid' | 'brouter-permalink-unsupported' | 'brouter-profile-unsupported' | 'brouter-endpoint-unsafe' | 'brouter-request-failed' | 'brouter-response-invalid' | 'brouter-response-too-large' | 'brouter-timeout';
 
 export type MapMarker = {
 	id: string;

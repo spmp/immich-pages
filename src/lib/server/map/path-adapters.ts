@@ -2,6 +2,7 @@ import type { SharedAsset } from '$server/immich/types';
 import { deriveAutoRoute } from './auto-route';
 import { MAX_ROUTE_BYTES, MAX_ROUTE_SEGMENTS, normalizeRouteGeometry } from './geometry';
 import type { MapMarker, MapWarning, PathResult } from './types';
+import { parseBrouterWebPermalink } from './brouter-web';
 
 export type Waypoint = [number, number];
 export type PathSource = 'auto' | 'waypoints' | 'geojson' | 'brouter-web';
@@ -21,7 +22,7 @@ export function resolveWaypoints(value: unknown): PathResult {
 	return { kind: 'resolved', route: { type: 'LineString', coordinates }, warnings: [] };
 }
 
-export type PathConfig = { source: PathSource; waypoints?: unknown; geojson?: unknown };
+export type PathConfig = { source: PathSource; waypoints?: unknown; geojson?: unknown; url?: string };
 
 const adapters: Record<PathSource, Adapter<unknown>> = {
 	auto: (_input, context) => {
@@ -30,12 +31,15 @@ const adapters: Record<PathSource, Adapter<unknown>> = {
 	},
 	waypoints: (input) => resolveWaypoints(input),
 	geojson: (input) => input === undefined ? { kind: 'unavailable', warnings: ['map-source-unsupported'] } : normalizeRouteGeometry(input),
-	'brouter-web': () => ({ kind: 'unavailable', warnings: ['map-source-unsupported'] })
+	'brouter-web': (input) => {
+		const parsed = typeof input === 'string' ? parseBrouterWebPermalink(input) : { kind: 'unavailable' as const, warnings: ['brouter-permalink-invalid' as const] };
+		return parsed.kind === 'resolved' ? { kind: 'unavailable', warnings: parsed.warnings } : parsed;
+	}
 };
 
 export class PathSourceRegistry {
 	resolve(config: PathConfig, context: PathContext): PathResult | Promise<PathResult> {
 		const adapter = adapters[config.source];
-		return adapter(config.source === 'waypoints' ? config.waypoints : config.geojson, context);
+		return adapter(config.source === 'waypoints' ? config.waypoints : config.source === 'geojson' ? config.geojson : config.url, context);
 	}
 }
