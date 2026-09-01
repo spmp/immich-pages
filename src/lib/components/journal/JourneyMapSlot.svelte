@@ -15,6 +15,17 @@
 	let clusterMessage = $state('');
 	const markerIds = $derived(new Set(markers.map((marker) => marker.id)));
 	const hasLocation = $derived(markers.length > 0);
+	function routeWarningCopy(warning: string): string | undefined {
+		if (warning === 'brouter-profile-unsupported') return 'The selected route profile is not supported; showing locations only.';
+		if (warning === 'brouter-endpoint-unsafe') return 'The map route service is unavailable; showing locations only.';
+		if (warning === 'brouter-timeout') return 'The map route service timed out; showing locations only.';
+		if (warning === 'brouter-response-too-large' || warning === 'map-route-limit') return 'The map route is too large; showing locations only.';
+		if (warning === 'brouter-request-failed' || warning === 'brouter-response-invalid') return 'The map route service failed; showing locations only.';
+		if (warning === 'map-route-invalid' || warning === 'brouter-permalink-invalid' || warning === 'brouter-permalink-unsupported') return 'The route is malformed or unsupported; showing locations only.';
+		if (warning === 'map-source-unsupported') return 'The map route source is not supported; showing locations only.';
+		return undefined;
+	}
+	const routeMessage = $derived(warnings.map(routeWarningCopy).find((message): message is string => Boolean(message)));
 	function firstRoutePosition(route: MapRoute) { return route.type === 'LineString' ? route.coordinates[0] : route.coordinates[0][0]; }
 	function lastRoutePosition(route: MapRoute) { return route.type === 'LineString' ? route.coordinates[route.coordinates.length - 1] : route.coordinates[route.coordinates.length - 1][route.coordinates[route.coordinates.length - 1].length - 1]; }
 	function routeVertexCount(route: MapRoute) { return route.type === 'LineString' ? route.coordinates.length : route.coordinates.reduce((count, segment) => count + segment.length, 0); }
@@ -91,7 +102,7 @@
 
 	<section class:enabled class="journey-slot" data-phase="3-map-seam" data-route-ready={routeData !== null} data-route-layer-ready={routeLayerReady} data-route-vertex-count={routeData ? routeVertexCount(routeData) : 0} data-marker-count={markers.length} aria-labelledby="journey-map-title">
 	<h2 id="journey-map-title">Journey map</h2>
-	{#if warnings.includes('map-source-unsupported')}<p role="status">Map route source is not supported yet; showing locations only.</p>{/if}
+	{#if routeMessage}<p role="status">{routeMessage}</p>{/if}
 	{#if clusterMessage}<p role="status">{clusterMessage}</p>{/if}
 	{#if mapStatus === 'no-location'}<p role="status">No location data is available for this journey.</p>{:else if mapStatus === 'unavailable'}<p role="status">Map unavailable; the narrative and gallery remain available.</p>{:else if enabled}<p class="map-status" role="status" aria-live="polite">{mapStatus === 'ready' ? 'Interactive journey map' : 'Loading journey map'}</p><div class="map" bind:this={mapElement} aria-hidden={mapStatus !== 'ready'}></div>{/if}
 	{#if hasLocation && showMarkerList}<nav class="marker-list" aria-label="Journey map locations"><h3>Photo locations</h3>{#each markers as marker}<button type="button" onclick={() => activate(marker.id)}>{marker.label ?? 'Photo location'}</button>{/each}</nav>{/if}

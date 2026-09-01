@@ -4,7 +4,7 @@ import type { AuthContext } from '$server/immich/auth-context';
 import { parsePresentationDocument } from '$server/presentation/frontmatter';
 import { renderMarkdown } from '$server/presentation/markdown';
 import { deriveDisplayDate, heroSelection, normalizeTemplate, selectHero, type NormalizedPageModel } from '$server/presentation/model';
-import { logMetadataParse, logModelOutput, logShareHeroSelection } from '$server/share/diagnostics';
+import { logMapRouteResult, logMetadataParse, logModelOutput, logShareHeroSelection } from '$server/share/diagnostics';
 import { projectMapMarkers } from '$server/map/markers';
 import { PathSourceRegistry } from '$server/map/path-adapters';
 import { resolveMapStyle } from '$server/map/style-registry';
@@ -67,7 +67,9 @@ export async function assembleDirectShare(provider: ImmichProvider, context: Aut
 		const projected = markerResponse.data ? projectMapMarkers(markerResponse.data, share.assets) : { markers: [], warnings: ['map-no-location'] as const };
 		normalized.markers = projected.markers;
 		normalized.warnings.push(...projected.warnings);
+		const routeStartedAt = Date.now();
 		const route = await pathRegistry.resolve(document.config.map, { markers: projected.markers, assets: share.assets });
+		logMapRouteResult({ adapter: document.config.map.source, warnings: route.warnings, durationMs: Date.now() - routeStartedAt });
 		if (route.kind === 'resolved') normalized.routeData = route.route;
 		normalized.warnings.push(...route.warnings);
 		const style = resolveMapStyle({ styleName: document.config.map.styleName });

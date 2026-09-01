@@ -1,5 +1,6 @@
 import { redactPathname } from '../../../hooks.server';
 import type { DirectShareOutcome, MetadataFailureReason } from '../immich/types';
+import type { MapWarning } from '../map/types';
 
 type OutcomeKind = DirectShareOutcome['kind'];
 
@@ -56,6 +57,33 @@ export function logImmichRequest({ endpoint, status, failureCategory }: { endpoi
 	console.info(JSON.stringify({ event: 'direct-share.immich-request', endpoint, status, ...(failureCategory ? { failureCategory } : {}) }));
 }
 
+export function logMapMarkersResponse({ normalizedCount }: { normalizedCount: number }) {
+	console.info(JSON.stringify({ event: 'direct-share.map-markers-response', normalizedCount }));
+}
+
+type RouteAdapter = 'auto' | 'waypoints' | 'geojson' | 'brouter-web';
+type RouteDiagnosticCategory = 'resolved' | 'unsupported-profile' | 'malformed-route' | 'endpoint-configuration' | 'timeout' | 'upstream-failure' | 'response-limit';
+
+const routeCategoryByWarning: Partial<Record<MapWarning, RouteDiagnosticCategory>> = {
+	'brouter-profile-unsupported': 'unsupported-profile',
+	'brouter-permalink-invalid': 'malformed-route',
+	'brouter-permalink-unsupported': 'malformed-route',
+	'map-route-invalid': 'malformed-route',
+	'brouter-endpoint-unsafe': 'endpoint-configuration',
+	'brouter-timeout': 'timeout',
+	'brouter-request-failed': 'upstream-failure',
+	'brouter-response-invalid': 'upstream-failure',
+	'brouter-response-too-large': 'response-limit',
+	'map-route-limit': 'response-limit',
+	'map-source-unsupported': 'malformed-route'
+};
+
+export function logMapRouteResult({ adapter, warnings, durationMs }: { adapter: RouteAdapter; warnings: readonly MapWarning[]; durationMs: number }) {
+	const category = warnings.map((warning) => routeCategoryByWarning[warning]).find((value): value is RouteDiagnosticCategory => Boolean(value)) ?? 'resolved';
+	const safeDurationMs = Number.isFinite(durationMs) ? Math.max(0, Math.min(60_000, Math.trunc(durationMs))) : 0;
+	console.info(JSON.stringify({ event: 'direct-share.route-result', adapter, category, durationMs: safeDurationMs }));
+}
+
 export function logAlbumAssetsRequest({ status, failureCategory }: { status: number | 'failure'; failureCategory?: 'timeout' | 'network' | 'response-too-large' | 'invalid-response' }) {
 	console.info(JSON.stringify({ event: 'direct-share.album-assets-request', status, ...(failureCategory ? { failureCategory } : {}) }));
 }
@@ -72,8 +100,8 @@ export function logMetadataParse({ result, reason }: { result: 'absent' | 'unrel
 	console.info(JSON.stringify({ event: 'direct-share.metadata-parse', result, ...(reason ? { reason } : {}) }));
 }
 
-export function logModelOutput({ assetCount, imageCount, videoCount, heroPresent }: { assetCount: number; imageCount: number; videoCount: number; heroPresent: boolean }) {
-	console.info(JSON.stringify({ event: 'direct-share.model-output', assetCount, imageCount, videoCount, heroPresent }));
+export function logModelOutput({ assetCount, imageCount, videoCount, heroPresent, markerCount, routeReady }: { assetCount: number; imageCount: number; videoCount: number; heroPresent: boolean; markerCount: number; routeReady: boolean }) {
+	console.info(JSON.stringify({ event: 'direct-share.model-output', assetCount, imageCount, videoCount, heroPresent, markerCount, routeReady }));
 }
 
 export function logShareAssetProjection({ requestId, type, topLevelAssetCount, nestedAlbumAssetCount, normalizedAssetCount, heroSelection }: {
