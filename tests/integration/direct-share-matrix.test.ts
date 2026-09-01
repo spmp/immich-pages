@@ -73,4 +73,20 @@ describe('v3 direct-share matrix', () => {
 		expect(result.page.assets).toHaveLength(1);
 		expect(result.page.warnings).toContain('map-route-invalid');
 	});
+
+	it.each([
+		['geojson', '    geojson: not-json', 'map-route-invalid'],
+		['brouter-web', '    url: "https://evil.example/brouter-web/#profile=trekking&lonlats=10,20|30,40"', 'brouter-permalink-invalid']
+	] as const)('keeps %s failures markers-only without falling back to auto', async (_source, mapFields, warning) => {
+		const description = `---\nimmich-presentation:\n  type: journey\n  version: 1\n  map:\n    enabled: true\n    source: ${_source}\n${mapFields}\n---\n# Preserved story`;
+		const shared = { ...v3, album: { ...v3.album, description }, assets: [v3.assets[0], { ...v3.assets[0], id: '33333333-3333-4333-8333-333333333333' }] };
+		const markers = shared.assets.map((asset, index) => ({ id: asset.id, lat: 20 + index, lon: 10 + index, city: null, state: null, country: 'UK' }));
+		const result = await assembleDirectShare(createImmichProvider(vi.fn(async (input: URL | RequestInfo) => new Response(new URL(input.toString()).pathname.endsWith('map-markers') ? JSON.stringify(markers) : JSON.stringify(shared))), 'https://immich.example'), { shareRef: { kind: 'key', value: 'opaque' }, cookie: null, authorization: null }, 'explicit-failure');
+		expect(result.kind).toBe('page');
+		if (result.kind !== 'page') return;
+		expect(result.page.routeData).toBeNull();
+		expect(result.page.markers).toHaveLength(2);
+		expect(result.page.narrativeHtml).toContain('Preserved story');
+		expect(result.page.warnings).toContain(warning);
+	});
 });

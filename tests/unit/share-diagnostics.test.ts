@@ -59,4 +59,18 @@ describe('direct-share outcome diagnostics', () => {
 		expect(line).not.toMatch(/coordinates|https?:|trekking|body|cookie|authorization|lonlats|token/i);
 		infoLog.mockRestore();
 	});
+
+	it.each([
+		[['map-route-invalid'], 'malformed-route'],
+		[['brouter-endpoint-unsafe'], 'endpoint-configuration'],
+		[['brouter-timeout'], 'timeout'],
+		[['brouter-request-failed'], 'upstream-failure'],
+		[['brouter-response-too-large'], 'response-limit'],
+		[[], 'resolved']
+	] as const)('reduces route warnings to safe category %s', (warnings, category) => {
+		const infoLog = vi.spyOn(console, 'info').mockImplementation(() => undefined);
+		logMapRouteResult({ adapter: 'geojson', warnings, durationMs: 999999 });
+		expect(JSON.parse(String(infoLog.mock.calls[0][0]))).toEqual({ event: 'direct-share.route-result', adapter: 'geojson', category, durationMs: 60000 });
+		infoLog.mockRestore();
+	});
 });
