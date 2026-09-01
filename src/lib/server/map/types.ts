@@ -7,10 +7,9 @@ export type MapMarker = {
 	label?: string;
 };
 
-export type MapRoute = {
-	type: 'LineString' | 'MultiLineString';
-	coordinates: Array<[number, number]> | Array<Array<[number, number]>>;
-};
+export type MapRoute =
+	| { type: 'LineString'; coordinates: Array<[number, number]> }
+	| { type: 'MultiLineString'; coordinates: Array<Array<[number, number]>> };
 
 export type PathResult =
 	| { kind: 'resolved'; route: MapRoute; warnings: MapWarning[] }

@@ -6,6 +6,18 @@ export const MAX_ROUTE_SEGMENTS = 64;
 
 type Position = [number, number];
 
+export function firstRoutePosition(route: MapRoute): Position {
+	return route.type === 'LineString' ? route.coordinates[0] : route.coordinates[0][0];
+}
+
+export function lastRoutePosition(route: MapRoute): Position {
+	return route.type === 'LineString' ? route.coordinates[route.coordinates.length - 1] : route.coordinates[route.coordinates.length - 1][route.coordinates[route.coordinates.length - 1].length - 1];
+}
+
+export function routeVertexCount(route: MapRoute): number {
+	return route.type === 'LineString' ? route.coordinates.length : route.coordinates.reduce((count, segment) => count + segment.length, 0);
+}
+
 function position(value: unknown): value is Position {
 	return Array.isArray(value) && value.length === 2 && value.every((part) => typeof part === 'number' && Number.isFinite(part)) && value[0] >= -180 && value[0] <= 180 && value[1] >= -90 && value[1] <= 90;
 }
@@ -15,8 +27,8 @@ function invalid(): PathResult { return { kind: 'unavailable', warnings: ['map-r
 function linesFromGeometry(value: unknown): Position[][] | null {
 	if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
 	const geometry = value as { type?: unknown; coordinates?: unknown };
-	if (geometry.type === 'LineString' && Array.isArray(geometry.coordinates) && geometry.coordinates.length >= 2 && geometry.coordinates.every(position)) return [geometry.coordinates.map((item) => [...item] as Position)];
-	if (geometry.type === 'MultiLineString' && Array.isArray(geometry.coordinates) && geometry.coordinates.length > 0 && geometry.coordinates.every((line) => Array.isArray(line) && line.length >= 2 && line.every(position))) return geometry.coordinates.map((line) => line.map((item) => [...item] as Position));
+	if (geometry.type === 'LineString' && Array.isArray(geometry.coordinates) && geometry.coordinates.length >= 2 && geometry.coordinates.every(position)) return [(geometry.coordinates as unknown[]).map((item) => [...(item as Position)] as Position)];
+	if (geometry.type === 'MultiLineString' && Array.isArray(geometry.coordinates) && geometry.coordinates.length > 0 && geometry.coordinates.every((line) => Array.isArray(line) && line.length >= 2 && line.every(position))) return (geometry.coordinates as unknown[][]).map((line) => line.map((item) => [...(item as Position)] as Position));
 	return null;
 }
 

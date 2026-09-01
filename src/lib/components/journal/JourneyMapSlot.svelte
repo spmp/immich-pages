@@ -1,19 +1,26 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { env } from '$env/dynamic/public';
 	import type { MapMarker, MapRoute } from '$server/map/types';
 	import { focusGalleryAsset, type MarkerActivation } from './map-focus';
 	import 'maplibre-gl/dist/maplibre-gl.css';
+	import maplibreWorkerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url';
 	const MAX_COLLOCATED_LEAVES = 500;
 
-	let { routeData = null, markers = [], enabled = false, activation = 'gallery', style, warnings = [] }: { routeData?: MapRoute | null; markers?: MapMarker[]; enabled?: boolean; activation?: MarkerActivation; style?: string; warnings?: string[] } = $props();
+	let { routeData = null, markers = [], enabled = false, activation = 'gallery', showMarkerList = false, clustering = true, clusterRadius = 24, markerColor = '#c96b4b', routeColor = '#c96b4b', routeWidth = 3, routeStartColor = '#356859', routeEndColor = '#c96b4b', style, warnings = [] }: { routeData?: MapRoute | null; markers?: MapMarker[]; enabled?: boolean; activation?: MarkerActivation; showMarkerList?: boolean; clustering?: boolean; clusterRadius?: number; markerColor?: string; routeColor?: string; routeWidth?: number; routeStartColor?: string; routeEndColor?: string; style?: string; warnings?: string[] } = $props();
 	let mapElement = $state<HTMLDivElement | undefined>(undefined);
 	let mapStatus = $state<'disabled' | 'loading' | 'ready' | 'unavailable' | 'no-location'>('disabled');
+	let routeLayerReady = $state(false);
 	let clusterLeaves = $state<MapMarker[]>([]);
 	let clusterMessage = $state('');
 	const markerIds = $derived(new Set(markers.map((marker) => marker.id)));
 	const hasLocation = $derived(markers.length > 0);
+	function firstRoutePosition(route: MapRoute) { return route.type === 'LineString' ? route.coordinates[0] : route.coordinates[0][0]; }
+	function lastRoutePosition(route: MapRoute) { return route.type === 'LineString' ? route.coordinates[route.coordinates.length - 1] : route.coordinates[route.coordinates.length - 1][route.coordinates[route.coordinates.length - 1].length - 1]; }
+	function routeVertexCount(route: MapRoute) { return route.type === 'LineString' ? route.coordinates.length : route.coordinates.reduce((count, segment) => count + segment.length, 0); }
 	const markerFeatures = $derived({ type: 'FeatureCollection', features: markers.map((marker) => ({ type: 'Feature', properties: { assetId: marker.id, label: marker.label ?? 'Photo location' }, geometry: { type: 'Point', coordinates: [marker.lon, marker.lat] } })) });
 	const routeFeatures = $derived(routeData ? { type: 'FeatureCollection', features: [{ type: 'Feature', properties: {}, geometry: routeData }] } : null);
+	const routeEndpointFeatures = $derived(routeData ? { type: 'FeatureCollection', features: [{ type: 'Feature', properties: { endpoint: 'start' }, geometry: { type: 'Point', coordinates: firstRoutePosition(routeData) } }, { type: 'Feature', properties: { endpoint: 'end' }, geometry: { type: 'Point', coordinates: lastRoutePosition(routeData) } }] } : null);
 	function activate(id: string) { return focusGalleryAsset(id, markerIds, activation); }
 	function leafMarkers(features: any[]): MapMarker[] {
 		return features.map((feature) => markers.find((marker) => marker.id === String(feature.properties?.assetId))).filter((marker): marker is MapMarker => Boolean(marker));
@@ -24,30 +31,46 @@
 		if (!hasLocation) { mapStatus = 'no-location'; return; }
 		mapStatus = 'loading';
 		let map: any;
-		let observer: ResizeObserver | undefined;
+			let observer: ResizeObserver | undefined;
 		let destroyed = false;
-		const fail = () => { if (!destroyed) mapStatus = 'unavailable'; };
+		const fail = (event?: any) => {
+			if (env.PUBLIC_PAGES_DEBUG === 'true' && event?.error?.message) console.warn('[immich-pages-map]', String(event.error.message).slice(0, 256));
+			if (!destroyed) mapStatus = 'unavailable';
+		};
+		const reportMapError = (event: any) => {
+			if (env.PUBLIC_PAGES_DEBUG === 'true' && event?.error?.message) console.warn('[immich-pages-map]', String(event.error.message).slice(0, 256));
+		};
 		void (async () => {
 			try {
 				if (!style) throw new Error('map-style-unavailable');
-				const { Map, NavigationControl, LngLatBounds } = await import('maplibre-gl');
+				const { Map, NavigationControl, LngLatBounds, setWorkerUrl } = await import('maplibre-gl');
+				setWorkerUrl(maplibreWorkerUrl);
 				if (destroyed) return;
 				if (!mapElement) throw new Error('map-container-unavailable');
 				map = new Map({ container: mapElement, style, center: [markers[0].lon, markers[0].lat], zoom: 3 });
+				if (env.PUBLIC_PAGES_DEBUG === 'true') (globalThis as typeof globalThis & { __immichPagesMap?: any }).__immichPagesMap = map;
 				map.addControl(new NavigationControl({ showCompass: false }), 'top-right');
-				map.on('error', fail);
+				map.on('error', reportMapError);
 				map.on('webglcontextlost', fail);
 				map.on('load', () => {
 					if (destroyed) return;
-					map.addSource('journey-markers', { type: 'geojson', data: markerFeatures, cluster: true, clusterRadius: 48, clusterMaxZoom: 14 });
-					if (routeFeatures) { map.addSource('journey-route', { type: 'geojson', data: routeFeatures }); map.addLayer({ id: 'journey-route', type: 'line', source: 'journey-route', paint: { 'line-color': '#c96b4b', 'line-width': 3, 'line-opacity': 0.75, 'line-cap': 'round', 'line-join': 'round' } }); }
-					map.addLayer({ id: 'journey-clusters', type: 'circle', source: 'journey-markers', filter: ['has', 'point_count'], paint: { 'circle-color': '#596b6a', 'circle-radius': 18, 'circle-opacity': 0.9 } });
-					map.addLayer({ id: 'journey-cluster-count', type: 'symbol', source: 'journey-markers', filter: ['has', 'point_count'], layout: { 'text-field': '{point_count_abbreviated}', 'text-size': 12 }, paint: { 'text-color': '#fff' } });
-					map.addLayer({ id: 'journey-points', type: 'circle', source: 'journey-markers', filter: ['!', ['has', 'point_count']], paint: { 'circle-color': '#c96b4b', 'circle-radius': 7, 'circle-stroke-color': '#fff', 'circle-stroke-width': 2 } });
+					map.addSource('journey-markers', { type: 'geojson', data: markerFeatures, cluster: clustering, clusterRadius, clusterMaxZoom: 14 });
+					if (routeFeatures) map.addSource('journey-route', { type: 'geojson', data: routeFeatures });
+					if (routeFeatures) { map.addLayer({ id: 'journey-route', type: 'line', source: 'journey-route', layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': routeColor, 'line-width': routeWidth, 'line-opacity': 0.9 } }); routeLayerReady = true; }
+					if (clustering) {
+						map.addLayer({ id: 'journey-clusters', type: 'circle', source: 'journey-markers', filter: ['has', 'point_count'], paint: { 'circle-color': '#596b6a', 'circle-radius': 18, 'circle-opacity': 0.9 } });
+						map.addLayer({ id: 'journey-cluster-count', type: 'symbol', source: 'journey-markers', filter: ['has', 'point_count'], layout: { 'text-field': '{point_count_abbreviated}', 'text-size': 12 }, paint: { 'text-color': '#fff' } });
+					}
+					map.addLayer({ id: 'journey-points', type: 'circle', source: 'journey-markers', ...(clustering ? { filter: ['!', ['has', 'point_count']] } : {}), paint: { 'circle-color': markerColor, 'circle-radius': 7, 'circle-stroke-color': '#fff', 'circle-stroke-width': 2 } });
+					if (routeEndpointFeatures) {
+						map.addSource('journey-route-endpoints', { type: 'geojson', data: routeEndpointFeatures });
+						map.addLayer({ id: 'journey-route-start', type: 'circle', source: 'journey-route-endpoints', filter: ['==', ['get', 'endpoint'], 'start'], paint: { 'circle-color': routeStartColor, 'circle-radius': 9, 'circle-stroke-color': '#fff', 'circle-stroke-width': 2 } });
+						map.addLayer({ id: 'journey-route-end', type: 'circle', source: 'journey-route-endpoints', filter: ['==', ['get', 'endpoint'], 'end'], paint: { 'circle-color': routeEndColor, 'circle-radius': 9, 'circle-stroke-color': '#fff', 'circle-stroke-width': 2 } });
+					}
 					const bounds = markers.reduce((box: any, marker) => box.extend([marker.lon, marker.lat]), new LngLatBounds());
 					map.fitBounds(bounds, { padding: 48, duration: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 600, maxZoom: 12 });
 					map.on('click', 'journey-points', (event: any) => activate(event.features?.[0]?.properties?.assetId));
-					map.on('click', 'journey-clusters', async (event: any) => {
+					if (clustering) map.on('click', 'journey-clusters', async (event: any) => {
 						const feature = event.features?.[0]; const source = map.getSource('journey-markers'); if (!feature || !source) return;
 						try {
 							const count = Number(feature.properties?.point_count ?? 0);
@@ -62,16 +85,16 @@
 				observer = typeof ResizeObserver === 'undefined' ? undefined : new ResizeObserver(() => map?.resize()); observer?.observe(mapElement);
 			} catch { fail(); }
 		})();
-		return () => { destroyed = true; observer?.disconnect(); map?.remove(); };
+		return () => { destroyed = true; observer?.disconnect(); map?.remove(); if (env.PUBLIC_PAGES_DEBUG === 'true') delete (globalThis as typeof globalThis & { __immichPagesMap?: any }).__immichPagesMap; };
 	});
 </script>
 
-<section class:enabled class="journey-slot" data-phase="3-map-seam" data-route-ready={routeData !== null} data-marker-count={markers.length} aria-labelledby="journey-map-title">
+	<section class:enabled class="journey-slot" data-phase="3-map-seam" data-route-ready={routeData !== null} data-route-layer-ready={routeLayerReady} data-route-vertex-count={routeData ? routeVertexCount(routeData) : 0} data-marker-count={markers.length} aria-labelledby="journey-map-title">
 	<h2 id="journey-map-title">Journey map</h2>
 	{#if warnings.includes('map-source-unsupported')}<p role="status">Map route source is not supported yet; showing locations only.</p>{/if}
 	{#if clusterMessage}<p role="status">{clusterMessage}</p>{/if}
 	{#if mapStatus === 'no-location'}<p role="status">No location data is available for this journey.</p>{:else if mapStatus === 'unavailable'}<p role="status">Map unavailable; the narrative and gallery remain available.</p>{:else if enabled}<p class="map-status" role="status" aria-live="polite">{mapStatus === 'ready' ? 'Interactive journey map' : 'Loading journey map'}</p><div class="map" bind:this={mapElement} aria-hidden={mapStatus !== 'ready'}></div>{/if}
-	{#if hasLocation}<nav class="marker-list" aria-label="Journey map locations"><h3>Photo locations</h3>{#each markers as marker}<button type="button" onclick={() => activate(marker.id)}>{marker.label ?? 'Photo location'}</button>{/each}</nav>{/if}
+	{#if hasLocation && showMarkerList}<nav class="marker-list" aria-label="Journey map locations"><h3>Photo locations</h3>{#each markers as marker}<button type="button" onclick={() => activate(marker.id)}>{marker.label ?? 'Photo location'}</button>{/each}</nav>{/if}
 	{#if clusterLeaves.length}<section class="cluster-chooser" aria-labelledby="cluster-chooser-title"><h3 id="cluster-chooser-title">Choose a photo at this location</h3>{#each clusterLeaves as marker}<button type="button" onclick={() => activate(marker.id)}>{marker.label ?? 'Photo location'}</button>{/each}</section>{/if}
 </section>
 

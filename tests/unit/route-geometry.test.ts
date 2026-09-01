@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { normalizeRouteGeometry } from '../../src/lib/server/map/geometry';
+import { firstRoutePosition, lastRoutePosition, normalizeRouteGeometry, routeVertexCount } from '../../src/lib/server/map/geometry';
 
 describe('bounded route geometry', () => {
 	it('preserves exact LineString and MultiLineString values through supported wrappers', () => {
@@ -16,5 +16,14 @@ describe('bounded route geometry', () => {
 			expect(result.kind).toBe('unavailable');
 			expect(result.warnings).toEqual(['map-route-invalid']);
 		}
+	});
+
+	it('finds endpoints and counts vertices without flattening segments', () => {
+		const result = normalizeRouteGeometry({ type: 'MultiLineString', coordinates: [[[20, 10], [21, 11]], [[30, 12], [31, 13], [32, 14]]] });
+		expect(result.kind).toBe('resolved');
+		if (result.kind !== 'resolved') return;
+		expect(firstRoutePosition(result.route)).toEqual([20, 10]);
+		expect(lastRoutePosition(result.route)).toEqual([32, 14]);
+		expect(routeVertexCount(result.route)).toBe(5);
 	});
 });
