@@ -38,7 +38,7 @@ const adapters: Record<PathSource, Adapter<unknown>> = {
 		const endpoint = process.env.BROUTER_ENDPOINT;
 		const allowedOrigins = process.env.BROUTER_ALLOWED_ORIGINS?.split(',').map((value) => value.trim()).filter(Boolean) ?? [];
 		if (!endpoint || !allowedOrigins.length) return { kind: 'unavailable', warnings: ['brouter-endpoint-unsafe'] };
-		return new BrouterClient({ endpoint, allowedOrigins }).resolve(parsed);
+		return new BrouterClient({ endpoint, allowedOrigins, allowLoopbackForTests: process.env.BROUTER_ALLOW_LOOPBACK_FOR_TESTS === 'true' }).resolve(parsed);
 	}
 };
 

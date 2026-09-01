@@ -44,6 +44,18 @@ const mapMarkers = [
   { id: assets[2].id, lat: 48.8566, lon: 2.3522, city: 'Paris', state: null, country: 'France' }
 ];
 
+const routeDescriptions = {
+  'route-waypoints': `---\nimmich-presentation:\n  type: journey\n  version: 1\n  map:\n    enabled: true\n    source: waypoints\n    waypoints:\n      - [-0.1278, 51.5074]\n      - [-0.1278, 51.5074]\n      - [2.3522, 48.8566]\n    styleName: quiet-atlas\n---\nWaypoint route proof`,
+  'route-geojson': `---\nimmich-presentation:\n  type: journey\n  version: 1\n  map:\n    enabled: true\n    source: geojson\n    geojson: |\n      {"type":"MultiLineString","coordinates":[[[-0.1278,51.5074],[-1.2577,51.7520]],[[2.3522,48.8566],[2.1734,41.3851]]]}\n    styleName: quiet-atlas\n---\nExact GeoJSON route proof`,
+  'route-brouter': `---\nimmich-presentation:\n  type: journey\n  version: 1\n  map:\n    enabled: true\n    source: brouter-web\n    url: https://brouter.de/brouter-web/#lonlats=-0.1278,51.5074%7C2.3522,48.8566&profile=trekking\n    styleName: quiet-atlas\n---\nBRouter success proof`,
+  'route-brouter-failure': `---\nimmich-presentation:\n  type: journey\n  version: 1\n  map:\n    enabled: true\n    source: brouter-web\n    url: https://brouter.de/brouter-web/#lonlats=-0.1278,51.5074%7C2.3522,48.8566&profile=safety\n    styleName: quiet-atlas\n---\nBRouter failure proof`,
+  'route-brouter-unsupported': `---\nimmich-presentation:\n  type: journey\n  version: 1\n  map:\n    enabled: true\n    source: brouter-web\n    url: https://brouter.de/brouter-web/#lonlats=-0.1278,51.5074%7C2.3522,48.8566&profile=unknown\n    styleName: quiet-atlas\n---\nUnsupported route proof`
+};
+
+const brouterRoutes = {
+  trekking: { type: 'LineString', coordinates: [[-0.1278, 51.5074], [0.9, 50.9], [2.3522, 48.8566]] }
+};
+
 const server = http.createServer((request, response) => {
   const url = new URL(request.url ?? '/', 'http://mock-immich.test');
   if (url.pathname === '/api/server/version') {
@@ -69,7 +81,9 @@ const server = http.createServer((request, response) => {
       response.end(JSON.stringify({ error: 'temporary failure' }));
       return;
     }
-    const body = ref === 'non-page'
+    const body = routeDescriptions[ref]
+      ? { ...page, album: { ...page.album, description: routeDescriptions[ref] } }
+      : ref === 'non-page'
       ? { ...page, album: { ...page.album, description: 'An ordinary album' } }
       : ref === 'map-ref'
         ? { ...page, assets: assets.map((asset, index) => index === 0 ? { ...asset, localDateTime: '2026-01-01T00:00:00.000Z' } : index === 2 ? { ...asset, localDateTime: '2026-01-02T00:00:00.000Z' } : asset), album: { ...page.album, description: '---\nimmich-presentation:\n  type: journey\n  version: 1\n  map:\n    enabled: true\n    source: auto\n    styleName: quiet-atlas\n---\nMap browser proof' } }
@@ -79,13 +93,29 @@ const server = http.createServer((request, response) => {
     return;
   }
 
+  if (url.pathname === '/brouter') {
+    const profile = url.searchParams.get('profile');
+    if (profile === 'trekking') {
+      response.writeHead(200, { 'content-type': 'application/geo+json' });
+      response.end(JSON.stringify(brouterRoutes.trekking));
+      return;
+    }
+    if (profile === 'fastbike') { response.writeHead(200, { 'content-type': 'application/geo+json' }); response.end('{malformed'); return; }
+    if (profile === 'safety') { response.writeHead(429, { 'content-type': 'application/json' }); response.end(JSON.stringify({ error: 'fixture failure' })); return; }
+    if (profile === 'shortest') { response.writeHead(503, { 'content-type': 'application/json' }); response.end(JSON.stringify({ error: 'fixture failure' })); return; }
+    if (profile === 'car-fast') { setTimeout(() => response.end(), 9_000); return; }
+    if (profile === 'car-eco') { response.writeHead(200, { 'content-type': 'application/geo+json' }); response.end('x'.repeat(300_000)); return; }
+    response.writeHead(302, { location: '/brouter' }); response.end();
+    return;
+  }
+
   if (url.pathname === `/api/albums/${page.album.id}/map-markers` && (url.searchParams.has('key') || url.searchParams.has('slug'))) {
     if (request.headers.cookie !== 'immich_shared_link_token=fixture' || request.headers.authorization !== 'Bearer fixture') {
       response.writeHead(403, { 'content-type': 'application/json' });
       response.end(JSON.stringify({ error: 'map request context rejected' }));
       return;
     }
-    if (url.searchParams.get('key') !== 'opaque-ref' && url.searchParams.get('slug') !== 'opaque-ref' && url.searchParams.get('key') !== 'map-ref' && url.searchParams.get('slug') !== 'map-ref') {
+    if (!['opaque-ref', 'map-ref', 'route-waypoints', 'route-geojson', 'route-brouter', 'route-brouter-failure', 'route-brouter-unsupported'].includes(url.searchParams.get('key') ?? url.searchParams.get('slug'))) {
       response.writeHead(404, { 'content-type': 'application/json' });
       response.end(JSON.stringify({ error: 'map share mismatch' }));
       return;

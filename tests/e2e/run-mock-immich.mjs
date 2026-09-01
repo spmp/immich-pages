@@ -68,7 +68,14 @@ const mock = start(process.execPath, ['tests/e2e/mock-immich-server.mjs'], { env
 try {
   const match = await waitForOutput(mock, /MOCK_IMMICH_READY (\d+)/);
   const pages = start(process.platform === 'win32' ? 'npm.cmd' : 'npm', ['run', 'dev', '--', '--host', '127.0.0.1', '--port', '4173'], {
-    env: { ...process.env, IMMICH_BASE_URL: `http://127.0.0.1:${match[1]}`, MAP_STYLE_URL_QUIET_ATLAS: `http://127.0.0.1:${match[1]}/api/map-style.json` }
+      env: {
+        ...process.env,
+        IMMICH_BASE_URL: `http://127.0.0.1:${match[1]}`,
+        MAP_STYLE_URL_QUIET_ATLAS: `http://127.0.0.1:${match[1]}/api/map-style.json`,
+        BROUTER_ENDPOINT: `http://127.0.0.1:${match[1]}/brouter`,
+        BROUTER_ALLOWED_ORIGINS: `http://127.0.0.1:${match[1]}`,
+        BROUTER_ALLOW_LOOPBACK_FOR_TESTS: 'true'
+      }
   });
   await waitForHttp('http://127.0.0.1:4173/health');
   await new Promise((resolve, reject) => {
