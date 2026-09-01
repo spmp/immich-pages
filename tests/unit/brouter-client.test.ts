@@ -16,6 +16,7 @@ describe('configured BRouter client policy', () => {
 
 	it('rejects private, unresolved, and mixed DNS answers', async () => {
 		const lookup = async () => [{ address: '93.184.216.34', family: 4 as const }, { address: '10.0.0.1', family: 4 as const }];
-		expect((await validateBrouterEndpoint('https://router.example.test/brouter', allowed, lookup)).warnings).toEqual(['brouter-endpoint-unsafe']);
+		const result = await validateBrouterEndpoint('https://router.example.test/brouter', allowed, lookup);
+		expect(result).toMatchObject({ kind: 'unavailable', warnings: ['brouter-endpoint-unsafe'] });
 	});
 });

@@ -3,6 +3,7 @@ import { deriveAutoRoute } from './auto-route';
 import { MAX_ROUTE_BYTES, MAX_ROUTE_SEGMENTS, normalizeRouteGeometry } from './geometry';
 import type { MapMarker, MapWarning, PathResult } from './types';
 import { parseBrouterWebPermalink } from './brouter-web';
+import { BrouterClient } from './brouter-client';
 
 export type Waypoint = [number, number];
 export type PathSource = 'auto' | 'waypoints' | 'geojson' | 'brouter-web';
@@ -31,9 +32,13 @@ const adapters: Record<PathSource, Adapter<unknown>> = {
 	},
 	waypoints: (input) => resolveWaypoints(input),
 	geojson: (input) => input === undefined ? { kind: 'unavailable', warnings: ['map-source-unsupported'] } : normalizeRouteGeometry(input),
-	'brouter-web': (input) => {
+	'brouter-web': async (input) => {
 		const parsed = typeof input === 'string' ? parseBrouterWebPermalink(input) : { kind: 'unavailable' as const, warnings: ['brouter-permalink-invalid' as const] };
-		return parsed.kind === 'resolved' ? { kind: 'unavailable', warnings: parsed.warnings } : parsed;
+		if (parsed.kind !== 'resolved') return parsed;
+		const endpoint = process.env.BROUTER_ENDPOINT;
+		const allowedOrigins = process.env.BROUTER_ALLOWED_ORIGINS?.split(',').map((value) => value.trim()).filter(Boolean) ?? [];
+		if (!endpoint || !allowedOrigins.length) return { kind: 'unavailable', warnings: ['brouter-endpoint-unsafe'] };
+		return new BrouterClient({ endpoint, allowedOrigins }).resolve(parsed);
 	}
 };
 

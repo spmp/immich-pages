@@ -16,7 +16,7 @@ describe('BRouter route adapter boundary', () => {
 		if (!address || typeof address === 'string') throw new Error('server did not start');
 		const parsed = parseBrouterWebPermalink('https://brouter.de/brouter-web/#lonlats=1,2%7C3,4&profile=trekking');
 		if (parsed.kind !== 'resolved') throw new Error('fixture did not parse');
-		const result = await new BrouterClient({ endpoint: `http://127.0.0.1:${address.port}/brouter`, allowedOrigins: [`http://127.0.0.1:${address.port}`], allowLoopbackForTests: true }).resolve(parsed);
+		const result = await new BrouterClient({ endpoint: `http://127.0.0.1:${address.port}/brouter`, allowedOrigins: [`http://127.0.0.1:${address.port}`], allowLoopbackForTests: true, lookup: async () => [{ address: '127.0.0.1', family: 4 }] }).resolve(parsed);
 		server.close();
 		expect(result.kind).toBe('resolved');
 		expect(requests[0].url).toContain('profile=trekking');

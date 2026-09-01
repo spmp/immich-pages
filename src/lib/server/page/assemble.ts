@@ -28,6 +28,7 @@ export async function assembleDirectShare(provider: ImmichProvider, context: Aut
 	logShareHeroSelection({ selection: heroSelection(document.config, share) });
 	const template = normalizeTemplate(document.config);
 	const displayDate = deriveDisplayDate(document.config, share);
+	const { url: _brouterUrl, ...browserMap } = document.config.map;
 	const mediaShareQuery = `?${context.shareRef.kind}=${encodeURIComponent(context.shareRef.value)}`;
 	const assets = share.assets.map((asset) => {
 		const normalized = {
@@ -51,7 +52,7 @@ export async function assembleDirectShare(provider: ImmichProvider, context: Aut
 	};
 	const normalized: NormalizedPageModel = {
 		album,
-		presentation: { ...document.config, template: template.template },
+		presentation: { ...document.config, map: browserMap, template: template.template },
 		narrativeHtml: narrative.html,
 		assets: assets.map((asset) => document.config.gallery.captions[asset.id] ? { ...asset, caption: document.config.gallery.captions[asset.id] } : asset),
 		permissions: { showMetadata: share.showMetadata, allowDownload: share.allowDownload },
