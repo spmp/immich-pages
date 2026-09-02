@@ -36,7 +36,7 @@ export const load: PageServerLoad = async ({ params, request, locals, fetch, coo
 	if (outcome.kind === 'invalid-metadata') { logDirectShareBoundary({ phase: 'end', method: request.method, pathname, status: 422 }); return { outcome: { kind: 'presentation-error' as const, state: 'invalid' as const } }; }
 	if (outcome.kind === 'password-required' || outcome.kind === 'unauthorized' || outcome.kind === 'not-found' || outcome.kind === 'unsupported') { cookies.set(PAGES_SESSION_COOKIE, '', { path: '/', httpOnly: true, secure: true, sameSite: 'lax', maxAge: 0 }); logDirectShareBoundary({ phase: 'end', method: request.method, pathname, status: outcome.kind === 'not-found' ? 404 : 403 }); return { outcome }; }
 	logDirectShareBoundary({ phase: 'end', method: request.method, pathname, status: 502 });
-	error(502, 'Immich is unavailable');
+	return { outcome: { kind: 'presentation-error' as const, state: 'temporary' as const } };
 };
 
 export const actions = {

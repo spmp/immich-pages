@@ -37,15 +37,19 @@ test('renders the explicit slug form and preserves its query', async ({ page }) 
 });
 
 test('returns non-page and upstream errors without exposing upstream bodies', async ({ page }) => {
-  expect((await page.goto('/share/key/non-page'))?.status()).toBe(404);
-  expect((await page.goto('/share/key/error'))?.status()).toBe(502);
+  expect((await page.goto('/share/key/non-page'))?.status()).toBe(200);
+  await expect(page.getByRole('heading', { name: 'This is not a Pages journey' })).toBeVisible();
+  expect((await page.goto('/share/key/error'))?.status()).toBe(200);
+  await expect(page.getByRole('heading', { name: 'This journey is unavailable right now' })).toBeVisible();
   await expect(page.getByText('temporary failure')).toHaveCount(0);
 });
 
 test('rejects a request without the disposable visitor context', async ({ browser }) => {
   const context = await browser.newContext();
   const response = await context.request.get('/share/key/opaque-ref');
-  expect(response.status()).toBe(403);
+  expect(response.status()).toBe(200);
+  expect(await response.text()).toContain('This journey is no longer available');
+  expect(await response.text()).not.toContain('request context rejected');
   await context.close();
 });
 

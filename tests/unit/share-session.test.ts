@@ -17,4 +17,13 @@ describe('Pages share sessions', () => {
 		expect(extractImmichShareToken('foo=bar; immich_shared_link_token=abc123; x=y')).toBe('abc123');
 		expect(extractImmichShareToken('immich_shared_link_token=' + 'x'.repeat(2049))).toBeNull();
 	});
+	it('expires entries independently and evicts the least recently used entry', () => {
+		let cookie: string | undefined;
+		for (let index = 0; index < 8; index += 1) cookie = addSession(cookie, { kind: 'key', value: `share-${index}` }, `token-${index}`, 1000 + index);
+		const touched = sessionForShare(cookie, { kind: 'key', value: 'share-0' }, 2000).cookie;
+		const full = addSession(touched?.split(';')[0].split('=')[1], { kind: 'key', value: 'new-share' }, 'new-token', 2001);
+		expect(sessionForShare(full, { kind: 'key', value: 'share-1' }, 2002).token).toBeNull();
+		expect(sessionForShare(full, { kind: 'key', value: 'share-0' }, 2002).token).toBe('token-0');
+		expect(sessionForShare(full, { kind: 'key', value: 'share-0' }, 1000 + 24 * 60 * 60 * 1000 + 1).token).toBeNull();
+	});
 });
