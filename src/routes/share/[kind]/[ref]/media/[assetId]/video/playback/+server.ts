@@ -4,6 +4,7 @@ import { createImmichProvider } from '$server/immich/provider';
 import { parseSharedLinkRef } from '$server/share/ref';
 import { z } from 'zod';
 import { logShareMediaStatus } from '$server/share/diagnostics';
+import { extractImmichShareToken, PAGES_SESSION_COOKIE, sessionForShare } from '$server/share/session';
 
 const MAX_VIDEO_RESPONSE_BYTES = 64 * 1024 * 1024;
 const MAX_VIDEO_RANGE_BYTES = 64 * 1024 * 1024;
@@ -54,16 +55,20 @@ async function boundedBody(response: Response, max: number, declared: number | n
 	});
 }
 
-export const GET: RequestHandler = async ({ params, request, locals, fetch }) => {
+export const GET: RequestHandler = async ({ params, request, cookies, fetch }) => {
 	const shareRef = parseSharedLinkRef(params.kind, params.ref);
 	if (!shareRef || !z.uuidv4().safeParse(params.assetId).success) return new Response('Media not found', { status: 404 });
+	const session = sessionForShare(cookies.get(PAGES_SESSION_COOKIE), shareRef);
+	if (session.cookie) cookies.set(PAGES_SESSION_COOKIE, session.cookie.split(';')[0].split('=')[1] ?? '', { path: '/', httpOnly: true, secure: true, sameSite: 'lax', maxAge: session.token ? 86400 : 0 });
+	const token = session.token ?? extractImmichShareToken(request.headers.get('cookie'));
+	const context = { ...authContextFromRequest(request, shareRef), cookie: token ? `immich_shared_link_token=${token}` : null };
 	const parsedRange = rangeValue(request.headers.get('range'));
 	if ('invalid' in parsedRange) return new Response('Range not satisfiable', { status: 416, headers: { 'content-range': 'bytes */*', 'cache-control': 'private, no-store' } });
 	let result: Awaited<ReturnType<ReturnType<typeof createImmichProvider>['getVideoPlayback']>>;
-	try { result = await createImmichProvider(fetch).getVideoPlayback(authContextFromRequest(request, shareRef), params.assetId, parsedRange.value); }
+	try { result = await createImmichProvider(fetch).getVideoPlayback(context, params.assetId, parsedRange.value); }
 	catch { logShareMediaStatus({ media: 'video', status: 'failure', failureCategory: 'upstream' }); return new Response('Immich is unavailable', { status: 502 }); }
 	if (result.error === 'asset-mismatch' || result.error === 'not-video' || result.status === 404) { logShareMediaStatus({ media: 'video', status: 'failure', failureCategory: 'not-found' }); return new Response('Media not found', { status: 404 }); }
-	if (result.status === 401 || result.status === 403) { logShareMediaStatus({ media: 'video', status: 'failure', failureCategory: 'unauthorized' }); return new Response('Media not authorized', { status: 403 }); }
+	if (result.status === 401 || result.status === 403) { cookies.set(PAGES_SESSION_COOKIE, '', { path: '/', httpOnly: true, secure: true, sameSite: 'lax', maxAge: 0 }); logShareMediaStatus({ media: 'video', status: 'failure', failureCategory: 'unauthorized' }); return new Response('Media not authorized', { status: 403 }); }
 	if (!result.response) { logShareMediaStatus({ media: 'video', status: 'failure', failureCategory: 'upstream' }); return new Response('Immich is unavailable', { status: 502 }); }
 	if (result.status === 416) return new Response(null, { status: 416, headers: safeHeaders(result.response) });
 	if (result.status !== 200 && result.status !== 206) return new Response('Immich is unavailable', { status: 502 });
