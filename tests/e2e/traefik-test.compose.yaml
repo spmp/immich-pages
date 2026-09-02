@@ -5,6 +5,7 @@ services:
       dockerfile: Dockerfile
     environment:
       IMMICH_BASE_URL: http://fake-immich:3001
+      PAGES_SESSION_SECRET: fixture-pages-session-secret-at-least-32-bytes
       HOST: 0.0.0.0
       PORT: 3000
       PROTOCOL_HEADER: X-Forwarded-Proto
@@ -18,7 +19,17 @@ services:
       interval: 2s
       timeout: 3s
       retries: 20
-
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=immich-pages-e2e
+      - traefik.http.routers.pages.rule=Host(`pages.example.xyz`)
+      - traefik.http.routers.pages.entrypoints=web
+      - traefik.http.routers.pages.service=pages
+      - traefik.http.routers.pages-replacement.rule=Host(`immich.example.xyz`) && PathPrefix(`/share`)
+      - traefik.http.routers.pages-replacement.priority=100
+      - traefik.http.routers.pages-replacement.entrypoints=web
+      - traefik.http.routers.pages-replacement.service=pages
+      - traefik.http.services.pages.loadbalancer.server.port=3000
   fake-immich:
     image: node:24-alpine
     command: ["node", "/fixture/server.mjs"]
@@ -30,6 +41,13 @@ services:
       interval: 2s
       timeout: 3s
       retries: 20
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=immich-pages-e2e
+      - traefik.http.routers.fake-immich.rule=Host(`immich.example.xyz`)
+      - traefik.http.routers.fake-immich.priority=1
+      - traefik.http.routers.fake-immich.entrypoints=web
+      - traefik.http.services.fake-immich.loadbalancer.server.port=3001
 
   traefik:
     image: traefik:v3.5

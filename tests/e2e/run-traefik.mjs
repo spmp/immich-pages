@@ -16,7 +16,7 @@ async function waitForTraefik() {
   const deadline = Date.now() + 60_000;
   while (Date.now() < deadline) {
     try {
-      const response = await fetch('http://127.0.0.1:18080/health', { headers: { host: 'pages.example.xyz' } });
+      const response = await fetch('http://127.0.0.1:18080/health', { headers: { host: 'pages.example.xyz', 'x-forwarded-proto': 'https' } });
       if (response.status !== 404 && response.status < 599) return;
     } catch {
       // The published entrypoint is not ready yet.
