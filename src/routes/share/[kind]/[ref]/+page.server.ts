@@ -1,12 +1,16 @@
-import { error } from '@sveltejs/kit';
+import { error, fail, redirect } from '@sveltejs/kit';
 import type { PageServerLoad } from './$types';
 import { authContextFromRequest } from '$server/immich/auth-context';
 import { createImmichProvider } from '$server/immich/provider';
 import { assembleDirectShare } from '$server/page/assemble';
 import { parseSharedLinkRef } from '$server/share/ref';
 import { logDirectShareBoundary, logDirectShareOutcome } from '$server/share/diagnostics';
+import { addSession, clearSessionCookie, extractImmichShareToken, PAGES_SESSION_COOKIE, sessionCookie, sessionForShare } from '$server/share/session';
 
-export const load: PageServerLoad = async ({ params, request, locals, fetch }) => {
+const safePassword = (value: FormDataEntryValue | null) => typeof value === 'string' && value.length > 0 && value.length <= 256 ? value : null;
+
+export const load: PageServerLoad = async ({ params, request, locals, fetch, cookies, setHeaders }) => {
+	setHeaders({ 'cache-control': 'private, no-store' });
 	const pathname = new URL(request.url).pathname;
 	logDirectShareBoundary({ phase: 'start', method: request.method, pathname });
 	const ref = parseSharedLinkRef(params.kind, params.ref);
@@ -15,21 +19,41 @@ export const load: PageServerLoad = async ({ params, request, locals, fetch }) =
 		logDirectShareBoundary({ phase: 'end', method: request.method, pathname, status: 404 });
 		error(404, 'Share not found');
 	}
+	const session = sessionForShare(cookies.get(PAGES_SESSION_COOKIE), ref);
+	if (session.cookie) cookies.set(PAGES_SESSION_COOKIE, session.cookie.split(';')[0].split('=')[1] ?? '', { path: '/', httpOnly: true, secure: true, sameSite: 'lax', maxAge: session.token ? 86400 : 0 });
+	const visitorToken = session.token ?? extractImmichShareToken(request.headers.get('cookie'));
+	const context = { ...authContextFromRequest(request, ref), cookie: visitorToken ? `immich_shared_link_token=${visitorToken}` : null };
 	let outcome: Awaited<ReturnType<typeof assembleDirectShare>>;
 	try {
-		outcome = await assembleDirectShare(createImmichProvider(fetch), authContextFromRequest(request, ref), locals.requestId);
+		outcome = await assembleDirectShare(createImmichProvider(fetch), context, locals.requestId);
 	} catch {
 		outcome = { kind: 'upstream-error', requestId: locals.requestId };
 	}
 	logDirectShareOutcome({ outcome: outcome.kind, method: request.method, pathname,
 		metadataReason: outcome.kind === 'invalid-metadata' ? outcome.metadataReason : undefined });
 	if (outcome.kind === 'page') { logDirectShareBoundary({ phase: 'end', method: request.method, pathname, status: 200 }); return { outcome }; }
-	if (outcome.kind === 'non-page') { logDirectShareBoundary({ phase: 'end', method: request.method, pathname, status: 404 }); error(404, 'This album is not a Pages presentation'); }
+	if (outcome.kind === 'non-page') { logDirectShareBoundary({ phase: 'end', method: request.method, pathname, status: 404 }); return { outcome }; }
 	if (outcome.kind === 'invalid-metadata') { logDirectShareBoundary({ phase: 'end', method: request.method, pathname, status: 422 }); return { outcome: { kind: 'presentation-error' as const, state: 'invalid' as const } }; }
-	if (outcome.kind === 'password-required') { logDirectShareBoundary({ phase: 'end', method: request.method, pathname, status: 401 }); error(401, 'This share requires authentication'); }
-	if (outcome.kind === 'unauthorized') { logDirectShareBoundary({ phase: 'end', method: request.method, pathname, status: 403 }); error(403, 'This share is not authorized'); }
-	if (outcome.kind === 'not-found') { logDirectShareBoundary({ phase: 'end', method: request.method, pathname, status: 404 }); error(404, 'Share not found'); }
-	if (outcome.kind === 'unsupported') { logDirectShareBoundary({ phase: 'end', method: request.method, pathname, status: 502 }); error(502, 'This share is not supported'); }
+	if (outcome.kind === 'password-required' || outcome.kind === 'unauthorized' || outcome.kind === 'not-found' || outcome.kind === 'unsupported') { cookies.set(PAGES_SESSION_COOKIE, '', { path: '/', httpOnly: true, secure: true, sameSite: 'lax', maxAge: 0 }); logDirectShareBoundary({ phase: 'end', method: request.method, pathname, status: outcome.kind === 'not-found' ? 404 : 403 }); return { outcome }; }
 	logDirectShareBoundary({ phase: 'end', method: request.method, pathname, status: 502 });
 	error(502, 'Immich is unavailable');
+};
+
+export const actions = {
+	default: async ({ params, request, cookies, fetch, url, locals }) => {
+		const ref = parseSharedLinkRef(params.kind, params.ref);
+		if (!ref) return fail(404, { kind: 'not-found' as const });
+		const origin = request.headers.get('origin');
+		if (origin && origin !== url.origin) return fail(403, { kind: 'login-failed' as const });
+		const password = safePassword((await request.formData()).get('password'));
+		if (!password) return fail(400, { kind: 'login-failed' as const });
+		try {
+			const provider = createImmichProvider(fetch);
+			const result = await provider.loginSharedLink({ shareRef: ref, cookie: null, authorization: null }, password);
+			if (!result.token) return fail(401, { kind: 'login-failed' as const });
+			const value = addSession(cookies.get(PAGES_SESSION_COOKIE), ref, result.token);
+			cookies.set(PAGES_SESSION_COOKIE, value, { path: '/', httpOnly: true, secure: true, sameSite: 'lax', maxAge: 86400 });
+		} catch { return fail(401, { kind: 'login-failed' as const }); }
+		return redirect(303, `${url.pathname}${url.search}`);
+	}
 };

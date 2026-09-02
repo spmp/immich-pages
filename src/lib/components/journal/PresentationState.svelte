@@ -3,7 +3,7 @@
 	import { onMount } from 'svelte';
 	import { reportJournalDebug } from './journal-debug';
 
-	let { state = 'temporary', retryHref = '.', copy: copyOverride }: { state?: PresentationStateKind; retryHref?: string; copy?: { heading: string; body: string; action: string } } = $props();
+	let { state = 'temporary', retryHref = '.', copy: copyOverride, form }: { state?: PresentationStateKind; retryHref?: string; copy?: { heading: string; body: string; action: string }; form?: boolean } = $props();
 	const copy = $derived(copyOverride ?? presentationCopy(state));
 	onMount(() => { reportJournalDebug('presentation-state', { status: state === 'invalid' ? 'invalid' : state }); reportJournalDebug('fallback', { category: 'gallery', status: state === 'invalid' ? 'invalid' : state }); });
 </script>
@@ -12,7 +12,7 @@
 	<span class="rule" aria-hidden="true"></span>
 	<h1 id="state-title">{copy.heading}</h1>
 	<p>{copy.body}</p>
-	<a href={retryHref}>{copy.action}</a>
+	{#if form}<form method="POST"><label for="password">Password</label><input id="password" name="password" type="password" required maxlength="256" autocomplete="current-password" /><button type="submit">Continue</button></form>{:else}<a href={retryHref}>{copy.action}</a>{/if}
 </section>
 
 <style>
@@ -22,6 +22,7 @@
 	p { max-width: 48ch; margin: 0; color: #626860; font: 400 16px/1.5 ui-sans-serif, system-ui, sans-serif; }
 	a { min-height: 44px; display: inline-flex; align-items: center; padding: 8px 16px; color: #fffdf8; background: #c96b4b; font: 600 14px/1.3 ui-sans-serif, system-ui, sans-serif; }
 	a:focus-visible { outline: 3px solid #202522; outline-offset: 4px; }
+	form { display: grid; gap: 8px; max-width: 28rem; } input, button { min-height: 44px; padding: 8px 12px; font: inherit; } button { color: #fffdf8; background: #c96b4b; border: 0; cursor: pointer; }
 	@media (min-width: 640px) { .presentation-state { padding-left: 24px; padding-right: 24px; } }
 	@media (min-width: 960px) { .presentation-state { padding-left: 32px; padding-right: 32px; } }
 	@media (min-width: 1200px) { .presentation-state { padding-left: 48px; padding-right: 48px; } }

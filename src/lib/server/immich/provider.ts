@@ -1,9 +1,10 @@
 import { readBoundedText, requestImmich, shareQuery } from './client';
 import { AssetResponseSchema, MapMarkerResponseArraySchema, SearchResponseSchema, SharedLinkResponseSchema, type SharedLinkResponse } from './types';
 import type { AuthContext } from './auth-context';
-import { logAlbumAssetsRequest, logAlbumAssetsResponse, logSharedLinkResponse, logShareAssetProjection } from '$server/share/diagnostics';
+import { logAlbumAssetsRequest, logAlbumAssetsResponse, logMapMarkersResponse, logSharedLinkResponse, logShareAssetProjection } from '$server/share/diagnostics';
 
 export type ImmichProvider = {
+	loginSharedLink: (context: AuthContext, password: string) => Promise<{ status: number; token?: string }>;
 	getSharedLink: (context: AuthContext) => Promise<{ status: number; data?: SharedLinkResponse; error?: 'malformed' }>;
 	getThumbnail: (context: AuthContext, assetId: string) => Promise<{ status: number; response?: Response; error?: 'malformed' | 'asset-mismatch' }>;
 	getVideoPlayback: (context: AuthContext, assetId: string, range?: string) => Promise<{ status: number; response?: Response; error?: 'malformed' | 'asset-mismatch' | 'not-video' }>;
@@ -14,6 +15,13 @@ export type ImmichProvider = {
 export function createImmichProvider(fetchImpl: typeof fetch = fetch, baseUrl = process.env.IMMICH_BASE_URL): ImmichProvider {
 	if (!baseUrl) throw new Error('IMMICH_BASE_URL is required');
 	return {
+		async loginSharedLink(context, password) {
+			const response = await requestImmich(baseUrl, `/api/shared-links/login?${shareQuery(context)}`, context, fetchImpl, { method: 'POST', body: JSON.stringify({ password }), headers: { 'content-type': 'application/json' }, endpoint: 'shared-link' });
+			if (!response.ok) return { status: response.status };
+			const cookie = response.headers.get('set-cookie');
+			const token = cookie?.match(/(?:^|;\s*)immich_shared_link_token=([^;\s]+)/)?.[1];
+			return token ? { status: response.status, token } : { status: 502 };
+		},
 		async getSharedLink(context) {
 			const url = `/api/shared-links/me?${shareQuery(context)}`;
 			const response = await requestImmich(baseUrl, url, context, fetchImpl, { endpoint: 'shared-link' });
@@ -55,7 +63,9 @@ export function createImmichProvider(fetchImpl: typeof fetch = fetch, baseUrl = 
 			if (!response.ok) return { status: response.status };
 			try {
 				const parsed = MapMarkerResponseArraySchema.safeParse(JSON.parse(await readBoundedText(response)));
-				return parsed.success ? { status: response.status, data: parsed.data } : { status: 422, error: 'malformed' };
+				if (!parsed.success) return { status: 422, error: 'malformed' };
+				logMapMarkersResponse({ normalizedCount: parsed.data.length });
+				return { status: response.status, data: parsed.data };
 			} catch { return { status: 422, error: 'malformed' }; }
 		},
 		async getVersion() {
@@ -63,7 +73,13 @@ export function createImmichProvider(fetchImpl: typeof fetch = fetch, baseUrl = 
 			if (!response.ok) return { status: response.status };
 			try {
 				const body = JSON.parse(await readBoundedText(response)) as unknown;
-				const version = typeof body === 'string' ? body : typeof body === 'object' && body !== null && 'version' in body && typeof body.version === 'string' ? body.version : null;
+				const version = typeof body === 'string'
+					? body
+					: typeof body === 'object' && body !== null && 'version' in body && typeof body.version === 'string'
+						? body.version
+						: typeof body === 'object' && body !== null && 'major' in body && 'minor' in body && 'patch' in body && [body.major, body.minor, body.patch].every((part) => Number.isInteger(part))
+							? `${body.major}.${body.minor}.${body.patch}`
+							: null;
 				return version ? { status: response.status, version } : { status: 422 };
 			} catch {
 				return { status: 422 };
