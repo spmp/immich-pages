@@ -23,11 +23,13 @@ services:
       - traefik.enable=true
       - traefik.docker.network=immich-pages-e2e
       - traefik.http.routers.pages.rule=Host(`pages.example.xyz`)
-      - traefik.http.routers.pages.entrypoints=web
+      - traefik.http.routers.pages.entrypoints=websecure
+      - traefik.http.routers.pages.tls=true
       - traefik.http.routers.pages.service=pages
       - traefik.http.routers.pages-replacement.rule=Host(`immich.example.xyz`) && PathPrefix(`/share`)
       - traefik.http.routers.pages-replacement.priority=100
-      - traefik.http.routers.pages-replacement.entrypoints=web
+      - traefik.http.routers.pages-replacement.entrypoints=websecure
+      - traefik.http.routers.pages-replacement.tls=true
       - traefik.http.routers.pages-replacement.service=pages
       - traefik.http.services.pages.loadbalancer.server.port=3000
   fake-immich:
@@ -46,19 +48,20 @@ services:
       - traefik.docker.network=immich-pages-e2e
       - traefik.http.routers.fake-immich.rule=Host(`immich.example.xyz`)
       - traefik.http.routers.fake-immich.priority=1
-      - traefik.http.routers.fake-immich.entrypoints=web
+      - traefik.http.routers.fake-immich.entrypoints=websecure
+      - traefik.http.routers.fake-immich.tls=true
       - traefik.http.services.fake-immich.loadbalancer.server.port=3001
 
   traefik:
     image: traefik:v3.5
     command:
-      - --entrypoints.web.address=:80
+      - --entrypoints.websecure.address=:443
       - --providers.docker=true
       - --providers.docker.exposedbydefault=false
       - --providers.docker.network=immich-pages-e2e
       - --api.dashboard=false
     ports:
-      - "18080:80"
+      - "18080:443"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     depends_on:

@@ -7,9 +7,8 @@ export default defineConfig({
     ...devices['Desktop Chrome'],
     browserName: 'chromium',
     baseURL: process.env.PLAYWRIGHT_BASE_URL ?? 'http://pages.example.xyz:18080',
-    launchOptions: process.env.PLAYWRIGHT_BASE_URL
-      ? undefined
-      : { args: ['--host-resolver-rules=MAP pages.example.xyz 127.0.0.1'] }
+    ignoreHTTPSErrors: true,
+    launchOptions: { args: ['--host-resolver-rules=MAP pages.example.xyz 127.0.0.1,MAP immich.example.xyz 127.0.0.1'] }
   },
   reporter: 'list'
 });

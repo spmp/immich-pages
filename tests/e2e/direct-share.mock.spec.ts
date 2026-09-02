@@ -11,7 +11,8 @@ test.beforeEach(async ({ context }) => {
 test('renders a key share with safe projected media and preserves query state', async ({ page }) => {
   const response = await page.goto('/share/key/opaque-ref?view=gallery');
   expect(response?.status()).toBe(200);
-  expect(response?.headers()['set-cookie']).toBeUndefined();
+   expect(response?.headers()['set-cookie']).toBeUndefined();
+   expect(response?.headers()['location']).toBeUndefined();
   await expect(page.getByRole('heading', { name: 'Mock Journey' })).toBeVisible();
   await expect(page.getByText('Mock browser proof')).toBeVisible();
    await expect(page.locator('img').first()).toHaveAttribute('src', '/share/key/opaque-ref/media/550e8400-e29b-41d4-a716-446655440002/thumbnail?key=opaque-ref');
@@ -19,7 +20,8 @@ test('renders a key share with safe projected media and preserves query state', 
   expect(media.status()).toBe(200);
   expect(media.headers()['content-type']).toContain('image/png');
   expect(await media.body()).toBeTruthy();
-  expect(page.url()).toContain('/share/key/opaque-ref?view=gallery');
+   expect(page.url()).toContain('/share/key/opaque-ref?view=gallery');
+   expect(await page.getByRole('link', { name: /download/i }).count()).toBe(0);
 });
 
 test('does not expose a direct Immich media source or permit an unshared asset', async ({ page }) => {

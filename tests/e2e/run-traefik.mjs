@@ -16,7 +16,7 @@ async function waitForTraefik() {
   const deadline = Date.now() + 60_000;
   while (Date.now() < deadline) {
     try {
-      const response = await fetch('http://127.0.0.1:18080/health', { headers: { host: 'pages.example.xyz', 'x-forwarded-proto': 'https' } });
+      const response = await fetch('https://127.0.0.1:18080/health', { headers: { host: 'pages.example.xyz' } });
       if (response.status !== 404 && response.status < 599) return;
     } catch {
       // The published entrypoint is not ready yet.
@@ -32,7 +32,7 @@ try {
   await run([...compose, 'up', '-d', '--build']);
   await waitForTraefik();
   await run(['exec', '-T', 'traefik', 'traefik', 'healthcheck', '--ping']);
-  await runCommand('npx', ['playwright', 'test', ...playwrightArgs]);
+    await runCommand('npx', ['playwright', 'test', ...playwrightArgs], { env: { ...process.env, PLAYWRIGHT_BASE_URL: 'https://pages.example.xyz:18080' } });
 } catch (error) {
   failure = error;
 } finally {

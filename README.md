@@ -7,7 +7,7 @@ request; it has no database, media store, page index, or correctness-critical
 volume. Deleting and recreating the container therefore does not delete pages.
 The current compatibility target is Immich v3.1.0.
 
-## Phase 1 contract
+## Share URL and proxy contract
 
 The supported public grammar is exactly:
 
@@ -16,18 +16,17 @@ https://pages.example.xyz/share/key/<opaque-ref>
 https://pages.example.xyz/share/slug/<opaque-ref>
 ```
 
-`key` and `slug` are explicit route kinds; Pages never guesses between them.
-The reference is opaque, bounded, and request-scoped. Pages forwards only the
-visitor's incoming `Cookie` and `Authorization` headers to the configured
-`IMMICH_BASE_URL`. It never stores credentials, creates a Pages session, uses
-an owner/API key fallback, or relays upstream `Set-Cookie` headers.
+`key` and `slug` are explicit route kinds; Pages never guesses between them. The
+same `/share/` paths may also be routed from `immich.example.xyz` to Pages by
+Traefik. Viewers remain on Pages: upstream URLs, redirects, login pages, media
+URLs, cookies, and response details are never relayed. Only the visitor's
+incoming `Cookie` and `Authorization` reach the configured `IMMICH_BASE_URL`;
+Pages never synthesizes an owner/API key credential.
 
-Phase 1 reads the authorized shared-link album and permitted embedded asset
-descriptors. Browser media uses a narrow same-origin Pages thumbnail route that
-re-authorizes each request against Immich. It does not implement password
-login, full media/original/download proxying, maps, album discovery, mutations,
-transparent Immich `/share` interception, or the full narrative parser. A
-valid ordinary album share is a safe non-page result, not a rendered Page.
+Password handoff is delegated to Immich and stored only as a bounded,
+host-scoped encrypted Pages session. Every page and media request revalidates
+the share. A valid ordinary album share is a branded non-page result, not an
+Immich redirect; ordinary Immich root paths remain outside the Pages router.
 
 ## Deployment
 
@@ -42,9 +41,11 @@ curl http://127.0.0.1:3000/health/immich
 
 `compose.yaml` contains one Pages service only: no database, media volume, or
 required application storage. The image runs `node build` as the non-root
-`node` user. Traefik must route `Host(`pages.example.xyz`)` over its secure
-TLS entrypoint to Pages, while Pages calls the explicit origin
-`IMMICH_BASE_URL=https://immich.example.xyz` and adds `/api` exactly once. See
+`node` user. Set `PAGES_SESSION_SECRET` (at least 32 random characters).
+Traefik routes `Host(`pages.example.xyz`)` and only `Host(`immich.example.xyz`)
+&& PathPrefix(`/share`)` to Pages over TLS; ordinary Immich paths are not
+captured. Pages calls the explicit origin `IMMICH_BASE_URL=https://immich.example.xyz`
+and adds `/api` exactly once. See
 [`docs/deployment.md`](docs/deployment.md) for headers, TLS, recovery, and
 reverse-proxy operations.
 
@@ -57,6 +58,20 @@ npm run test
 npm run build
 npx playwright install --with-deps chromium
 npm run test:e2e -- tests/e2e/direct-share.spec.ts
+```
+
+The deterministic Traefik gate is required in CI and uses only disposable
+fake-Immich state. The optional live operator check is separate and requires
+an operator-owned Immich v3.1.0 share plus DNS/TLS for both hosts; it is not a
+CI prerequisite:
+
+```sh
+npx playwright install --with-deps chromium
+npm run check
+npm run build
+npm run test:e2e
+# Optional, only with operator-provided live endpoint and disposable share:
+PLAYWRIGHT_BASE_URL=https://pages.example.xyz npm run e2e -- tests/e2e/direct-share.spec.ts
 ```
 
 The browser test starts the disposable Pages/fake-Immich/Traefik topology,
