@@ -32,13 +32,14 @@ export async function assembleDirectShare(provider: ImmichProvider, context: Aut
 	const mediaShareQuery = `?${context.shareRef.kind}=${encodeURIComponent(context.shareRef.value)}`;
 	const assets = share.assets.map((asset) => {
 		const normalized = {
-			id: asset.id, type: asset.type, fileName: asset.originalFileName,
+			id: asset.id, type: asset.type,
 			thumbnail: `/share/${context.shareRef.kind}/${encodeURIComponent(context.shareRef.value)}/media/${encodeURIComponent(asset.id)}/thumbnail${mediaShareQuery}`
 		};
 		return {
 			...normalized,
-			...(asset.width !== undefined ? { width: asset.width } : {}),
-			...(asset.height !== undefined ? { height: asset.height } : {}),
+			...(share.showMetadata && asset.originalFileName !== undefined ? { fileName: asset.originalFileName } : {}),
+			...(share.showMetadata && asset.width !== undefined ? { width: asset.width } : {}),
+			...(share.showMetadata && asset.height !== undefined ? { height: asset.height } : {}),
 			...(asset.type === 'VIDEO' ? { videoHref: `/share/${context.shareRef.kind}/${encodeURIComponent(context.shareRef.value)}/media/${encodeURIComponent(asset.id)}/video/playback${mediaShareQuery}` } : {})
 		};
 	});
@@ -46,13 +47,13 @@ export async function assembleDirectShare(provider: ImmichProvider, context: Aut
 		id: share.album.id,
 		title: share.album.albumName ?? 'Untitled album',
 		thumbnailAssetId: share.album.albumThumbnailAssetId ?? undefined,
-		startDate: share.album.startDate ?? undefined,
-		endDate: share.album.endDate ?? undefined,
-		updatedAt: share.album.updatedAt
+		...(share.showMetadata ? { startDate: share.album.startDate ?? undefined, endDate: share.album.endDate ?? undefined, updatedAt: share.album.updatedAt } : {})
 	};
+	const { waypoints: _waypoints, geojson: _geojson, ...metadataSafeMap } = browserMap;
+	const safeMap = share.showMetadata ? browserMap : { ...metadataSafeMap, enabled: false };
 	const normalized: NormalizedPageModel = {
 		album,
-		presentation: { ...document.config, map: browserMap, template: template.template },
+		presentation: { ...document.config, map: safeMap, template: template.template },
 		narrativeHtml: narrative.html,
 		assets: assets.map((asset) => document.config.gallery.captions[asset.id] ? { ...asset, caption: document.config.gallery.captions[asset.id] } : asset),
 		permissions: { showMetadata: share.showMetadata, allowDownload: share.allowDownload },
@@ -61,7 +62,7 @@ export async function assembleDirectShare(provider: ImmichProvider, context: Aut
 		showMetadata: share.showMetadata, allowDownload: share.allowDownload,
 		warnings: [...document.warnings, ...narrative.warnings, ...(template.warning ? [template.warning] : [])], errors: []
 	};
-	if (document.config.map.enabled) {
+	if (document.config.map.enabled && share.showMetadata) {
 		const pathRegistry = new PathSourceRegistry();
 		const markerResponse = share.showMetadata ? await provider.getMapMarkers(context, share.album.id) : { status: 200, data: [] };
 		const projected = markerResponse.data ? projectMapMarkers(markerResponse.data, share.assets) : { markers: [], warnings: ['map-no-location'] as const };
@@ -76,7 +77,7 @@ export async function assembleDirectShare(provider: ImmichProvider, context: Aut
 		if (style.kind === 'resolved') normalized.mapStyle = style;
 		else normalized.warnings.push('map-style-unavailable');
 	}
-	if (displayDate) normalized.album = { ...normalized.album, startDate: displayDate.start, endDate: displayDate.end };
+	if (share.showMetadata && displayDate) normalized.album = { ...normalized.album, startDate: displayDate.start, endDate: displayDate.end };
 	logModelOutput({ assetCount: assets.length, imageCount: assets.filter((asset) => asset.type !== 'VIDEO').length, videoCount: assets.filter((asset) => asset.type === 'VIDEO').length, heroPresent: Boolean(normalized.hero), markerCount: normalized.markers.length, routeReady: normalized.routeData !== null });
 	return { kind: 'page', page: normalized };
 }

@@ -55,4 +55,28 @@ describe('Immich v3 boundary contracts', () => {
 	it('bounds streamed bodies', async () => {
 		await expect(readBoundedText(new Response('12345'), 4)).rejects.toThrow('response-too-large');
 	});
+
+	it('accepts structured Immich server versions', async () => {
+		const result = await createImmichProvider(vi.fn(async () => new Response(JSON.stringify({ major: 3, minor: 1, patch: 0 }))), 'https://immich.example').getVersion();
+		expect(result).toEqual({ status: 200, version: '3.1.0' });
+	});
+
+	it('normalizes valid map markers', async () => {
+		const marker = { id: '22222222-2222-4222-8222-222222222222', lat: 48.8566, lon: 2.3522, city: 'Paris', state: null, country: 'France' };
+		const result = await createImmichProvider(vi.fn(async () => new Response(JSON.stringify([marker]))), 'https://immich.example').getMapMarkers(context, '11111111-1111-4111-8111-111111111111');
+		expect(result).toMatchObject({ status: 200, data: [marker] });
+	});
+
+	it('never synthesizes owner credentials or original/download operations', async () => {
+		const calls: Array<{ url: string; headers: Headers }> = [];
+		const fetchMock = vi.fn(async (input: URL | RequestInfo, init?: RequestInit) => {
+			calls.push({ url: input.toString(), headers: new Headers(init?.headers) });
+			return new Response(JSON.stringify(v3));
+		});
+		const provider = createImmichProvider(fetchMock, 'https://immich.example');
+		await provider.getSharedLink({ shareRef: { kind: 'key', value: 'opaque-ref' }, cookie: null, authorization: null });
+		expect(calls[0].headers.has('x-api-key')).toBe(false);
+		expect(calls[0].headers.has('authorization')).toBe(false);
+		expect(calls[0].url).not.toMatch(/download|original/);
+	});
 });

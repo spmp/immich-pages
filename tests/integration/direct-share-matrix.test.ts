@@ -56,6 +56,26 @@ describe('v3 direct-share matrix', () => {
 		expect(result).toEqual({ status: 200, data: [marker] });
 	});
 
+	it('quietly omits hidden metadata, location, and configured route coordinates', async () => {
+		const description = `---\nimmich-presentation:\n  type: journey\n  version: 1\n  map:\n    enabled: true\n    source: waypoints\n    waypoints:\n      - [10, 20]\n---\n# Private location story`;
+		const shared = { ...v3, showMetadata: false, album: { ...v3.album, description, startDate: '2020-01-01T00:00:00Z', updatedAt: '2020-01-02T00:00:00Z' }, assets: [{ ...v3.assets[0], originalFileName: 'private-location.jpg', width: 4000, height: 3000, localDateTime: '2020-01-01T00:00:00Z' }] };
+		const fetchMock = vi.fn(async (input: URL | RequestInfo) => {
+			if (new URL(input.toString()).pathname.endsWith('/map-markers')) throw new Error('map markers must not be requested');
+			return new Response(JSON.stringify(shared));
+		});
+		const result = await assembleDirectShare(createImmichProvider(fetchMock, 'https://immich.example'), { shareRef: { kind: 'key', value: 'private' }, cookie: null, authorization: null }, 'private');
+		expect(result.kind).toBe('page');
+		if (result.kind !== 'page') return;
+		expect(result.page.album).not.toHaveProperty('startDate');
+		expect(result.page.album).not.toHaveProperty('updatedAt');
+		expect(result.page.assets[0]).not.toHaveProperty('fileName');
+		expect(result.page.assets[0]).not.toHaveProperty('width');
+		expect(result.page.presentation.map).toMatchObject({ enabled: false });
+		expect(result.page.presentation.map).not.toHaveProperty('waypoints');
+		expect(result.page.markers).toEqual([]);
+		expect(result.page.routeData).toBeNull();
+	});
+
 	it('keeps process health independent from Immich', async () => {
 		expect(getHealth().status).toBe(200);
 	});
