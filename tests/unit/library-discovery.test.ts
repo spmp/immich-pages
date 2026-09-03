@@ -41,7 +41,7 @@ function provider(responses: Map<string, ReturnType<typeof page> | { status: num
 
 describe('share-registry library discovery', () => {
 	it('uses only registry refs, never a user session, and returns original share links newest first', async () => {
-		const result = await discoverLibrary(provider(new Map([
+		const result = await discoverLibrary(provider(new Map<string, any>([
 			['key:newest', page(refs[0], '2025-01-01', 'Newest')],
 			['slug:older-journey', page(refs[1], '2024-01-01', 'Older')],
 			['key:revoked', { status: 403 }]

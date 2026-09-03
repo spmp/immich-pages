@@ -8,6 +8,7 @@ describe('share-only library route', () => {
 		const fetchMock = vi.fn();
 		const result = await (load as unknown as (event: unknown) => Promise<{ library: { kind: string } }> )({
 			request: new Request('https://pages.test/library', { headers: { cookie: 'immich=user', authorization: 'Bearer user' } }),
+			url: new URL('https://pages.test/library'),
 			fetch: fetchMock,
 			cookies: { get: () => undefined },
 			locals: { requestId: 'test' },

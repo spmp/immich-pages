@@ -1,28 +1,34 @@
-import { parsePresentationDocument } from '$server/presentation/frontmatter';
-import { deriveDisplayDate } from '$server/presentation/model';
+import { assembleDirectShare } from '$server/page/assemble';
+import { decodeRegistry } from '$server/share/registry';
+import { sessionForShare } from '$server/share/session';
+import type { SharedLinkRef } from '$server/share/ref';
 import type { ImmichProvider } from '$server/immich/provider';
-import type { UserSessionContext } from '$server/immich/auth-context';
-import { issueLibraryLocator } from '$server/immich/locator';
-import type { LibraryResult, NavigationEntry } from './model';
-import { visibilityAllows } from './permissions';
+import type { LibraryDiscoveryContext, LibraryResult, NavigationEntry } from './model';
 
-const MAX_ALBUMS = 1000;
-export async function discoverLibrary(provider: ImmichProvider, context: UserSessionContext, now = Date.now(), current?: { albumId: string; locator: string }): Promise<LibraryResult> {
-	const user = await provider.getCurrentUser(context); if (!user.data) return { kind: user.status === 401 || user.status === 403 ? 'access' : 'temporary', entries: [], warnings: [] };
-	const listed = await provider.listAlbums(context); if (!listed.data) return { kind: listed.status === 401 || listed.status === 403 ? 'access' : 'temporary', entries: [], warnings: [] };
-	const entries: Array<NavigationEntry & { sortDate: string; id: string }> = []; let failures = 0;
-	for (const album of listed.data.slice(0, MAX_ALBUMS)) {
+const MAX_CANDIDATES = 8;
+
+export async function discoverLibrary(provider: ImmichProvider, context: LibraryDiscoveryContext, now = Date.now()): Promise<LibraryResult> {
+	const registered = decodeRegistry(context.registryCookie, now)?.entries ?? [];
+	const candidates = [...registered.map(({ kind, value }) => ({ kind, value } satisfies SharedLinkRef)), ...(context.current ?? [])]
+		.filter((ref, index, all) => all.findIndex((candidate) => candidate.kind === ref.kind && candidate.value === ref.value) === index)
+		.slice(0, MAX_CANDIDATES);
+	const entries: Array<NavigationEntry & { sortDate: string }> = [];
+	let failures = 0;
+	for (const shareRef of candidates) {
 		try {
-			const [detail, assets] = await Promise.all([provider.getAlbum(context, album.id), provider.getAlbumAssets(context, album.id)]);
-			if (!detail.data || !assets.data) { failures++; continue; }
-			const document = parsePresentationDocument(detail.data.description);
-			if (document.kind !== 'valid' || !visibilityAllows(document.config.auth, user.data)) continue;
-			const shareLike = { assets: assets.data, album: { ...detail.data, albumName: detail.data.albumName, description: detail.data.description ?? null, id: detail.data.id, assets: assets.data }, type: 'ALBUM' as const } as Parameters<typeof deriveDisplayDate>[1];
-			const date = deriveDisplayDate(document.config, shareLike); const locator = album.id === current?.albumId ? current.locator : issueLibraryLocator(album.id, now);
-			entries.push({ href: `/library/page/${locator}`, title: album.albumName, date, thumbnail: album.albumThumbnailAssetId && assets.data.some((asset) => asset.id === album.albumThumbnailAssetId) ? `/library/page/${locator}/media/${album.albumThumbnailAssetId}/thumbnail` : undefined, sortDate: date?.start ?? detail.data.updatedAt ?? detail.data.endDate ?? detail.data.startDate ?? '', id: locator });
+			const session = sessionForShare(context.sessionCookie, shareRef, now);
+			const shareContext = { shareRef, cookie: session.token ? `immich_shared_link_token=${session.token}` : null, authorization: null };
+			const outcome = await assembleDirectShare(provider, shareContext, context.requestId);
+			if (outcome.kind !== 'page') { if (outcome.kind === 'upstream-error') failures++; continue; }
+			const page = outcome.page;
+			const href = `/share/${shareRef.kind}/${encodeURIComponent(shareRef.value)}`;
+			const thumbnailAssetId = page.album.thumbnailAssetId;
+			entries.push({ href, title: page.album.title, date: page.album.startDate && page.album.endDate ? { start: page.album.startDate, end: page.album.endDate } : undefined,
+				thumbnail: thumbnailAssetId && page.assets.some((asset) => asset.id === thumbnailAssetId) ? `${href}/media/${encodeURIComponent(thumbnailAssetId)}/thumbnail?${shareRef.kind}=${encodeURIComponent(shareRef.value)}` : undefined,
+				sortDate: page.album.startDate ?? page.album.updatedAt ?? page.album.endDate ?? '' });
 		} catch { failures++; }
 	}
-	entries.sort((a, b) => b.sortDate.localeCompare(a.sortDate) || a.title.localeCompare(b.title, undefined, { sensitivity: 'base' }) || a.id.localeCompare(b.id));
-	const clean = entries.map(({ sortDate: _sortDate, id: _id, ...entry }) => entry);
+	entries.sort((a, b) => b.sortDate.localeCompare(a.sortDate) || a.title.localeCompare(b.title, undefined, { sensitivity: 'base' }) || a.href.localeCompare(b.href));
+	const clean = entries.map(({ sortDate: _sortDate, ...entry }) => entry);
 	return { kind: clean.length ? 'ready' : failures ? 'temporary' : 'empty', entries: clean, warnings: failures ? ['some-pages-unavailable'] : [] };
 }
