@@ -20,8 +20,18 @@ test('discovers presentation albums newest first and follows a fresh same-origin
   const href = await links.nth(0).getAttribute('href');
   expect(href).toMatch(/^\.\/library\/page\/[A-Za-z0-9_.-]+$/);
   expect(href).not.toContain('550e8400-e29b-41d4-a716-446655440003');
-  await page.goto(href!);
+  const destination = new URL(href!, page.url()).toString();
+  let destinationResponse;
+  try {
+    destinationResponse = await page.goto(destination);
+  } catch (error) {
+    throw new Error(`locator navigation aborted: url=${page.url()} content=${(await page.content()).slice(0, 1000)} error=${String(error)}`);
+  }
+  expect(destinationResponse?.status(), `destination=${page.url()}`).toBe(200);
   await expect(page.getByRole('heading', { name: 'Mock Journey' })).toBeVisible();
+  await expect(page.getByRole('link', { name: /Older Journey/ })).toBeVisible();
+  await expect(page.locator('a[aria-current="page"]')).toHaveCount(1);
+  await expect(page.locator('a[aria-current="page"]')).toContainText('Mock Journey');
   const html = await page.content();
   expect(html).not.toContain('127.0.0.1:');
   expect(html).not.toContain('550e8400-e29b-41d4-a716-446655440003');

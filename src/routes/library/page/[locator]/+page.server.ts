@@ -22,7 +22,7 @@ export const load: PageServerLoad = async ({ params, request, fetch, setHeaders 
 		const outcome = await assembleAuthenticatedAlbum(provider, context, album.data, assets.data, params.locator);
 		if (outcome.kind === 'invalid-metadata' || outcome.kind === 'non-page') return { outcome: safeFailure };
 		if (outcome.kind !== 'page') return { outcome };
-		const library = await discoverLibrary(provider, context);
+		const library = await discoverLibrary(provider, context, Date.now(), { albumId: locator.albumId, locator: params.locator });
 		return {
 			outcome,
 			navigation: {

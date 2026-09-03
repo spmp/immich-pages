@@ -27,9 +27,10 @@ describe('authenticated library locator destination', () => {
 			return new Response(JSON.stringify(body));
 		}), { cookie: 'immich=session' }));
 		expect(result.outcome.kind).toBe('page');
-		expect(calls).toEqual(['/api/users/me', `/api/albums/${albumId}`, '/api/search/metadata', '/api/users/me', '/api/albums', `/api/albums/${albumId}`, '/api/search/metadata']);
+		expect(calls).toEqual(['/api/users/me', `/api/albums/${albumId}`, '/api/search/metadata', '/api/users/me', '/api/albums', `/api/albums/${albumId}`, '/api/search/metadata', `/api/albums/${secondAlbum.id}`, '/api/search/metadata']);
 		expect(result.navigation?.entries).toHaveLength(2);
 		expect(result.navigation?.activeHref).toBe(`/library/page/${locator}`);
+		expect(result.navigation?.entries[0]).toMatchObject({ href: `/library/page/${locator}`, title: album.albumName });
 		expect(JSON.stringify(result)).not.toContain(albumId);
 	});
 
