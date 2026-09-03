@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { decodeRegistry, encodeRegistry, registerShare, registryCookie } from '../../src/lib/server/share/registry';
 
+process.env.PAGES_VISITED_SHARES_SECRET = 'test-visited-shares-secret-that-is-long-enough';
+
 const ref = { kind: 'key' as const, value: 'opaque-ref' };
 
 describe('visited share registry', () => {
@@ -20,7 +22,8 @@ describe('visited share registry', () => {
 
 	it('rejects a forged envelope', () => {
 		const value = registerShare(undefined, ref, 1_000);
-		expect(decodeRegistry(`${value.slice(0, -1)}x`, 1_000)).toBeNull();
+		const [iv, tag, body] = value.split('.');
+		expect(decodeRegistry(`${iv}.${tag}x.${body}`, 1_000)).toBeNull();
 	});
 
 	it('bounds entries and evicts the least recently seen ref', () => {

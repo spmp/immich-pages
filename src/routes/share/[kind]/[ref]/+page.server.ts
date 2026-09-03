@@ -6,6 +6,7 @@ import { assembleDirectShare } from '$server/page/assemble';
 import { parseSharedLinkRef } from '$server/share/ref';
 import { logDirectShareBoundary, logDirectShareOutcome } from '$server/share/diagnostics';
 import { addSession, clearSessionCookie, extractImmichShareToken, PAGES_SESSION_COOKIE, sessionCookie, sessionForShare } from '$server/share/session';
+import { registerShare, VISITED_SHARES_COOKIE } from '$server/share/registry';
 
 const safePassword = (value: FormDataEntryValue | null) => typeof value === 'string' && value.length > 0 && value.length <= 256 ? value : null;
 
@@ -31,7 +32,12 @@ export const load: PageServerLoad = async ({ params, request, locals, fetch, coo
 	}
 	logDirectShareOutcome({ outcome: outcome.kind, method: request.method, pathname,
 		metadataReason: outcome.kind === 'invalid-metadata' ? outcome.metadataReason : undefined });
-	if (outcome.kind === 'page') { logDirectShareBoundary({ phase: 'end', method: request.method, pathname, status: 200 }); return { outcome }; }
+	if (outcome.kind === 'page') {
+		const registry = registerShare(cookies.get(VISITED_SHARES_COOKIE), ref);
+		cookies.set(VISITED_SHARES_COOKIE, registry, { path: '/', httpOnly: true, secure: true, sameSite: 'lax', maxAge: 30 * 24 * 60 * 60 });
+		logDirectShareBoundary({ phase: 'end', method: request.method, pathname, status: 200 });
+		return { outcome };
+	}
 	if (outcome.kind === 'non-page') { logDirectShareBoundary({ phase: 'end', method: request.method, pathname, status: 404 }); return { outcome }; }
 	if (outcome.kind === 'invalid-metadata') { logDirectShareBoundary({ phase: 'end', method: request.method, pathname, status: 422 }); return { outcome: { kind: 'presentation-error' as const, state: 'invalid' as const } }; }
 	if (outcome.kind === 'password-required' || outcome.kind === 'unauthorized' || outcome.kind === 'not-found' || outcome.kind === 'unsupported') { cookies.set(PAGES_SESSION_COOKIE, '', { path: '/', httpOnly: true, secure: true, sameSite: 'lax', maxAge: 0 }); logDirectShareBoundary({ phase: 'end', method: request.method, pathname, status: outcome.kind === 'not-found' ? 404 : 403 }); return { outcome }; }
