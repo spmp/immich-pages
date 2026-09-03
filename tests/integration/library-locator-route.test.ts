@@ -44,4 +44,20 @@ describe('authenticated library locator destination', () => {
 		expect(result.outcome).toEqual({ kind: 'presentation-error', state: 'invalid' });
 		expect(fetchMock).not.toHaveBeenCalled();
 	});
+
+	it('does not turn an absent browser session into an Immich request', async () => {
+		process.env.PAGES_LOCATOR_SECRET = 'c'.repeat(32);
+		const locator = issueLibraryLocator(albumId);
+		const fetchMock = vi.fn();
+		const result = await invokeLoad(event(locator, fetchMock));
+		expect(result.outcome).toEqual({ kind: 'presentation-error', state: 'temporary' });
+		expect(fetchMock).not.toHaveBeenCalled();
+	});
+
+	it('maps expired locators to the same redacted invalid state', async () => {
+		process.env.PAGES_LOCATOR_SECRET = 'd'.repeat(32);
+		const expired = issueLibraryLocator(albumId, Date.now() - 25 * 60 * 60 * 1000);
+		const result = await invokeLoad(event(expired, vi.fn()));
+		expect(result.outcome).toEqual({ kind: 'presentation-error', state: 'invalid' });
+	});
 });
