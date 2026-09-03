@@ -19,6 +19,21 @@ export const AssetResponseSchema = z.object({
 
 export type SharedAsset = z.infer<typeof AssetResponseSchema>;
 
+export const UserResponseSchema = z.object({ id: IdentifierSchema, name: z.string().max(512).optional(), email: z.string().max(512).optional() });
+export type UserResponse = z.infer<typeof UserResponseSchema>;
+
+export const AlbumResponseSchema = z.object({
+	id: IdentifierSchema,
+	albumName: z.string().max(1024),
+	description: z.string().max(64 * 1024).nullable().optional(),
+	albumThumbnailAssetId: IdentifierSchema.nullable().optional(),
+	startDate: z.string().max(128).nullable().optional(),
+	endDate: z.string().max(128).nullable().optional(),
+	updatedAt: z.string().max(128).optional(),
+	assetCount: z.number().int().nonnegative().optional()
+});
+export type AlbumResponse = z.infer<typeof AlbumResponseSchema>;
+
 export const MapMarkerResponseSchema = z.object({
 	id: IdentifierSchema,
 	lat: z.number().finite(),

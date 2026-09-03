@@ -1,9 +1,13 @@
 import { readBoundedText, requestImmich, shareQuery } from './client';
-import { AssetResponseSchema, MapMarkerResponseArraySchema, SearchResponseSchema, SharedLinkResponseSchema, type SharedLinkResponse } from './types';
-import type { AuthContext } from './auth-context';
+import { AlbumResponseSchema, AssetResponseSchema, MapMarkerResponseArraySchema, SearchResponseSchema, SharedLinkResponseSchema, UserResponseSchema, type SharedLinkResponse } from './types';
+import type { AuthContext, UserSessionContext } from './auth-context';
 import { logAlbumAssetsRequest, logAlbumAssetsResponse, logMapMarkersResponse, logSharedLinkResponse, logShareAssetProjection } from '$server/share/diagnostics';
 
 export type ImmichProvider = {
+	getCurrentUser: (context: UserSessionContext) => Promise<{ status: number; data?: import('./types').UserResponse; error?: 'malformed' }>; 
+	listAlbums: (context: UserSessionContext) => Promise<{ status: number; data?: import('./types').AlbumResponse[]; error?: 'malformed' }>;
+	getAlbum: (context: UserSessionContext, albumId: string) => Promise<{ status: number; data?: import('./types').AlbumResponse; error?: 'malformed' }>;
+	getAlbumAssets: (context: UserSessionContext, albumId: string) => Promise<{ status: number; data?: import('./types').SharedAsset[]; error?: 'malformed' }>;
 	loginSharedLink: (context: AuthContext, password: string) => Promise<{ status: number; token?: string }>;
 	getSharedLink: (context: AuthContext) => Promise<{ status: number; data?: SharedLinkResponse; error?: 'malformed' }>;
 	getThumbnail: (context: AuthContext, assetId: string) => Promise<{ status: number; response?: Response; error?: 'malformed' | 'asset-mismatch' }>;
@@ -15,6 +19,10 @@ export type ImmichProvider = {
 export function createImmichProvider(fetchImpl: typeof fetch = fetch, baseUrl = process.env.IMMICH_BASE_URL): ImmichProvider {
 	if (!baseUrl) throw new Error('IMMICH_BASE_URL is required');
 	return {
+		async getCurrentUser(context) { return getJson(requestImmich(baseUrl, '/api/users/me', context, fetchImpl, { endpoint: 'current-user' }), UserResponseSchema); },
+		async listAlbums(context) { return getJsonArray(requestImmich(baseUrl, '/api/albums', context, fetchImpl, { endpoint: 'albums' }), AlbumResponseSchema); },
+		async getAlbum(context, albumId) { return getJson(requestImmich(baseUrl, `/api/albums/${encodeURIComponent(albumId)}`, context, fetchImpl, { endpoint: 'album' }), AlbumResponseSchema); },
+		async getAlbumAssets(context, albumId) { return getJson(requestImmich(baseUrl, '/api/search/metadata', context, fetchImpl, { method: 'POST', body: JSON.stringify({ albumIds: [albumId], page: 1, size: 1000, withExif: false }), headers: { 'content-type': 'application/json' }, endpoint: 'album-assets' }), SearchResponseSchema).then((result) => ({ ...result, data: result.data?.assets.items })); },
 		async loginSharedLink(context, password) {
 			const response = await requestImmich(baseUrl, `/api/shared-links/login?${shareQuery(context)}`, context, fetchImpl, { method: 'POST', body: JSON.stringify({ password }), headers: { 'content-type': 'application/json' }, endpoint: 'shared-link' });
 			if (!response.ok) return { status: response.status };
@@ -86,6 +94,18 @@ export function createImmichProvider(fetchImpl: typeof fetch = fetch, baseUrl = 
 			}
 		}
 	};
+}
+
+async function getJson<T>(responsePromise: Promise<Response>, schema: { safeParse: (value: unknown) => { success: boolean; data?: T } }): Promise<{ status: number; data?: T; error?: 'malformed' }> {
+	const response = await responsePromise;
+	if (!response.ok) return { status: response.status };
+	try { const parsed = schema.safeParse(JSON.parse(await readBoundedText(response))); return parsed.success ? { status: response.status, data: parsed.data } : { status: 422, error: 'malformed' }; } catch { return { status: 422, error: 'malformed' }; }
+}
+
+async function getJsonArray<T>(responsePromise: Promise<Response>, schema: { safeParse: (value: unknown) => { success: boolean; data?: T } }): Promise<{ status: number; data?: T[]; error?: 'malformed' }> {
+	const response = await responsePromise;
+	if (!response.ok) return { status: response.status };
+	try { const value = JSON.parse(await readBoundedText(response)); if (!Array.isArray(value)) return { status: 422, error: 'malformed' }; const data = value.map((item) => schema.safeParse(item)); return data.every((item) => item.success) ? { status: response.status, data: data.map((item) => item.data) as T[] } : { status: 422, error: 'malformed' }; } catch { return { status: 422, error: 'malformed' }; }
 }
 
 async function fetchAlbumAssets(baseUrl: string, context: AuthContext, albumId: string, declaredCount: number, fetchImpl: typeof fetch): Promise<SharedLinkResponse['assets'] | null> {

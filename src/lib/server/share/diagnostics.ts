@@ -53,7 +53,7 @@ export function logDirectShareBoundary({ phase, method, pathname, status }: { ph
 	console.info(JSON.stringify({ event: `direct-share.request-${phase}`, method, pathname: redactPathname(pathname), ...(status === undefined ? {} : { status, statusCategory: statusCategory(status) }) }));
 }
 
-export function logImmichRequest({ endpoint, status, failureCategory }: { endpoint: 'shared-link' | 'album-assets' | 'thumbnail' | 'video' | 'version' | 'map-markers'; status: number | 'failure'; failureCategory?: 'timeout' | 'network' | 'response-too-large' | 'invalid-response' }) {
+export function logImmichRequest({ endpoint, status, failureCategory }: { endpoint: 'shared-link' | 'album-assets' | 'thumbnail' | 'video' | 'version' | 'map-markers' | 'current-user' | 'albums' | 'album'; status: number | 'failure'; failureCategory?: 'timeout' | 'network' | 'response-too-large' | 'invalid-response' }) {
 	console.info(JSON.stringify({ event: 'direct-share.immich-request', endpoint, status, ...(failureCategory ? { failureCategory } : {}) }));
 }
 

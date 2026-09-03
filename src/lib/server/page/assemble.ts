@@ -1,6 +1,6 @@
 import type { ImmichProvider } from '$server/immich/provider';
 import type { DirectShareOutcome, SharedLinkResponse } from '$server/immich/types';
-import type { AuthContext } from '$server/immich/auth-context';
+import type { ShareAuthContext } from '$server/immich/auth-context';
 import { parsePresentationDocument } from '$server/presentation/frontmatter';
 import { renderMarkdown } from '$server/presentation/markdown';
 import { deriveDisplayDate, heroSelection, normalizeTemplate, selectHero, type NormalizedPageModel } from '$server/presentation/model';
@@ -9,7 +9,7 @@ import { projectMapMarkers } from '$server/map/markers';
 import { PathSourceRegistry } from '$server/map/path-adapters';
 import { resolveMapStyle } from '$server/map/style-registry';
 
-export async function assembleDirectShare(provider: ImmichProvider, context: AuthContext, requestId: string): Promise<DirectShareOutcome> {
+export async function assembleDirectShare(provider: ImmichProvider, context: ShareAuthContext, requestId: string): Promise<DirectShareOutcome> {
 	let result: Awaited<ReturnType<ImmichProvider['getSharedLink']>>;
 	try { result = await provider.getSharedLink(context); } catch { return { kind: 'upstream-error', requestId }; }
 	if (result.status === 401 || result.status === 403) return { kind: 'unauthorized' };

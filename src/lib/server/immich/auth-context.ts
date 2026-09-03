@@ -1,17 +1,31 @@
 import type { SharedLinkRef } from '$server/share/ref';
 
-export type AuthContext = {
+export type ShareAuthContext = {
+	kind?: 'share';
 	cookie: string | null;
 	authorization: string | null;
 	shareRef: SharedLinkRef;
 };
 
-export function authContextFromRequest(request: Request, shareRef: SharedLinkRef): AuthContext {
+export type UserSessionContext = {
+	kind: 'user-session';
+	cookie: string | null;
+	authorization: string | null;
+};
+
+export type AuthContext = ShareAuthContext | UserSessionContext;
+
+export function authContextFromRequest(request: Request, shareRef: SharedLinkRef): ShareAuthContext {
 	return {
+		kind: 'share',
 		cookie: request.headers.get('cookie'),
 		authorization: request.headers.get('authorization'),
 		shareRef
 	};
+}
+
+export function userSessionContextFromRequest(request: Request): UserSessionContext {
+	return { kind: 'user-session', cookie: request.headers.get('cookie'), authorization: request.headers.get('authorization') };
 }
 
 export function upstreamHeaders(context: AuthContext): Headers {

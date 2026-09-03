@@ -1,0 +1,4 @@
+import { describe, expect, it } from 'vitest';
+import { decodeLibraryLocator, issueLibraryLocator } from '../../src/lib/server/immich/locator';
+process.env.PAGES_LOCATOR_SECRET = 'test-secret-that-is-at-least-32-characters-long';
+describe('library locator', () => { it('hides and authenticates album ids', () => { const token = issueLibraryLocator('11111111-1111-4111-8111-111111111111', 1000); expect(token).not.toContain('11111111'); expect(decodeLibraryLocator(token, 1001)?.albumId).toBe('11111111-1111-4111-8111-111111111111'); expect(decodeLibraryLocator(`${token}x`, 1001)).toBeNull(); }); it('rejects expiry and tampering', () => { const token = issueLibraryLocator('11111111-1111-4111-8111-111111111111', 1000); expect(decodeLibraryLocator(token, 86_401_001)).toBeNull(); expect(decodeLibraryLocator(`${token.slice(0, -1)}x`, 1001)).toBeNull(); }); });
