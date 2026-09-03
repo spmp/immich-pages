@@ -70,10 +70,12 @@ try {
   const pages = start(process.platform === 'win32' ? 'npm.cmd' : 'npm', ['run', 'dev', '--', '--host', '127.0.0.1', '--port', '4173'], {
       env: {
         ...process.env,
-        IMMICH_BASE_URL: `http://127.0.0.1:${match[1]}`,
+         IMMICH_BASE_URL: `http://127.0.0.1:${match[1]}`,
+         PAGES_LOCATOR_SECRET: process.env.PAGES_LOCATOR_SECRET ?? 'fixture-locator-secret-0123456789012345',
+         MOCK_IMMICH_URL: `http://127.0.0.1:${match[1]}`,
         MAP_STYLE_URL_QUIET_ATLAS: `http://127.0.0.1:${match[1]}/api/map-style.json`,
-        BROUTER_ENDPOINT: `http://127.0.0.1:${match[1]}/brouter`,
-        BROUTER_ALLOWED_ORIGINS: `http://127.0.0.1:${match[1]}`,
+        BROUTER_ENDPOINT: process.env.BROUTER_ENDPOINT ?? `http://127.0.0.1:${match[1]}/brouter`,
+        BROUTER_ALLOWED_ORIGINS: process.env.BROUTER_ALLOWED_ORIGINS ?? `http://127.0.0.1:${match[1]}`,
         BROUTER_ALLOW_LOOPBACK_FOR_TESTS: 'true'
       }
   });
@@ -81,7 +83,7 @@ try {
   await new Promise((resolve, reject) => {
     const test = spawn(process.platform === 'win32' ? 'npx.cmd' : 'npx', ['playwright', 'test', '--config=playwright.mock.config.ts', ...playwrightArgs], {
       stdio: 'inherit',
-      env: { ...process.env, PLAYWRIGHT_BASE_URL: 'http://127.0.0.1:4173' }
+      env: { ...process.env, PLAYWRIGHT_BASE_URL: 'http://127.0.0.1:4173', MOCK_IMMICH_URL: `http://127.0.0.1:${match[1]}` }
     });
     test.once('error', reject);
     test.once('exit', (code, signal) => code === 0 ? resolve() : reject(new Error(`playwright exited with ${code ?? signal}`)));

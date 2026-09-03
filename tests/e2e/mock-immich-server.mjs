@@ -33,8 +33,10 @@ const libraryAlbums = [{
 let revokedLibraryAlbums = new Set();
 
 function isUserSession(request) {
-  return request.headers.cookie === 'immich_user=fixture' && request.headers.authorization === 'Bearer fixture-user';
+  return request.headers.cookie === 'immich_user=fixture' && ['Bearer fixture-user', 'Bearer fixture-revoked'].includes(request.headers.authorization);
 }
+
+function isRevokedSession(request) { return request.headers.authorization === 'Bearer fixture-revoked'; }
 
 const page = {
   id: '550e8400-e29b-41d4-a716-446655440000',
@@ -79,11 +81,6 @@ const brouterRoutes = {
 
 const server = http.createServer((request, response) => {
   const url = new URL(request.url ?? '/', 'http://mock-immich.test');
-  if (url.pathname === '/__fixture/revoke' && request.method === 'POST') {
-    const albumId = url.searchParams.get('album');
-    if (albumId) revokedLibraryAlbums.add(albumId);
-    response.writeHead(204); response.end(); return;
-  }
   if (url.pathname === '/api/users/me' && isUserSession(request)) {
     response.writeHead(200, { 'content-type': 'application/json' }); response.end(JSON.stringify({ id: '22222222-2222-4222-8222-222222222222', name: 'Fixture User' })); return;
   }
@@ -94,26 +91,33 @@ const server = http.createServer((request, response) => {
   if (url.pathname === '/api/albums') { response.writeHead(401); response.end(); return; }
   const libraryAlbum = libraryAlbums.find((candidate) => url.pathname === `/api/albums/${candidate.id}`);
   if (libraryAlbum) {
-    if (!isUserSession(request) || revokedLibraryAlbums.has(libraryAlbum.id)) { response.writeHead(isUserSession(request) ? 403 : 401); response.end(); return; }
+    if (!isUserSession(request) || isRevokedSession(request) && libraryAlbum.id === libraryAlbums[0].id || revokedLibraryAlbums.has(libraryAlbum.id)) { response.writeHead(isUserSession(request) ? 403 : 401); response.end(); return; }
     response.writeHead(200, { 'content-type': 'application/json' }); response.end(JSON.stringify({ ...libraryAlbum, assetCount: libraryAlbum.id === libraryAlbums[0].id ? libraryAssets.length : 0 })); return;
   }
   if (request.method === 'POST' && url.pathname === '/api/search/metadata' && isUserSession(request)) {
     let body = ''; request.on('data', (chunk) => { body += chunk; }); request.on('end', () => {
       const albumId = JSON.parse(body).albumIds?.[0];
-      if (revokedLibraryAlbums.has(albumId)) { response.writeHead(403); response.end(); return; }
+      if (isRevokedSession(request) && albumId === libraryAlbums[0].id || revokedLibraryAlbums.has(albumId)) { response.writeHead(403); response.end(); return; }
       const found = albumId === libraryAlbums[0].id ? libraryAssets : [];
       response.writeHead(200, { 'content-type': 'application/json' }); response.end(JSON.stringify({ albums: {}, assets: { items: found } }));
     }); return;
   }
   const libraryAsset = url.pathname.match(/^\/api\/assets\/([^/]+)\/thumbnail$/)?.[1];
   if (libraryAsset && isUserSession(request) && libraryAssets.some((asset) => asset.id === libraryAsset)) {
-    if (revokedLibraryAlbums.has(libraryAlbums[0].id)) { response.writeHead(403); response.end(); return; }
+    if (isRevokedSession(request) || revokedLibraryAlbums.has(libraryAlbums[0].id)) { response.writeHead(403); response.end(); return; }
     response.writeHead(200, { 'content-type': 'image/png', 'set-cookie': 'secret=must-not-relay; Path=/' }); response.end(landscapeFixture); return;
   }
   if (url.pathname === '/api/server/version') {
     response.writeHead(200, { 'content-type': 'application/json' });
      response.end(JSON.stringify({ version: 'v3.1.0' }));
     return;
+  }
+  if (url.pathname === '/__fixture/revoke' && request.method === 'POST') {
+    const albumId = url.searchParams.get('album'); if (albumId) revokedLibraryAlbums.add(albumId);
+    response.writeHead(204); response.end(); return;
+  }
+  if (url.pathname === '/__fixture/reset' && request.method === 'POST') {
+    revokedLibraryAlbums.clear(); response.writeHead(204); response.end(); return;
   }
 
   if (url.pathname === '/api/shared-links/me' && (url.searchParams.has('key') || url.searchParams.has('slug'))) {
