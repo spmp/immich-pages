@@ -7,6 +7,8 @@ import { parseSharedLinkRef } from '$server/share/ref';
 import { logDirectShareBoundary, logDirectShareOutcome } from '$server/share/diagnostics';
 import { addSession, clearSessionCookie, extractImmichShareToken, PAGES_SESSION_COOKIE, sessionCookie, sessionForShare } from '$server/share/session';
 import { registerShare, VISITED_SHARES_COOKIE } from '$server/share/registry';
+import { discoverLibrary } from '$server/library/discover';
+import type { NavigationEntry } from '$server/library/model';
 
 const safePassword = (value: FormDataEntryValue | null) => typeof value === 'string' && value.length > 0 && value.length <= 256 ? value : null;
 
@@ -35,8 +37,16 @@ export const load: PageServerLoad = async ({ params, request, locals, fetch, coo
 	if (outcome.kind === 'page') {
 		const registry = registerShare(cookies.get(VISITED_SHARES_COOKIE), ref);
 		cookies.set(VISITED_SHARES_COOKIE, registry, { path: '/', httpOnly: true, secure: true, sameSite: 'lax', maxAge: 30 * 24 * 60 * 60 });
+		const currentHref = `/share/${ref.kind}/${encodeURIComponent(ref.value)}`;
+		const currentEntry: NavigationEntry = { href: currentHref, title: outcome.page.album.title,
+			date: outcome.page.album.startDate && outcome.page.album.endDate ? { start: outcome.page.album.startDate, end: outcome.page.album.endDate } : undefined };
+		let navigationEntries = [currentEntry];
+		try {
+			const navigation = await discoverLibrary(createImmichProvider(fetch), { registryCookie: registry, sessionCookie: cookies.get(PAGES_SESSION_COOKIE), requestId: locals.requestId, current: [ref] });
+			navigationEntries = navigation.entries.some((entry) => entry.href === currentHref) ? navigation.entries : [currentEntry, ...navigation.entries];
+		} catch { /* The authorized current page remains usable without optional navigation candidates. */ }
 		logDirectShareBoundary({ phase: 'end', method: request.method, pathname, status: 200 });
-		return { outcome };
+		return { outcome, navigation: { entries: navigationEntries, activeHref: currentHref } };
 	}
 	if (outcome.kind === 'non-page') { logDirectShareBoundary({ phase: 'end', method: request.method, pathname, status: 404 }); return { outcome }; }
 	if (outcome.kind === 'invalid-metadata') { logDirectShareBoundary({ phase: 'end', method: request.method, pathname, status: 422 }); return { outcome: { kind: 'presentation-error' as const, state: 'invalid' as const } }; }

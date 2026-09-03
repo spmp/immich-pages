@@ -3,7 +3,11 @@
 	import { resolve } from '$app/paths';
 
 	let { entries = [], activeHref }: { entries?: NavigationEntry[]; activeHref?: string } = $props();
-	let expanded = $state(true);
+	let navigationState = $state({ expanded: true });
+
+	function toggleExpanded() {
+		navigationState.expanded = !navigationState.expanded;
+	}
 
 	const safeHref = (href: string) => href.startsWith('/') && !href.startsWith('//') ? href : '/';
 	const safeThumbnail = (thumbnail?: string) => thumbnail && thumbnail.startsWith('/') && !thumbnail.startsWith('//') ? thumbnail : undefined;
@@ -15,14 +19,14 @@
 	};
 </script>
 
-<aside class:collapsed={!expanded} class="page-navigation" aria-label="Published journeys">
+<aside class:collapsed={!navigationState.expanded} class="page-navigation" aria-label="Published journeys">
 	<header class="navigation-header">
-		{#if expanded}<h2>Journeys</h2>{/if}
-		<button class="collapse" type="button" aria-label={expanded ? 'Collapse journeys' : 'Expand journeys'} aria-expanded={expanded} onclick={() => expanded = !expanded}>
-			<span aria-hidden="true">{expanded ? '←' : '→'}</span>
+		{#if navigationState.expanded}<h2>Journeys</h2>{/if}
+		<button class="collapse" type="button" aria-label={navigationState.expanded ? 'Collapse journeys' : 'Expand journeys'} aria-expanded={navigationState.expanded} onclick={toggleExpanded}>
+			<span aria-hidden="true">{navigationState.expanded ? '←' : '→'}</span>
 		</button>
 	</header>
-	{#if expanded}
+	{#if navigationState.expanded}
 		<nav aria-label="Journey pages">
 			<ul>
 				{#each entries as entry (entry.href)}

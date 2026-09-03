@@ -66,13 +66,16 @@ describe('journal presentation contract', () => {
 		expect(copy).toContain('Return to the album');
 	});
 
-	it('accepts optional authenticated navigation without changing the direct-share composition', () => {
+	it('passes the redacted navigation model into direct-share composition', () => {
 		const source = component('JournalPage');
+		const direct = route();
 		const library = readFileSync('src/routes/library/+page.svelte', 'utf8');
 		const locator = readFileSync('src/routes/library/page/[locator]/+page.svelte', 'utf8');
 		expect(source).toContain('navigation?');
 		expect(source).toContain('PageNavigation');
 		expect(source).toContain('MobileDrawer');
+		expect(direct).toContain('navigation={data.navigation}');
+		expect(direct).not.toMatch(/authorization|cookie|token|album\.id/);
 		expect(library).toContain('library.kind === \'ready\'');
 		expect(library).toContain('PageNavigation entries={library.entries}');
 		expect(locator).toContain('<JournalPage page={outcome.page} {navigation} />');

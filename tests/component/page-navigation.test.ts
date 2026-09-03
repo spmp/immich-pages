@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 
 const source = (name: string) => readFileSync(`src/lib/components/navigation/${name}.svelte`, 'utf8');
 
-describe('authenticated navigation components', () => {
+describe('share navigation components', () => {
 	it('renders projected entries with safe same-origin links and desktop collapse', () => {
 		const page = source('PageNavigation');
 		expect(page).toContain('class="collapse"');
@@ -17,6 +17,7 @@ describe('authenticated navigation components', () => {
 		expect(page).toContain('safeThumbnail');
 		expect(page).toContain('resolve(');
 		expect(page).toContain('date.start');
+		expect(page).toContain("href.startsWith('/')");
 	});
 
 	it('keeps the desktop navigation out of the mobile breakpoint', () => {

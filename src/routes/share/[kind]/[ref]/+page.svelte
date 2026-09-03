@@ -7,7 +7,7 @@
 </script>
 
 {#if outcome.kind === 'page'}
-	<JournalPage page={outcome.page} />
+	<JournalPage page={outcome.page} navigation={data.navigation} />
 {:else if outcome.kind === 'presentation-error'}
 	<PresentationState state={outcome.state} retryHref="." />
 {:else if outcome.kind === 'password-required'}
