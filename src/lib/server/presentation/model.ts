@@ -4,7 +4,7 @@ import type { MapMarker, MapRoute } from '$server/map/types';
 
 export type NormalizedAsset = { id: string; type: string; fileName?: string; thumbnail: string; caption?: string; width?: number | null; height?: number | null; videoHref?: string };
 export type NormalizedPageModel = {
-	album: { id: string; title: string; thumbnailAssetId?: string; startDate?: string; endDate?: string; updatedAt?: string };
+	album: { id?: string; title: string; thumbnailAssetId?: string; startDate?: string; endDate?: string; updatedAt?: string };
 	presentation: PresentationConfig & { template: string };
 	narrativeHtml: string;
 	assets: NormalizedAsset[];

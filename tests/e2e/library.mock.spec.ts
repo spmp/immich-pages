@@ -37,6 +37,8 @@ test('direct shares expose desktop collapse and mobile drawer focus behavior', a
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.goto('/share/key/opaque-ref');
+  await page.waitForTimeout(1000);
+  expect(await page.content()).not.toContain('550e8400-e29b-41d4-a716-446655440003');
   const sidebar = page.getByRole('complementary', { name: 'Published journeys' });
   await expect(sidebar).toBeVisible();
   const collapse = sidebar.getByRole('button', { name: 'Collapse journeys' });

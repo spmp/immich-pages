@@ -52,7 +52,6 @@ async function assemblePageModel(provider: ImmichProvider, context: AuthContext,
 		};
 	});
 	const album = {
-		id: sourceAlbum.id,
 		title: sourceAlbum.albumName ?? 'Untitled album',
 		thumbnailAssetId: sourceAlbum.albumThumbnailAssetId ?? undefined,
 		...(share.showMetadata ? { startDate: sourceAlbum.startDate ?? undefined, endDate: sourceAlbum.endDate ?? undefined, updatedAt: sourceAlbum.updatedAt } : {})
