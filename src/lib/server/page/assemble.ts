@@ -60,6 +60,7 @@ async function assemblePageModel(provider: ImmichProvider, context: AuthContext,
 	logShareHeroSelection({ selection: heroSelection(document.config, share) });
 	const template = normalizeTemplate(document.config);
 	const displayDate = deriveDisplayDate(document.config, share);
+	const { auth: _auth, ...presentationSafeConfig } = document.config;
 	const { url: _brouterUrl, ...browserMap } = document.config.map;
 	const assets = share.assets.map((asset) => {
 		const normalized = {
@@ -84,7 +85,7 @@ async function assemblePageModel(provider: ImmichProvider, context: AuthContext,
 	const safeMap = share.showMetadata ? browserMap : { ...metadataSafeMap, enabled: false };
 	const normalized: NormalizedPageModel = {
 		album,
-		presentation: { ...document.config, map: safeMap, template: template.template },
+		presentation: { ...presentationSafeConfig, map: safeMap, template: template.template },
 		narrativeHtml: narrative.html,
 		assets: assets.map((asset) => document.config.gallery.captions[asset.id] ? { ...asset, caption: document.config.gallery.captions[asset.id] } : asset),
 		permissions: { showMetadata: share.showMetadata, allowDownload: share.allowDownload },

@@ -22,8 +22,12 @@ function unknownCount(value: Record<string, unknown>): number {
 	const known = new Set(['type', 'version', 'template', 'hero', 'date', 'dateRange', 'auth', 'map', 'gallery']);
 	if (Object.keys(value).some((key) => !known.has(key))) return 1;
 	const auth = value.auth;
-	if (auth && typeof auth === 'object' && !Array.isArray(auth) && Object.keys(auth).some((key) => key !== 'allow')) return 1;
-	if (auth && typeof auth === 'object' && !Array.isArray(auth) && auth.allow && typeof auth.allow === 'object' && !Array.isArray(auth.allow) && Object.keys(auth.allow).some((key) => key !== 'users')) return 1;
+	if (auth && typeof auth === 'object' && !Array.isArray(auth)) {
+		const authRecord = auth as Record<string, unknown>;
+		if (Object.keys(authRecord).some((key) => key !== 'allow')) return 1;
+		const allow = authRecord.allow;
+		if (allow && typeof allow === 'object' && !Array.isArray(allow) && Object.keys(allow as Record<string, unknown>).some((key) => key !== 'users')) return 1;
+	}
 	const map = value.map;
 	if (map && typeof map === 'object' && !Array.isArray(map) && Object.keys(map).some((key) => !new Set(['enabled', 'source', 'styleName', 'markerActivation', 'showMarkerList', 'clustering', 'clusterRadius', 'waypoints', 'geojson', 'url', 'markerColor', 'routeColor', 'routeWidth', 'routeStartColor', 'routeEndColor']).has(key))) return 1;
 	return 0;
