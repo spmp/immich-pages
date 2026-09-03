@@ -1,4 +1,19 @@
 import { describe, expect, it, vi } from 'vitest';
-import { createImmichProvider } from '../../src/lib/server/immich/provider';
-import { userSessionContextFromRequest } from '../../src/lib/server/immich/auth-context';
-describe('authenticated library adapter', () => { it('forwards only the incoming user context', async () => { const fetchMock = vi.fn(async (_input: URL | RequestInfo, init?: RequestInit) => { const headers = new Headers(init?.headers); expect(headers.get('cookie')).toBe('immich=valid'); expect(headers.get('authorization')).toBe('Bearer valid'); expect(headers.has('x-api-key')).toBe(false); return new Response(JSON.stringify({ id: '11111111-1111-4111-8111-111111111111' })); }); const context = userSessionContextFromRequest(new Request('https://pages.test/library', { headers: { cookie: 'immich=valid', authorization: 'Bearer valid' } })); expect((await createImmichProvider(fetchMock, 'https://immich.test').getCurrentUser(context)).data?.id).toBe('11111111-1111-4111-8111-111111111111'); }); });
+import { load } from '../../src/routes/library/+page.server';
+
+describe('share-only library route', () => {
+	it('does not require or forward incoming Immich user credentials', async () => {
+		process.env.IMMICH_BASE_URL = 'https://immich.test';
+		process.env.PAGES_VISITED_SHARES_SECRET = 'test-secret-that-is-at-least-32-characters-long';
+		const fetchMock = vi.fn();
+		const result = await (load as unknown as (event: unknown) => Promise<{ library: { kind: string } }> )({
+			request: new Request('https://pages.test/library', { headers: { cookie: 'immich=user', authorization: 'Bearer user' } }),
+			fetch: fetchMock,
+			cookies: { get: () => undefined },
+			locals: { requestId: 'test' },
+			setHeaders: vi.fn()
+		});
+		expect(result.library.kind).toBe('empty');
+		expect(fetchMock).not.toHaveBeenCalled();
+	});
+});

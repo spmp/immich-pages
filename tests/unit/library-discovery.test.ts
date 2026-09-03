@@ -1,47 +1,60 @@
 import { describe, expect, it } from 'vitest';
 import { discoverLibrary } from '../../src/lib/server/library/discover';
-import { visibilityAllows } from '../../src/lib/server/library/permissions';
+import { encodeRegistry } from '../../src/lib/server/share/registry';
 import type { ImmichProvider } from '../../src/lib/server/immich/provider';
+import type { SharedLinkRef } from '../../src/lib/server/share/ref';
 
-process.env.PAGES_LOCATOR_SECRET = 'test-secret-that-is-at-least-32-characters-long';
-const id = (n: string) => `${n.repeat(8).slice(0, 8)}-1111-4111-8111-111111111111`;
-const description = (date: string, auth = '') => `---\nimmich-presentation:\n  type: journey\n  version: 1\n  date: ${date}${auth}\n---\nHello`;
-function provider(albums: Array<{ id: string; albumName: string; description?: string | null }>, failures = new Set<string>()) {
-	return { getCurrentUser: async () => ({ status: 200, data: { id: id('a') } }), listAlbums: async () => ({ status: 200, data: albums }), getAlbum: async (_c: unknown, albumId: string) => failures.has(albumId) ? { status: 502 } : { status: 200, data: { ...albums.find((a) => a.id === albumId)!, description: albums.find((a) => a.id === albumId)?.description ?? null } }, getAlbumAssets: async (_c: unknown, albumId: string) => failures.has(albumId) ? { status: 502 } : { status: 200, data: [] }, getSharedLink: async () => ({ status: 404 }), loginSharedLink: async () => ({ status: 401 }), getThumbnail: async () => ({ status: 404 }), getVideoPlayback: async () => ({ status: 404 }), getMapMarkers: async () => ({ status: 200, data: [] }), getVersion: async () => ({ status: 200, version: '3.1.0' }) } as unknown as ImmichProvider;
+process.env.PAGES_VISITED_SHARES_SECRET = 'test-secret-that-is-at-least-32-characters-long';
+process.env.PAGES_SESSION_SECRET = 'test-session-secret-that-is-at-least-32-characters-long';
+
+const refs: SharedLinkRef[] = [
+	{ kind: 'key', value: 'newest' },
+	{ kind: 'slug', value: 'older-journey' },
+	{ kind: 'key', value: 'revoked' }
+];
+const registry = encodeRegistry({ version: 1, entries: refs.map((ref, index) => ({ ...ref, firstSeenAt: index, lastSeenAt: index, expiresAt: Date.now() + 100_000 })) });
+const page = (ref: SharedLinkRef, date: string, title = ref.value) => ({
+	status: 200,
+	data: {
+		id: `11111111-1111-4111-8111-11111111111${ref.kind === 'key' ? '1' : '2'}`,
+		description: `---\nimmich-presentation:\n  type: journey\n  version: 1\n  date: ${date}\n---\nHello`,
+		password: null,
+		userId: '22222222-2222-4222-8222-222222222222',
+		key: ref.value,
+		type: 'ALBUM' as const,
+		createdAt: date,
+		expiresAt: null,
+		slug: ref.kind === 'slug' ? ref.value : null,
+		album: { id: '11111111-1111-4111-8111-111111111111', albumName: title, description: `---\nimmich-presentation:\n  type: journey\n  version: 1\n  date: ${date}\n---\nHello`, assets: [] },
+		assets: [], allowUpload: false, allowDownload: false, showMetadata: true
+	}
+});
+
+function provider(responses: Map<string, ReturnType<typeof page> | { status: number }>) {
+	return {
+		getSharedLink: async (context: { shareRef: SharedLinkRef }) => responses.get(`${context.shareRef.kind}:${context.shareRef.value}`) ?? { status: 404 },
+		getMapMarkers: async () => ({ status: 200, data: [] }),
+		getThumbnail: async () => ({ status: 404 }),
+		getVideoPlayback: async () => ({ status: 404 })
+	} as unknown as ImmichProvider;
 }
 
-describe('library discovery policy', () => {
-	it('omits absent, unrelated, and malformed descriptions', async () => {
-		const result = await discoverLibrary(provider([{ id: id('a'), albumName: 'Absent' }, { id: id('b'), albumName: 'Unrelated', description: '---\nother: true\n---' }, { id: id('c'), albumName: 'Malformed', description: '---\nimmich-presentation:\n  type: not-journey\n---' }]), { kind: 'user-session', cookie: null, authorization: null });
-		expect(result.entries).toHaveLength(0);
+describe('share-registry library discovery', () => {
+	it('uses only registry refs, never a user session, and returns original share links newest first', async () => {
+		const result = await discoverLibrary(provider(new Map([
+			['key:newest', page(refs[0], '2025-01-01', 'Newest')],
+			['slug:older-journey', page(refs[1], '2024-01-01', 'Older')],
+			['key:revoked', { status: 403 }]
+		])), { registryCookie: registry, sessionCookie: undefined, requestId: 'test' });
+
+		expect(result.kind).toBe('ready');
+		expect(result.entries.map((entry) => entry.title)).toEqual(['Newest', 'Older']);
+		expect(result.entries.map((entry) => entry.href)).toEqual(['/share/key/newest', '/share/slug/older-journey']);
+		expect(JSON.stringify(result)).not.toContain('11111111-1111');
 	});
-	it('orders explicit dates newest first, then case-insensitive title', async () => {
-		const result = await discoverLibrary(provider([{ id: id('a'), albumName: 'zulu', description: description('2024-01-01') }, { id: id('b'), albumName: 'Alpha', description: description('2024-01-01') }, { id: id('c'), albumName: 'Newest', description: description('2025-01-01') }]), { kind: 'user-session', cookie: null, authorization: null });
-		expect(result.entries.map((entry) => entry.title)).toEqual(['Newest', 'Alpha', 'zulu']);
-	});
-	it('preserves usable entries when one album fails and redacts failure details', async () => {
-		const result = await discoverLibrary(provider([{ id: id('a'), albumName: 'Good', description: description('2024-01-01') }, { id: id('b'), albumName: 'Private', description: description('2024-02-01') }], new Set([id('b')])), { kind: 'user-session', cookie: null, authorization: null });
-		expect(result.kind).toBe('ready'); expect(result.entries).toHaveLength(1); expect(JSON.stringify(result)).not.toContain(id('b'));
-	});
-	it('applies validated user visibility after Immich authorization', async () => {
-		const userId = id('a');
-		const result = await discoverLibrary(provider([
-			{ id: id('a'), albumName: 'Allowed', description: description('2024-01-01', `\n  auth:\n    allow:\n      users:\n        - ${userId}`) },
-			{ id: id('b'), albumName: 'Denied', description: description('2024-02-01', `\n  auth:\n    allow:\n      users:\n        - ${id('b')}`) }
-		]), { kind: 'user-session', cookie: null, authorization: null });
-		expect(result.entries.map((entry) => entry.title)).toEqual(['Allowed']);
-	});
-	it('rejects unsupported or malformed visibility claims without admitting an album', async () => {
-		const result = await discoverLibrary(provider([
-			{ id: id('a'), albumName: 'Group', description: description('2024-01-01', '\n  auth:\n    allow:\n      groups:\n        - family') },
-			{ id: id('b'), albumName: 'Ambiguous', description: description('2024-01-01', '\n  auth: all') }
-		]), { kind: 'user-session', cookie: null, authorization: null });
-		expect(result.entries).toHaveLength(0);
-	});
-	it('treats visibility as deny-only and rejects ambiguous claims', () => {
-		expect(visibilityAllows(undefined, { id: id('a') })).toBe(true);
-		expect(visibilityAllows({ allow: { users: [id('a')] } }, { id: id('a') })).toBe(true);
-		expect(visibilityAllows({ allow: { users: [id('b')] } }, { id: id('a') })).toBe(false);
-		expect(visibilityAllows({ allow: { users: ['group:travel'] } }, { id: id('a') })).toBe(false);
+
+	it('returns a safe empty state for a missing or fully unauthorized registry', async () => {
+		expect((await discoverLibrary(provider(new Map()), { registryCookie: undefined, sessionCookie: undefined, requestId: 'test' })).kind).toBe('empty');
+		expect((await discoverLibrary(provider(new Map([['key:newest', { status: 403 }]])), { registryCookie: registry, sessionCookie: undefined, requestId: 'test' })).kind).toBe('empty');
 	});
 });
