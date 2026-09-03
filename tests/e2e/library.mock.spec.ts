@@ -38,14 +38,56 @@ test('discovers presentation albums newest first and follows a fresh same-origin
   expect(html).not.toContain('Bearer fixture-user');
 });
 
-test('desktop navigation collapses and mobile drawer manages Escape and return focus', async ({ page }) => {
+test('desktop collapse and mobile drawer preserve keyboard behavior', async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' });
   await page.goto('/');
-  const collapse = page.locator('aside.page-navigation button.collapse');
+  const destination = await page.getByRole('link', { name: /Mock Journey/ }).getAttribute('href');
+  await page.goto(destination!);
+  await page.reload();
+
+  const sidebar = page.getByRole('complementary', { name: 'Published journeys' });
+  const collapse = sidebar.getByRole('button', { name: 'Collapse journeys' });
   await expect(collapse).toBeVisible();
+  await expect(sidebar.getByRole('heading', { name: 'Journeys' })).toBeVisible();
+  await expect(sidebar.getByRole('link')).toHaveCount(2);
+  await expect(sidebar).toHaveCSS('transition-duration', '0s');
+
+  await page.waitForTimeout(1000);
+  await collapse.focus();
+  await collapse.click();
+  const collapsedControl = sidebar.locator('button.collapse');
+  await expect(collapsedControl).toHaveAttribute('aria-label', 'Expand journeys');
+  await expect(collapsedControl).toHaveAttribute('aria-expanded', 'false');
+  await expect(sidebar.getByRole('heading', { name: 'Journeys' })).toHaveCount(0);
+  await expect(sidebar.getByRole('link')).toHaveCount(0);
+
+  const expand = sidebar.locator('button.collapse');
+  await expand.click();
+  await expect(sidebar.getByRole('button', { name: 'Collapse journeys' })).toHaveAttribute('aria-expanded', 'true');
+  await expect(sidebar.getByRole('link', { name: /Mock Journey/ })).toBeVisible();
+  await expect(sidebar.getByRole('button', { name: 'Collapse journeys' })).toBeFocused();
 
   await page.setViewportSize({ width: 390, height: 844 });
   const opener = page.getByRole('button', { name: 'Open journeys' });
   await expect(opener).toBeVisible();
+  await opener.focus();
+  await opener.click();
+
+  const dialog = page.getByRole('dialog', { name: 'Journeys' });
+  await expect(dialog).toBeVisible();
+  await expect(dialog).toHaveCSS('transition-duration', '0s');
+  const close = dialog.getByRole('button', { name: 'Close journey navigation' });
+  const entries = dialog.getByRole('link');
+  await expect(close).toBeFocused();
+
+  await close.press('Shift+Tab');
+  await expect(entries.nth(1)).toBeFocused();
+  await entries.nth(1).press('Tab');
+  await expect(close).toBeFocused();
+
+  await page.keyboard.press('Escape');
+  await expect(dialog).toBeHidden();
+  await expect(opener).toBeFocused();
 });
 
 test('fresh destination authorization denies a revoked album while other entries remain usable', async ({ page }) => {
