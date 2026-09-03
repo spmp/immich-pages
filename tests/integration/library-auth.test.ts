@@ -15,6 +15,16 @@ describe('share-only library route', () => {
 			setHeaders: vi.fn()
 		});
 		expect(result.library.kind).toBe('empty');
-		expect(fetchMock).not.toHaveBeenCalled();
+		 expect(fetchMock).not.toHaveBeenCalled();
+	});
+
+	it('sets private no-store caching for candidate discovery', async () => {
+		process.env.PAGES_VISITED_SHARES_SECRET = 'test-secret-that-is-at-least-32-characters-long';
+		const setHeaders = vi.fn();
+		await (load as unknown as (event: unknown) => Promise<unknown>)({
+			request: new Request('https://pages.test/library'), url: new URL('https://pages.test/library'), fetch: vi.fn(),
+			cookies: { get: () => undefined }, locals: { requestId: 'test' }, setHeaders
+		});
+		expect(setHeaders).toHaveBeenCalledWith({ 'cache-control': 'private, no-store' });
 	});
 });

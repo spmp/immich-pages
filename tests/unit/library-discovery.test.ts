@@ -57,4 +57,21 @@ describe('share-registry library discovery', () => {
 		expect((await discoverLibrary(provider(new Map()), { registryCookie: undefined, sessionCookie: undefined, requestId: 'test' })).kind).toBe('empty');
 		expect((await discoverLibrary(provider(new Map([['key:newest', { status: 403 }]])), { registryCookie: registry, sessionCookie: undefined, requestId: 'test' })).kind).toBe('empty');
 	});
+
+	it('freshly reauthorizes every discovery and removes a ref after revocation', async () => {
+		const responses = new Map<string, any>([['key:newest', page(refs[0], '2025-01-01', 'Newest')]]);
+		const calls: string[] = [];
+		const freshProvider = {
+			...provider(responses),
+			getSharedLink: async (context: { shareRef: SharedLinkRef }) => {
+				calls.push(`${context.shareRef.kind}:${context.shareRef.value}`);
+				return responses.get(`${context.shareRef.kind}:${context.shareRef.value}`) ?? { status: 404 };
+			}
+		} as ImmichProvider;
+		const context = { registryCookie: encodeRegistry({ version: 1, entries: [{ ...refs[0], firstSeenAt: 1, lastSeenAt: 1, expiresAt: Date.now() + 100_000 }] }), sessionCookie: undefined, requestId: 'test' };
+		expect((await discoverLibrary(freshProvider, context)).kind).toBe('ready');
+		responses.set('key:newest', { status: 403 });
+		expect((await discoverLibrary(freshProvider, context)).kind).toBe('empty');
+		expect(calls).toEqual(['key:newest', 'key:newest']);
+	});
 });
