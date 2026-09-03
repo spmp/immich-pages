@@ -65,4 +65,18 @@ describe('journal presentation contract', () => {
 		expect(copy).toContain('This page needs a small correction before it can be shown.');
 		expect(copy).toContain('Return to the album');
 	});
+
+	it('accepts optional authenticated navigation without changing the direct-share composition', () => {
+		const source = component('JournalPage');
+		const library = readFileSync('src/routes/library/+page.svelte', 'utf8');
+		const locator = readFileSync('src/routes/library/page/[locator]/+page.svelte', 'utf8');
+		expect(library).toContain('authenticated-navigation-contract');
+		expect(source).toContain('navigation?');
+		expect(source).toContain('PageNavigation');
+		expect(source).toContain('MobileDrawer');
+		expect(library).toContain('library.kind === \'ready\'');
+		expect(library).toContain('PageNavigation entries={library.entries}');
+		expect(locator).toContain('<JournalPage page={outcome.page} {navigation} />');
+		expect(locator).not.toContain('cookie');
+	});
 });
