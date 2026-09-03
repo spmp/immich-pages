@@ -7,6 +7,7 @@ const albumId = v3.album.id;
 const request = (headers: Record<string, string> = {}) => new Request('https://pages.test/library/page/locator', { headers });
 const event = (locator: string, fetch: typeof globalThis.fetch, headers: Record<string, string> = {}) => ({ params: { locator }, request: request(headers), fetch, setHeaders: vi.fn() }) as never;
 const album = { ...v3.album, description: v3.album.description, assetCount: v3.assets.length };
+const secondAlbum = { ...album, id: '33333333-3333-4333-8333-333333333333', albumName: 'Second Journey' };
 	const invokeLoad = (input: Parameters<typeof load>[0]) => (load as unknown as (event: Parameters<typeof load>[0]) => Promise<{ outcome: any; navigation?: { entries: unknown[]; activeHref?: string } }>)(input);
 
 describe('authenticated library locator destination', () => {
@@ -21,13 +22,13 @@ describe('authenticated library locator destination', () => {
 			expect(new Headers(init?.headers).get('cookie')).toBe('immich=session');
 			const body = pathname.endsWith('/users/me')
 				? { id: '22222222-2222-4222-8222-222222222222' }
-				: pathname.endsWith('/albums') ? [album]
-				: pathname.endsWith('/search/metadata') ? { assets: { items: v3.assets } } : album;
+				: pathname.endsWith('/albums') ? [album, secondAlbum]
+				: pathname.endsWith('/search/metadata') ? { assets: { items: v3.assets } } : pathname.endsWith(secondAlbum.id) ? secondAlbum : album;
 			return new Response(JSON.stringify(body));
 		}), { cookie: 'immich=session' }));
 		expect(result.outcome.kind).toBe('page');
 		expect(calls).toEqual(['/api/users/me', `/api/albums/${albumId}`, '/api/search/metadata', '/api/users/me', '/api/albums', `/api/albums/${albumId}`, '/api/search/metadata']);
-		expect(result.navigation?.entries).toHaveLength(1);
+		expect(result.navigation?.entries).toHaveLength(2);
 		expect(result.navigation?.activeHref).toBe(`/library/page/${locator}`);
 		expect(JSON.stringify(result)).not.toContain(albumId);
 	});
