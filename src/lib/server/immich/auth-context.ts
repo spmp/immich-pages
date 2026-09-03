@@ -7,13 +7,7 @@ export type ShareAuthContext = {
 	shareRef: SharedLinkRef;
 };
 
-export type UserSessionContext = {
-	kind: 'user-session';
-	cookie: string | null;
-	authorization: string | null;
-};
-
-export type AuthContext = ShareAuthContext | UserSessionContext;
+export type AuthContext = ShareAuthContext;
 
 export function authContextFromRequest(request: Request, shareRef: SharedLinkRef): ShareAuthContext {
 	return {
@@ -22,10 +16,6 @@ export function authContextFromRequest(request: Request, shareRef: SharedLinkRef
 		authorization: request.headers.get('authorization'),
 		shareRef
 	};
-}
-
-export function userSessionContextFromRequest(request: Request): UserSessionContext {
-	return { kind: 'user-session', cookie: request.headers.get('cookie'), authorization: request.headers.get('authorization') };
 }
 
 export function upstreamHeaders(context: AuthContext): Headers {

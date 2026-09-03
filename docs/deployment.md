@@ -32,20 +32,6 @@ multi-stage Node 24 image, listens on port 3000, and runs as non-root with
 `node build`. The production Compose file has one service and no database,
 media, or correctness volume.
 
-`PAGES_LOCATOR_SECRET` is required for authenticated library locators. Generate
-it with a cryptographically secure random generator, for example:
-
-```sh
-openssl rand -base64 32
-```
-
-Put the generated value in the operator-managed `.env` as
-`PAGES_LOCATOR_SECRET`; do not copy it into Compose, source control, URLs, or
-logs. Keep the same value across container recreation and stateless rebuilds so
-existing library links continue to work. Rotating it is supported, but changing
-it invalidates previously issued library locators and requires users to open the
-library again. Keep it separate from `PAGES_SESSION_SECRET`.
-
 `PAGES_VISITED_SHARES_SECRET` is also required for the encrypted, bounded
 visited-share registry. Generate a separate stable random value and keep it
 separate from both session and locator secrets. The registry stores only

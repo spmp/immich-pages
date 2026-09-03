@@ -1,17 +1,12 @@
 import { readBoundedText, requestImmich, shareQuery } from './client';
-import { AlbumResponseSchema, AssetResponseSchema, MapMarkerResponseArraySchema, SearchResponseSchema, SharedLinkResponseSchema, UserResponseSchema, type SharedLinkResponse } from './types';
-import type { AuthContext, UserSessionContext } from './auth-context';
+import { AssetResponseSchema, MapMarkerResponseArraySchema, SearchResponseSchema, SharedLinkResponseSchema, type SharedLinkResponse } from './types';
+import type { AuthContext } from './auth-context';
 import { logAlbumAssetsRequest, logAlbumAssetsResponse, logMapMarkersResponse, logSharedLinkResponse, logShareAssetProjection } from '$server/share/diagnostics';
 
 export type ImmichProvider = {
-	getCurrentUser: (context: UserSessionContext) => Promise<{ status: number; data?: import('./types').UserResponse; error?: 'malformed' }>; 
-	listAlbums: (context: UserSessionContext) => Promise<{ status: number; data?: import('./types').AlbumResponse[]; error?: 'malformed' }>;
-	getAlbum: (context: UserSessionContext, albumId: string) => Promise<{ status: number; data?: import('./types').AlbumResponse; error?: 'malformed' }>;
-	getAlbumAssets: (context: UserSessionContext, albumId: string) => Promise<{ status: number; data?: import('./types').SharedAsset[]; error?: 'malformed' }>;
 	loginSharedLink: (context: AuthContext, password: string) => Promise<{ status: number; token?: string }>;
 	getSharedLink: (context: AuthContext) => Promise<{ status: number; data?: SharedLinkResponse; error?: 'malformed' }>;
 	getThumbnail: (context: AuthContext, assetId: string) => Promise<{ status: number; response?: Response; error?: 'malformed' | 'asset-mismatch' }>;
-	getUserThumbnail: (context: UserSessionContext, assetId: string) => Promise<{ status: number; response?: Response }>;
 	getVideoPlayback: (context: AuthContext, assetId: string, range?: string) => Promise<{ status: number; response?: Response; error?: 'malformed' | 'asset-mismatch' | 'not-video' }>;
 	getMapMarkers: (context: AuthContext, albumId: string) => Promise<{ status: number; data?: unknown; error?: 'malformed' }>;
 	getVersion: () => Promise<{ status: number; version?: string }>;
@@ -20,10 +15,6 @@ export type ImmichProvider = {
 export function createImmichProvider(fetchImpl: typeof fetch = fetch, baseUrl = process.env.IMMICH_BASE_URL): ImmichProvider {
 	if (!baseUrl) throw new Error('IMMICH_BASE_URL is required');
 	return {
-		async getCurrentUser(context) { return getJson(requestImmich(baseUrl, '/api/users/me', context, fetchImpl, { endpoint: 'current-user' }), UserResponseSchema); },
-		async listAlbums(context) { return getJsonArray(requestImmich(baseUrl, '/api/albums', context, fetchImpl, { endpoint: 'albums' }), AlbumResponseSchema); },
-		async getAlbum(context, albumId) { return getJson(requestImmich(baseUrl, `/api/albums/${encodeURIComponent(albumId)}`, context, fetchImpl, { endpoint: 'album' }), AlbumResponseSchema); },
-		async getAlbumAssets(context, albumId) { return getJson(requestImmich(baseUrl, '/api/search/metadata', context, fetchImpl, { method: 'POST', body: JSON.stringify({ albumIds: [albumId], page: 1, size: 1000, withExif: false }), headers: { 'content-type': 'application/json' }, endpoint: 'album-assets' }), SearchResponseSchema).then((result) => ({ ...result, data: result.data?.assets.items })); },
 		async loginSharedLink(context, password) {
 			const response = await requestImmich(baseUrl, `/api/shared-links/login?${shareQuery(context)}`, context, fetchImpl, { method: 'POST', body: JSON.stringify({ password }), headers: { 'content-type': 'application/json' }, endpoint: 'shared-link' });
 			if (!response.ok) return { status: response.status };
@@ -56,10 +47,6 @@ export function createImmichProvider(fetchImpl: typeof fetch = fetch, baseUrl = 
 			if (!share.data) return { status: share.status, error: share.error };
 			if (!share.data.assets.some((asset) => asset.id === assetId && AssetResponseSchema.safeParse(asset).success)) return { status: 404, error: 'asset-mismatch' };
 			const response = await requestImmich(baseUrl, `/api/assets/${encodeURIComponent(assetId)}/thumbnail?${shareQuery(context)}`, context, fetchImpl, { endpoint: 'thumbnail' });
-			return { status: response.status, response };
-		},
-		async getUserThumbnail(context, assetId) {
-			const response = await requestImmich(baseUrl, `/api/assets/${encodeURIComponent(assetId)}/thumbnail`, context, fetchImpl, { endpoint: 'thumbnail' });
 			return { status: response.status, response };
 		},
 		async getVideoPlayback(context, assetId, range) {

@@ -1,6 +1,6 @@
 import type { ImmichProvider } from '$server/immich/provider';
 import type { DirectShareOutcome, SharedLinkResponse } from '$server/immich/types';
-import type { AuthContext, ShareAuthContext, UserSessionContext } from '$server/immich/auth-context';
+import type { AuthContext, ShareAuthContext } from '$server/immich/auth-context';
 import { parsePresentationDocument } from '$server/presentation/frontmatter';
 import { renderMarkdown } from '$server/presentation/markdown';
 import { deriveDisplayDate, heroSelection, normalizeTemplate, selectHero, type NormalizedPageModel } from '$server/presentation/model';
@@ -23,30 +23,6 @@ export async function assembleDirectShare(provider: ImmichProvider, context: Sha
 	if (document.kind === 'absent' || document.kind === 'unrelated') { logMetadataParse({ result: document.kind }); return { kind: 'non-page' }; }
 	if (document.kind === 'invalid') { logMetadataParse({ result: 'invalid', reason: document.reason }); return { kind: 'invalid-metadata', metadataReason: document.reason }; }
 	return assemblePageModel(provider, context, share, (assetId) => `/share/${context.shareRef.kind}/${encodeURIComponent(context.shareRef.value)}/media/${encodeURIComponent(assetId)}`);
-}
-
-export async function assembleAuthenticatedAlbum(provider: ImmichProvider, context: UserSessionContext, album: import('$server/immich/types').AlbumResponse, assets: import('$server/immich/types').SharedAsset[], locator: string): Promise<DirectShareOutcome> {
-	const share = {
-		id: album.id,
-		description: null,
-		password: null,
-		userId: album.id,
-		key: album.id,
-		type: 'ALBUM' as const,
-		createdAt: album.updatedAt ?? '',
-		expiresAt: null,
-		album: { ...album, description: album.description ?? null, assets },
-		assets,
-		allowUpload: false,
-		allowDownload: false,
-		showMetadata: true,
-		slug: null
-	};
-	const document = parsePresentationDocument(album.description);
-	if (document.kind === 'absent' || document.kind === 'unrelated') return { kind: 'non-page' };
-	if (document.kind === 'invalid') return { kind: 'invalid-metadata', metadataReason: document.reason };
-	const outcome = await assemblePageModel(provider, context, share, (assetId) => `/library/page/${encodeURIComponent(locator)}/media/${encodeURIComponent(assetId)}`);
-	return outcome.kind === 'page' ? { ...outcome, page: { ...outcome.page, album: { ...outcome.page.album, id: locator } } } : outcome;
 }
 
 async function assemblePageModel(provider: ImmichProvider, context: AuthContext, share: SharedLinkResponse, mediaPath: (assetId: string) => string): Promise<DirectShareOutcome> {
