@@ -54,6 +54,24 @@ describe('authenticated library locator destination', () => {
 		expect(fetchMock).not.toHaveBeenCalled();
 	});
 
+	it('projects visibility claims out of the authenticated page model', async () => {
+		process.env.PAGES_LOCATOR_SECRET = 'e'.repeat(32);
+		const locator = issueLibraryLocator(albumId);
+		const userId = '22222222-2222-4222-8222-222222222222';
+		const privateClaim = 'private@example.test';
+		const description = `---\nimmich-presentation:\n  type: journey\n  version: 1\n  auth:\n    allow:\n      users:\n        - ${privateClaim}\n---\nSafe page`;
+		const fetchMock = vi.fn(async (input: URL | RequestInfo) => {
+			const pathname = new URL(input.toString()).pathname;
+			if (pathname.endsWith('/users/me')) return new Response(JSON.stringify({ id: userId, email: privateClaim }));
+			if (pathname.endsWith('/search/metadata')) return new Response(JSON.stringify({ assets: { items: v3.assets } }));
+			return new Response(JSON.stringify({ ...album, description }));
+		});
+		const result = await invokeLoad(event(locator, fetchMock, { cookie: 'immich=session' }));
+		expect(result.outcome.kind).toBe('page');
+		expect(JSON.stringify(result)).not.toContain(privateClaim);
+		expect(result.outcome.page.presentation).not.toHaveProperty('auth');
+	});
+
 	it('maps expired locators to the same redacted invalid state', async () => {
 		process.env.PAGES_LOCATOR_SECRET = 'd'.repeat(32);
 		const expired = issueLibraryLocator(albumId, Date.now() - 25 * 60 * 60 * 1000);
