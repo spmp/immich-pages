@@ -12,7 +12,7 @@ function provider(albums: Array<{ id: string; albumName: string; description?: s
 
 describe('library discovery policy', () => {
 	it('omits absent, unrelated, and malformed descriptions', async () => {
-		const result = await discoverLibrary(provider([{ id: id('a'), albumName: 'Absent' }, { id: id('b'), albumName: 'Unrelated', description: '---\nother: true\n---' }, { id: id('c'), albumName: 'Malformed', description: description('not-a-date') }]), { kind: 'user-session', cookie: null, authorization: null });
+		const result = await discoverLibrary(provider([{ id: id('a'), albumName: 'Absent' }, { id: id('b'), albumName: 'Unrelated', description: '---\nother: true\n---' }, { id: id('c'), albumName: 'Malformed', description: '---\nimmich-presentation:\n  type: not-journey\n---' }]), { kind: 'user-session', cookie: null, authorization: null });
 		expect(result.entries).toHaveLength(0);
 	});
 	it('orders explicit dates newest first, then case-insensitive title', async () => {
