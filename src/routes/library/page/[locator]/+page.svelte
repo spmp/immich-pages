@@ -4,10 +4,7 @@
 
 	let { data, params } = $props();
 	const outcome = $derived(data.outcome);
-	const navigation = $derived(outcome.kind === 'page' ? {
-		entries: [{ href: `/library/page/${encodeURIComponent(params.locator)}`, title: outcome.page.album.title, date: outcome.page.album.startDate && outcome.page.album.endDate ? { start: outcome.page.album.startDate, end: outcome.page.album.endDate } : undefined, thumbnail: outcome.page.hero?.thumbnail }],
-		activeHref: `/library/page/${encodeURIComponent(params.locator)}`
-	} : undefined);
+	const navigation = $derived(outcome.kind === 'page' ? data.navigation : undefined);
 </script>
 
 {#if outcome.kind === 'page'}

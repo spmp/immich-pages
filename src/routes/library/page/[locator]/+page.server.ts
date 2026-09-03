@@ -3,6 +3,7 @@ import { decodeLibraryLocator } from '$server/immich/locator';
 import { userSessionContextFromRequest } from '$server/immich/auth-context';
 import { createImmichProvider } from '$server/immich/provider';
 import { assembleAuthenticatedAlbum } from '$server/page/assemble';
+import { discoverLibrary } from '$server/library/discover';
 
 const safeFailure = { kind: 'presentation-error' as const, state: 'temporary' as const };
 
@@ -19,7 +20,16 @@ export const load: PageServerLoad = async ({ params, request, fetch, setHeaders 
 		const [album, assets] = await Promise.all([provider.getAlbum(context, locator.albumId), provider.getAlbumAssets(context, locator.albumId)]);
 		if (!album.data || !assets.data || album.status === 401 || album.status === 403 || assets.status === 401 || assets.status === 403) return { outcome: safeFailure };
 		const outcome = await assembleAuthenticatedAlbum(provider, context, album.data, assets.data, params.locator);
-		return { outcome: outcome.kind === 'invalid-metadata' || outcome.kind === 'non-page' ? safeFailure : outcome };
+		if (outcome.kind === 'invalid-metadata' || outcome.kind === 'non-page') return { outcome: safeFailure };
+		if (outcome.kind !== 'page') return { outcome };
+		const library = await discoverLibrary(provider, context);
+		return {
+			outcome,
+			navigation: {
+				entries: library.kind === 'ready' ? library.entries : [],
+				activeHref: `/library/page/${encodeURIComponent(params.locator)}`
+			}
+		};
 	} catch {
 		return { outcome: safeFailure };
 	}
