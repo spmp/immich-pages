@@ -19,7 +19,7 @@ export async function discoverLibrary(provider: ImmichProvider, context: UserSes
 			if (document.kind !== 'valid' || !visibilityAllows(undefined, user.data)) continue;
 			const shareLike = { assets: assets.data, album: { ...detail.data, albumName: detail.data.albumName, description: detail.data.description ?? null, id: detail.data.id, assets: assets.data }, type: 'ALBUM' as const } as Parameters<typeof deriveDisplayDate>[1];
 			const date = deriveDisplayDate(document.config, shareLike); const locator = issueLibraryLocator(album.id, now);
-			entries.push({ href: `/library/page/${locator}`, title: album.albumName, date, thumbnail: album.albumThumbnailAssetId && assets.data.some((asset) => asset.id === album.albumThumbnailAssetId) ? `/library/media/${locator}/${album.albumThumbnailAssetId}/thumbnail` : undefined, sortDate: date?.start ?? detail.data.updatedAt ?? detail.data.endDate ?? detail.data.startDate ?? '', id: locator });
+			entries.push({ href: `/library/page/${locator}`, title: album.albumName, date, thumbnail: album.albumThumbnailAssetId && assets.data.some((asset) => asset.id === album.albumThumbnailAssetId) ? `/library/page/${locator}/media/${album.albumThumbnailAssetId}/thumbnail` : undefined, sortDate: date?.start ?? detail.data.updatedAt ?? detail.data.endDate ?? detail.data.startDate ?? '', id: locator });
 		} catch { failures++; }
 	}
 	entries.sort((a, b) => b.sortDate.localeCompare(a.sortDate) || a.title.localeCompare(b.title, undefined, { sensitivity: 'base' }) || a.id.localeCompare(b.id));

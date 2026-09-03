@@ -16,6 +16,26 @@ const assets = [{
   id: '550e8400-e29b-41d4-a716-446655440006', type: 'IMAGE', originalFileName: 'failing-photo.jpg', width: 800, height: 1200
 }];
 
+const libraryAssets = [{
+  id: '550e8400-e29b-41d4-a716-446655440008', type: 'IMAGE', originalFileName: 'alpine-proof.jpg', width: 1200, height: 800
+}];
+const libraryAlbums = [{
+  id: '550e8400-e29b-41d4-a716-446655440003', albumName: 'Mock Journey', albumThumbnailAssetId: libraryAssets[0].id,
+  startDate: '2026-03-02T00:00:00.000Z', endDate: '2026-03-04T00:00:00.000Z', updatedAt: '2026-03-04T00:00:00.000Z',
+  description: '---\nimmich-presentation:\n  type: journey\n  version: 1\n---\nAuthenticated journey one'
+}, {
+  id: '550e8400-e29b-41d4-a716-446655440009', albumName: 'Older Journey', albumThumbnailAssetId: null,
+  startDate: '2025-10-01T00:00:00.000Z', endDate: '2025-10-02T00:00:00.000Z', updatedAt: '2025-10-02T00:00:00.000Z',
+  description: '---\nimmich-presentation:\n  type: journey\n  version: 1\n---\nAuthenticated journey two'
+}, {
+  id: '550e8400-e29b-41d4-a716-446655440010', albumName: 'Private Family Album', description: 'Ordinary album'
+}];
+let revokedLibraryAlbums = new Set();
+
+function isUserSession(request) {
+  return request.headers.cookie === 'immich_user=fixture' && request.headers.authorization === 'Bearer fixture-user';
+}
+
 const page = {
   id: '550e8400-e29b-41d4-a716-446655440000',
   description: null,
@@ -48,6 +68,7 @@ const routeDescriptions = {
   'route-waypoints': `---\nimmich-presentation:\n  type: journey\n  version: 1\n  map:\n    enabled: true\n    source: waypoints\n    waypoints:\n      - [-0.1278, 51.5074]\n      - [-0.1278, 51.5074]\n      - [2.3522, 48.8566]\n    styleName: quiet-atlas\n---\nWaypoint route proof`,
   'route-geojson': `---\nimmich-presentation:\n  type: journey\n  version: 1\n  map:\n    enabled: true\n    source: geojson\n    geojson: |\n      {"type":"MultiLineString","coordinates":[[[-0.1278,51.5074],[-1.2577,51.7520]],[[2.3522,48.8566],[2.1734,41.3851]]]}\n    styleName: quiet-atlas\n---\nExact GeoJSON route proof`,
   'route-brouter': `---\nimmich-presentation:\n  type: journey\n  version: 1\n  map:\n    enabled: true\n    source: brouter-web\n    url: https://brouter.de/brouter-web/#lonlats=-0.1278,51.5074%7C2.3522,48.8566&profile=trekking\n    styleName: quiet-atlas\n---\nBRouter success proof`,
+  'route-brouter-live': `---\nimmich-presentation:\n  type: journey\n  version: 1\n  map:\n    enabled: true\n    source: brouter-web\n    url: "https://brouter.de/brouter-web/?utm_source=chatgpt.com#map=18/37.74353/-105.50588/standard&lonlats=-105.273743,40.014994;-105.24031,39.910964;-105.089607,39.553118;-104.990787,39.475724;-105.505185,37.744602;-105.747645,38.021343;-105.258356,39.997946&profile=car-fast"\n    styleName: quiet-atlas\n---\nBRouter live permalink proof`,
   'route-brouter-failure': `---\nimmich-presentation:\n  type: journey\n  version: 1\n  map:\n    enabled: true\n    source: brouter-web\n    url: https://brouter.de/brouter-web/#lonlats=-0.1278,51.5074%7C2.3522,48.8566&profile=safety\n    styleName: quiet-atlas\n---\nBRouter failure proof`,
   'route-brouter-unsupported': `---\nimmich-presentation:\n  type: journey\n  version: 1\n  map:\n    enabled: true\n    source: brouter-web\n    url: https://brouter.de/brouter-web/#lonlats=-0.1278,51.5074%7C2.3522,48.8566&profile=unknown\n    styleName: quiet-atlas\n---\nUnsupported route proof`
 };
@@ -58,6 +79,37 @@ const brouterRoutes = {
 
 const server = http.createServer((request, response) => {
   const url = new URL(request.url ?? '/', 'http://mock-immich.test');
+  if (url.pathname === '/__fixture/revoke' && request.method === 'POST') {
+    const albumId = url.searchParams.get('album');
+    if (albumId) revokedLibraryAlbums.add(albumId);
+    response.writeHead(204); response.end(); return;
+  }
+  if (url.pathname === '/api/users/me' && isUserSession(request)) {
+    response.writeHead(200, { 'content-type': 'application/json' }); response.end(JSON.stringify({ id: '22222222-2222-4222-8222-222222222222', name: 'Fixture User' })); return;
+  }
+  if (url.pathname === '/api/users/me') { response.writeHead(401); response.end(); return; }
+  if (url.pathname === '/api/albums' && isUserSession(request)) {
+    response.writeHead(200, { 'content-type': 'application/json' }); response.end(JSON.stringify(libraryAlbums)); return;
+  }
+  if (url.pathname === '/api/albums') { response.writeHead(401); response.end(); return; }
+  const libraryAlbum = libraryAlbums.find((candidate) => url.pathname === `/api/albums/${candidate.id}`);
+  if (libraryAlbum) {
+    if (!isUserSession(request) || revokedLibraryAlbums.has(libraryAlbum.id)) { response.writeHead(isUserSession(request) ? 403 : 401); response.end(); return; }
+    response.writeHead(200, { 'content-type': 'application/json' }); response.end(JSON.stringify({ ...libraryAlbum, assetCount: libraryAlbum.id === libraryAlbums[0].id ? libraryAssets.length : 0 })); return;
+  }
+  if (request.method === 'POST' && url.pathname === '/api/search/metadata' && isUserSession(request)) {
+    let body = ''; request.on('data', (chunk) => { body += chunk; }); request.on('end', () => {
+      const albumId = JSON.parse(body).albumIds?.[0];
+      if (revokedLibraryAlbums.has(albumId)) { response.writeHead(403); response.end(); return; }
+      const found = albumId === libraryAlbums[0].id ? libraryAssets : [];
+      response.writeHead(200, { 'content-type': 'application/json' }); response.end(JSON.stringify({ albums: {}, assets: { items: found } }));
+    }); return;
+  }
+  const libraryAsset = url.pathname.match(/^\/api\/assets\/([^/]+)\/thumbnail$/)?.[1];
+  if (libraryAsset && isUserSession(request) && libraryAssets.some((asset) => asset.id === libraryAsset)) {
+    if (revokedLibraryAlbums.has(libraryAlbums[0].id)) { response.writeHead(403); response.end(); return; }
+    response.writeHead(200, { 'content-type': 'image/png', 'set-cookie': 'secret=must-not-relay; Path=/' }); response.end(landscapeFixture); return;
+  }
   if (url.pathname === '/api/server/version') {
     response.writeHead(200, { 'content-type': 'application/json' });
      response.end(JSON.stringify({ version: 'v3.1.0' }));
@@ -115,7 +167,7 @@ const server = http.createServer((request, response) => {
       response.end(JSON.stringify({ error: 'map request context rejected' }));
       return;
     }
-    if (!['opaque-ref', 'map-ref', 'route-waypoints', 'route-geojson', 'route-brouter', 'route-brouter-failure', 'route-brouter-unsupported'].includes(url.searchParams.get('key') ?? url.searchParams.get('slug'))) {
+    if (!['opaque-ref', 'map-ref', 'route-waypoints', 'route-geojson', 'route-brouter', 'route-brouter-live', 'route-brouter-failure', 'route-brouter-unsupported'].includes(url.searchParams.get('key') ?? url.searchParams.get('slug'))) {
       response.writeHead(404, { 'content-type': 'application/json' });
       response.end(JSON.stringify({ error: 'map share mismatch' }));
       return;

@@ -11,6 +11,7 @@ export type ImmichProvider = {
 	loginSharedLink: (context: AuthContext, password: string) => Promise<{ status: number; token?: string }>;
 	getSharedLink: (context: AuthContext) => Promise<{ status: number; data?: SharedLinkResponse; error?: 'malformed' }>;
 	getThumbnail: (context: AuthContext, assetId: string) => Promise<{ status: number; response?: Response; error?: 'malformed' | 'asset-mismatch' }>;
+	getUserThumbnail: (context: UserSessionContext, assetId: string) => Promise<{ status: number; response?: Response }>;
 	getVideoPlayback: (context: AuthContext, assetId: string, range?: string) => Promise<{ status: number; response?: Response; error?: 'malformed' | 'asset-mismatch' | 'not-video' }>;
 	getMapMarkers: (context: AuthContext, albumId: string) => Promise<{ status: number; data?: unknown; error?: 'malformed' }>;
 	getVersion: () => Promise<{ status: number; version?: string }>;
@@ -55,6 +56,10 @@ export function createImmichProvider(fetchImpl: typeof fetch = fetch, baseUrl = 
 			if (!share.data) return { status: share.status, error: share.error };
 			if (!share.data.assets.some((asset) => asset.id === assetId && AssetResponseSchema.safeParse(asset).success)) return { status: 404, error: 'asset-mismatch' };
 			const response = await requestImmich(baseUrl, `/api/assets/${encodeURIComponent(assetId)}/thumbnail?${shareQuery(context)}`, context, fetchImpl, { endpoint: 'thumbnail' });
+			return { status: response.status, response };
+		},
+		async getUserThumbnail(context, assetId) {
+			const response = await requestImmich(baseUrl, `/api/assets/${encodeURIComponent(assetId)}/thumbnail`, context, fetchImpl, { endpoint: 'thumbnail' });
 			return { status: response.status, response };
 		},
 		async getVideoPlayback(context, assetId, range) {
