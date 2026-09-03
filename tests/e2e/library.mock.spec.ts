@@ -19,6 +19,12 @@ test('opening a share registers it and anonymous library lists only opened share
   expect(await page.content()).not.toMatch(/Immich user|authenticated session|550e8400/);
 });
 
+test('anonymous library is share-only and never presents Immich user-session setup', async ({ page }) => {
+  await page.goto('/library');
+  await expect(page.getByRole('heading', { name: /No published journeys|Your library/ })).toBeVisible();
+  expect(await page.content()).not.toMatch(/authenticated Immich session|Immich user authorization|Immich user-session/i);
+});
+
 test('multiple opened shares navigate through direct-share routes with fresh requests', async ({ page }) => {
   const requests: string[] = [];
   page.on('request', (request) => requests.push(request.url()));
@@ -64,4 +70,24 @@ test('direct shares expose desktop collapse and mobile drawer focus behavior', a
   await page.keyboard.press('Escape');
   await expect(dialog).toBeHidden();
   await expect(opener).toBeFocused();
+});
+
+test('revocation and expiry remove a previously opened share and block fresh page/media access', async ({ page }) => {
+  await page.goto('/share/key/opaque-ref');
+  await expect(page.getByRole('heading', { name: 'Mock Journey' })).toBeVisible();
+
+  await fetch(`${process.env.MOCK_IMMICH_URL}/__fixture/revoke?ref=opaque-ref`, { method: 'POST' });
+  await page.goto('/library');
+  await expect(page.getByRole('link', { name: /Mock Journey/ })).toHaveCount(0);
+  const revokedPage = await page.goto('/share/key/opaque-ref');
+  expect(revokedPage?.status()).toBeGreaterThanOrEqual(400);
+
+  await fetch(`${process.env.MOCK_IMMICH_URL}/__fixture/reset`, { method: 'POST' });
+  await page.goto('/share/key/opaque-ref');
+  await expect(page.getByRole('heading', { name: 'Mock Journey' })).toBeVisible();
+  await fetch(`${process.env.MOCK_IMMICH_URL}/__fixture/expire?ref=opaque-ref`, { method: 'POST' });
+  await page.goto('/library');
+  await expect(page.getByRole('link', { name: /Mock Journey/ })).toHaveCount(0);
+  const expiredPage = await page.goto('/share/key/opaque-ref');
+  expect(expiredPage?.status()).toBeGreaterThanOrEqual(400);
 });

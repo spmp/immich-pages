@@ -4,10 +4,23 @@ import { assembleDirectShare } from '../../src/lib/server/page/assemble';
 import { immichOrigin, readBoundedText, requestImmich } from '../../src/lib/server/immich/client';
 import v3 from '../fixtures/shared-link/v3-valid-page.json';
 import sanitized from '../fixtures/shared-link/v3-sanitized-page.json';
+import { decodeRegistry, encodeRegistry, registerShare, REGISTRY_MAX_ENTRIES, REGISTRY_MAX_COOKIE_BYTES } from '../../src/lib/server/share/registry';
 
 const context = { shareRef: { kind: 'key' as const, value: 'opaque-ref' }, cookie: 'visitor=1', authorization: 'Bearer visitor' };
 
 describe('Immich v3 boundary contracts', () => {
+	it('rejects tampered, oversized, duplicate, and over-capacity share registries', () => {
+		vi.stubEnv('PAGES_VISITED_SHARES_SECRET', 'registry-secret-that-is-at-least-32-characters');
+		const now = 1_700_000_000_000;
+		const cookie = registerShare(undefined, { kind: 'key', value: 'opaque-ref' }, now);
+		expect(decodeRegistry(`${cookie.slice(0, -1)}x`, now)).toBeNull();
+		expect(decodeRegistry('x'.repeat(REGISTRY_MAX_COOKIE_BYTES + 1), now)).toBeNull();
+		const entries = Array.from({ length: REGISTRY_MAX_ENTRIES + 1 }, (_, index) => ({ kind: 'key' as const, value: `ref-${index}`, firstSeenAt: now, lastSeenAt: now, expiresAt: now + 1_000 }));
+		const bounded = encodeRegistry({ version: 1, entries: entries.slice(0, REGISTRY_MAX_ENTRIES) });
+		expect(decodeRegistry(bounded, now)?.entries).toHaveLength(REGISTRY_MAX_ENTRIES);
+		const duplicate = encodeRegistry({ version: 1, entries: [entries[0], entries[0]] });
+		expect(decodeRegistry(duplicate, now)).toBeNull();
+	});
 	it('adds exactly one API prefix to an origin', async () => {
 		const fetchMock = vi.fn(async (input: URL | RequestInfo) => { expect(input.toString()).toBe('https://immich.example/api/assets/22222222-2222-4222-8222-222222222222/thumbnail'); return new Response('ok'); });
 		await requestImmich('https://immich.example/', '/api/assets/22222222-2222-4222-8222-222222222222/thumbnail', context, fetchMock);
