@@ -1,6 +1,6 @@
 import type { ImmichProvider } from '$server/immich/provider';
 import type { DirectShareOutcome, SharedLinkResponse } from '$server/immich/types';
-import type { ShareAuthContext } from '$server/immich/auth-context';
+import type { AuthContext, ShareAuthContext, UserSessionContext } from '$server/immich/auth-context';
 import { parsePresentationDocument } from '$server/presentation/frontmatter';
 import { renderMarkdown } from '$server/presentation/markdown';
 import { deriveDisplayDate, heroSelection, normalizeTemplate, selectHero, type NormalizedPageModel } from '$server/presentation/model';
@@ -22,6 +22,38 @@ export async function assembleDirectShare(provider: ImmichProvider, context: Sha
 	const document = parsePresentationDocument(share.album.description);
 	if (document.kind === 'absent' || document.kind === 'unrelated') { logMetadataParse({ result: document.kind }); return { kind: 'non-page' }; }
 	if (document.kind === 'invalid') { logMetadataParse({ result: 'invalid', reason: document.reason }); return { kind: 'invalid-metadata', metadataReason: document.reason }; }
+	return assemblePageModel(provider, context, share, (assetId) => `/share/${context.shareRef.kind}/${encodeURIComponent(context.shareRef.value)}/media/${encodeURIComponent(assetId)}`);
+}
+
+export async function assembleAuthenticatedAlbum(provider: ImmichProvider, context: UserSessionContext, album: import('$server/immich/types').AlbumResponse, assets: import('$server/immich/types').SharedAsset[], locator: string): Promise<DirectShareOutcome> {
+	const share = {
+		id: album.id,
+		description: null,
+		password: null,
+		userId: album.id,
+		key: album.id,
+		type: 'ALBUM' as const,
+		createdAt: album.updatedAt ?? '',
+		expiresAt: null,
+		album: { ...album, description: album.description ?? null, assets },
+		assets,
+		allowUpload: false,
+		allowDownload: false,
+		showMetadata: true,
+		slug: null
+	};
+	const document = parsePresentationDocument(album.description);
+	if (document.kind === 'absent' || document.kind === 'unrelated') return { kind: 'non-page' };
+	if (document.kind === 'invalid') return { kind: 'invalid-metadata', metadataReason: document.reason };
+	const outcome = await assemblePageModel(provider, context, share, (assetId) => `/library/page/${encodeURIComponent(locator)}/media/${encodeURIComponent(assetId)}`);
+	return outcome.kind === 'page' ? { ...outcome, page: { ...outcome.page, album: { ...outcome.page.album, id: locator } } } : outcome;
+}
+
+async function assemblePageModel(provider: ImmichProvider, context: AuthContext, share: SharedLinkResponse, mediaPath: (assetId: string) => string): Promise<DirectShareOutcome> {
+	const document = parsePresentationDocument(share.album?.description);
+	if (document.kind !== 'valid') return document.kind === 'invalid' ? { kind: 'invalid-metadata', metadataReason: document.reason } : { kind: 'non-page' };
+	const sourceAlbum = share.album;
+	if (!sourceAlbum) return { kind: 'unsupported' };
 	logMetadataParse({ result: 'valid' });
 	const narrative = await renderMarkdown(document.markdown);
 	const hero = selectHero(document.config, share);
@@ -29,25 +61,24 @@ export async function assembleDirectShare(provider: ImmichProvider, context: Sha
 	const template = normalizeTemplate(document.config);
 	const displayDate = deriveDisplayDate(document.config, share);
 	const { url: _brouterUrl, ...browserMap } = document.config.map;
-	const mediaShareQuery = `?${context.shareRef.kind}=${encodeURIComponent(context.shareRef.value)}`;
 	const assets = share.assets.map((asset) => {
 		const normalized = {
 			id: asset.id, type: asset.type,
-			thumbnail: `/share/${context.shareRef.kind}/${encodeURIComponent(context.shareRef.value)}/media/${encodeURIComponent(asset.id)}/thumbnail${mediaShareQuery}`
+			thumbnail: `${mediaPath(asset.id)}/thumbnail${'shareRef' in context ? `?${context.shareRef.kind}=${encodeURIComponent(context.shareRef.value)}` : ''}`
 		};
 		return {
 			...normalized,
 			...(share.showMetadata && asset.originalFileName !== undefined ? { fileName: asset.originalFileName } : {}),
 			...(share.showMetadata && asset.width !== undefined ? { width: asset.width } : {}),
 			...(share.showMetadata && asset.height !== undefined ? { height: asset.height } : {}),
-			...(asset.type === 'VIDEO' ? { videoHref: `/share/${context.shareRef.kind}/${encodeURIComponent(context.shareRef.value)}/media/${encodeURIComponent(asset.id)}/video/playback${mediaShareQuery}` } : {})
+			...(asset.type === 'VIDEO' && 'shareRef' in context ? { videoHref: `${mediaPath(asset.id)}/video/playback?${context.shareRef.kind}=${encodeURIComponent(context.shareRef.value)}` } : {})
 		};
 	});
 	const album = {
-		id: share.album.id,
-		title: share.album.albumName ?? 'Untitled album',
-		thumbnailAssetId: share.album.albumThumbnailAssetId ?? undefined,
-		...(share.showMetadata ? { startDate: share.album.startDate ?? undefined, endDate: share.album.endDate ?? undefined, updatedAt: share.album.updatedAt } : {})
+		id: sourceAlbum.id,
+		title: sourceAlbum.albumName ?? 'Untitled album',
+		thumbnailAssetId: sourceAlbum.albumThumbnailAssetId ?? undefined,
+		...(share.showMetadata ? { startDate: sourceAlbum.startDate ?? undefined, endDate: sourceAlbum.endDate ?? undefined, updatedAt: sourceAlbum.updatedAt } : {})
 	};
 	const { waypoints: _waypoints, geojson: _geojson, ...metadataSafeMap } = browserMap;
 	const safeMap = share.showMetadata ? browserMap : { ...metadataSafeMap, enabled: false };
@@ -64,7 +95,7 @@ export async function assembleDirectShare(provider: ImmichProvider, context: Sha
 	};
 	if (document.config.map.enabled && share.showMetadata) {
 		const pathRegistry = new PathSourceRegistry();
-		const markerResponse = share.showMetadata ? await provider.getMapMarkers(context, share.album.id) : { status: 200, data: [] };
+		const markerResponse = share.showMetadata ? await provider.getMapMarkers(context, sourceAlbum.id) : { status: 200, data: [] };
 		const projected = markerResponse.data ? projectMapMarkers(markerResponse.data, share.assets) : { markers: [], warnings: ['map-no-location'] as const };
 		normalized.markers = projected.markers;
 		normalized.warnings.push(...projected.warnings);
