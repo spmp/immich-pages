@@ -137,7 +137,7 @@ const server = http.createServer((request, response) => {
     response.writeHead(200, { 'content-type': 'application/json' }); response.end(JSON.stringify(Object.fromEntries(requestCounts))); return;
   }
   if (url.pathname === '/__fixture/reset' && request.method === 'POST') {
-    revokedLibraryAlbums.clear(); revokedShareRefs.clear(); expiredShareRefs.clear(); requestCounts.clear(); response.writeHead(204); response.end(); return;
+    revokedLibraryAlbums.clear(); requestCounts.clear(); response.writeHead(204); response.end(); return;
   }
 
   if (url.pathname === '/api/shared-links/me' && (url.searchParams.has('key') || url.searchParams.has('slug'))) {
