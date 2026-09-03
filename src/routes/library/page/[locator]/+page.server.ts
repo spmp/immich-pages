@@ -11,6 +11,7 @@ export const load: PageServerLoad = async ({ params, request, fetch, setHeaders 
 	const locator = decodeLibraryLocator(params.locator);
 	if (!locator) return { outcome: { kind: 'presentation-error' as const, state: 'invalid' as const } };
 	const context = userSessionContextFromRequest(request);
+	if (!context.cookie && !context.authorization) return { outcome: safeFailure };
 	const provider = createImmichProvider(fetch);
 	try {
 		const user = await provider.getCurrentUser(context);
