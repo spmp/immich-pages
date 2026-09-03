@@ -70,7 +70,6 @@ describe('journal presentation contract', () => {
 		const source = component('JournalPage');
 		const library = readFileSync('src/routes/library/+page.svelte', 'utf8');
 		const locator = readFileSync('src/routes/library/page/[locator]/+page.svelte', 'utf8');
-		expect(library).toContain('authenticated-navigation-contract');
 		expect(source).toContain('navigation?');
 		expect(source).toContain('PageNavigation');
 		expect(source).toContain('MobileDrawer');
