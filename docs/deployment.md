@@ -30,11 +30,37 @@ multi-stage Node 24 image, listens on port 3000, and runs as non-root with
 `node build`. The production Compose file has one service and no database,
 media, or correctness volume.
 
+`PAGES_LOCATOR_SECRET` is required for authenticated library locators. Generate
+it with a cryptographically secure random generator, for example:
+
+```sh
+openssl rand -base64 32
+```
+
+Put the generated value in the operator-managed `.env` as
+`PAGES_LOCATOR_SECRET`; do not copy it into Compose, source control, URLs, or
+logs. Keep the same value across container recreation and stateless rebuilds so
+existing library links continue to work. Rotating it is supported, but changing
+it invalidates previously issued library locators and requires users to open the
+library again. Keep it separate from `PAGES_SESSION_SECRET`.
+
+This secret protects the integrity and confidentiality of routing handles only;
+it is not a visitor credential and does not grant Immich access. Every locator
+destination is freshly authorized against Immich using the visitor's current
+session. Direct-share `/share/key/...` and `/share/slug/...` paths remain a
+separate authorization mode.
+
 ```sh
 cp .env.example .env
 # edit .env and set IMMICH_BASE_URL=https://immich.example.xyz
 docker compose up -d --build
 docker compose ps
+```
+
+Check the configuration without printing secret values:
+
+```sh
+docker compose config >/dev/null
 ```
 
 Recovery is a normal rebuild. `docker compose down --volumes` followed by
