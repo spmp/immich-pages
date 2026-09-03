@@ -16,9 +16,9 @@
 		<main aria-labelledby="library-title"><p class="eyebrow">Immich Pages</p><h1 id="library-title">Published journeys</h1><p class="intro">Choose a journey to begin.</p>{#if library.warnings.length}<p class="notice" role="status">Some journeys are temporarily unavailable.</p>{/if}</main>
 	</div>
 {:else if library.kind === 'access'}
-	<PresentationState copy={{ heading: 'Your library is private', body: 'Open Pages with your authenticated Immich session to see published journeys.', action: 'Try again' }} retryHref="." />
+	<PresentationState copy={{ heading: 'Your library is private', body: 'Open a shared journey in Pages to add it to your private library.', action: 'Try again' }} retryHref="." />
 {:else if library.kind === 'empty'}
-	<PresentationState copy={{ heading: 'No published journeys yet', body: 'Pages could not find a published journey in the albums available to this Immich session.', action: 'Try again' }} retryHref="." />
+	<PresentationState copy={{ heading: 'No published journeys yet', body: 'Open a shared journey to add it to your private Pages library.', action: 'Try again' }} retryHref="." />
 {:else}
 	<PresentationState copy={{ heading: 'Your library is unavailable right now', body: 'Please try again in a moment.', action: 'Try again' }} retryHref="." />
 {/if}

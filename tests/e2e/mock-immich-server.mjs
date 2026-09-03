@@ -31,7 +31,12 @@ const libraryAlbums = [{
   id: '550e8400-e29b-41d4-a716-446655440010', albumName: 'Private Family Album', description: 'Ordinary album'
 }];
 let revokedLibraryAlbums = new Set();
+let revokedShareRefs = new Set();
+let expiredShareRefs = new Set();
+const requestCounts = new Map();
 let shareLoginAttempts = 0;
+
+function count(pathname) { requestCounts.set(pathname, (requestCounts.get(pathname) ?? 0) + 1); }
 
 function isUserSession(request) {
   return request.headers.cookie === 'immich_user=fixture' && ['Bearer fixture-user', 'Bearer fixture-revoked'].includes(request.headers.authorization);
@@ -87,6 +92,7 @@ const brouterRoutes = {
 
 const server = http.createServer((request, response) => {
   const url = new URL(request.url ?? '/', 'http://mock-immich.test');
+  count(url.pathname);
   if (url.pathname === '/api/users/me' && isUserSession(request)) {
     response.writeHead(200, { 'content-type': 'application/json' }); response.end(JSON.stringify({ id: '22222222-2222-4222-8222-222222222222', name: 'Fixture User' })); return;
   }
@@ -120,16 +126,25 @@ const server = http.createServer((request, response) => {
   }
   if (url.pathname === '/__fixture/revoke' && request.method === 'POST') {
     const albumId = url.searchParams.get('album'); if (albumId) revokedLibraryAlbums.add(albumId);
+    const ref = url.searchParams.get('ref'); if (ref) revokedShareRefs.add(ref);
     response.writeHead(204); response.end(); return;
   }
+  if (url.pathname === '/__fixture/expire' && request.method === 'POST') {
+    const ref = url.searchParams.get('ref'); if (ref) expiredShareRefs.add(ref);
+    response.writeHead(204); response.end(); return;
+  }
+  if (url.pathname === '/__fixture/observations' && request.method === 'GET') {
+    response.writeHead(200, { 'content-type': 'application/json' }); response.end(JSON.stringify(Object.fromEntries(requestCounts))); return;
+  }
   if (url.pathname === '/__fixture/reset' && request.method === 'POST') {
-    revokedLibraryAlbums.clear(); response.writeHead(204); response.end(); return;
+    revokedLibraryAlbums.clear(); revokedShareRefs.clear(); expiredShareRefs.clear(); requestCounts.clear(); response.writeHead(204); response.end(); return;
   }
 
   if (url.pathname === '/api/shared-links/me' && (url.searchParams.has('key') || url.searchParams.has('slug'))) {
     const ref = url.searchParams.get('key') ?? url.searchParams.get('slug');
     const shareRef = url.searchParams.get('key') ?? url.searchParams.get('slug');
-    if (!['opaque-ref', 'second-ref'].includes(shareRef)) { response.writeHead(403); response.end(); return; }
+    if (!['opaque-ref', 'second-ref', 'password-share', 'unauthorized', 'error'].includes(shareRef)) { response.writeHead(403); response.end(); return; }
+    if (revokedShareRefs.has(ref) || expiredShareRefs.has(ref)) { response.writeHead(403); response.end(); return; }
     if (ref === 'password-share' && request.headers.cookie !== 'immich_shared_link_token=fixture') {
       response.writeHead(200, { 'content-type': 'application/json', 'set-cookie': 'secret=must-not-relay; Path=/' });
       response.end(JSON.stringify({ ...page, password: 'required' }));

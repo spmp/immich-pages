@@ -13,11 +13,13 @@ describe('Immich v3 boundary contracts', () => {
 		vi.stubEnv('PAGES_VISITED_SHARES_SECRET', 'registry-secret-that-is-at-least-32-characters');
 		const now = 1_700_000_000_000;
 		const cookie = registerShare(undefined, { kind: 'key', value: 'opaque-ref' }, now);
-		expect(decodeRegistry(`${cookie.slice(0, -1)}x`, now)).toBeNull();
+		const [iv, tag, body] = cookie.split('.');
+		expect(decodeRegistry([iv, `x${tag.slice(1)}`, body].join('.'), now)).toBeNull();
 		expect(decodeRegistry('x'.repeat(REGISTRY_MAX_COOKIE_BYTES + 1), now)).toBeNull();
 		const entries = Array.from({ length: REGISTRY_MAX_ENTRIES + 1 }, (_, index) => ({ kind: 'key' as const, value: `ref-${index}`, firstSeenAt: now, lastSeenAt: now, expiresAt: now + 1_000 }));
 		const bounded = encodeRegistry({ version: 1, entries: entries.slice(0, REGISTRY_MAX_ENTRIES) });
 		expect(decodeRegistry(bounded, now)?.entries).toHaveLength(REGISTRY_MAX_ENTRIES);
+		expect(decodeRegistry(encodeRegistry({ version: 1, entries }), now)).toBeNull();
 		const duplicate = encodeRegistry({ version: 1, entries: [entries[0], entries[0]] });
 		expect(decodeRegistry(duplicate, now)).toBeNull();
 	});
