@@ -16,7 +16,7 @@ export async function discoverLibrary(provider: ImmichProvider, context: UserSes
 			const [detail, assets] = await Promise.all([provider.getAlbum(context, album.id), provider.getAlbumAssets(context, album.id)]);
 			if (!detail.data || !assets.data) { failures++; continue; }
 			const document = parsePresentationDocument(detail.data.description);
-			if (document.kind !== 'valid' || !visibilityAllows(undefined, user.data)) continue;
+			if (document.kind !== 'valid' || !visibilityAllows(document.config.auth, user.data)) continue;
 			const shareLike = { assets: assets.data, album: { ...detail.data, albumName: detail.data.albumName, description: detail.data.description ?? null, id: detail.data.id, assets: assets.data }, type: 'ALBUM' as const } as Parameters<typeof deriveDisplayDate>[1];
 			const date = deriveDisplayDate(document.config, shareLike); const locator = issueLibraryLocator(album.id, now);
 			entries.push({ href: `/library/page/${locator}`, title: album.albumName, date, thumbnail: album.albumThumbnailAssetId && assets.data.some((asset) => asset.id === album.albumThumbnailAssetId) ? `/library/page/${locator}/media/${album.albumThumbnailAssetId}/thumbnail` : undefined, sortDate: date?.start ?? detail.data.updatedAt ?? detail.data.endDate ?? detail.data.startDate ?? '', id: locator });

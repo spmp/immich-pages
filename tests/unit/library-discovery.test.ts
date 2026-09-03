@@ -5,7 +5,7 @@ import type { ImmichProvider } from '../../src/lib/server/immich/provider';
 
 process.env.PAGES_LOCATOR_SECRET = 'test-secret-that-is-at-least-32-characters-long';
 const id = (n: string) => `${n.repeat(8).slice(0, 8)}-1111-4111-8111-111111111111`;
-const description = (date: string) => `---\nimmich-presentation:\n  type: journey\n  version: 1\n  date: ${date}\n---\nHello`;
+const description = (date: string, auth = '') => `---\nimmich-presentation:\n  type: journey\n  version: 1\n  date: ${date}${auth}\n---\nHello`;
 function provider(albums: Array<{ id: string; albumName: string; description?: string | null }>, failures = new Set<string>()) {
 	return { getCurrentUser: async () => ({ status: 200, data: { id: id('a') } }), listAlbums: async () => ({ status: 200, data: albums }), getAlbum: async (_c: unknown, albumId: string) => failures.has(albumId) ? { status: 502 } : { status: 200, data: { ...albums.find((a) => a.id === albumId)!, description: albums.find((a) => a.id === albumId)?.description ?? null } }, getAlbumAssets: async (_c: unknown, albumId: string) => failures.has(albumId) ? { status: 502 } : { status: 200, data: [] }, getSharedLink: async () => ({ status: 404 }), loginSharedLink: async () => ({ status: 401 }), getThumbnail: async () => ({ status: 404 }), getVideoPlayback: async () => ({ status: 404 }), getMapMarkers: async () => ({ status: 200, data: [] }), getVersion: async () => ({ status: 200, version: '3.1.0' }) } as unknown as ImmichProvider;
 }
@@ -23,10 +23,25 @@ describe('library discovery policy', () => {
 		const result = await discoverLibrary(provider([{ id: id('a'), albumName: 'Good', description: description('2024-01-01') }, { id: id('b'), albumName: 'Private', description: description('2024-02-01') }], new Set([id('b')])), { kind: 'user-session', cookie: null, authorization: null });
 		expect(result.kind).toBe('ready'); expect(result.entries).toHaveLength(1); expect(JSON.stringify(result)).not.toContain(id('b'));
 	});
+	it('applies validated user visibility after Immich authorization', async () => {
+		const userId = id('a');
+		const result = await discoverLibrary(provider([
+			{ id: id('a'), albumName: 'Allowed', description: description('2024-01-01', `\n  auth:\n    allow:\n      users:\n        - ${userId}`) },
+			{ id: id('b'), albumName: 'Denied', description: description('2024-02-01', `\n  auth:\n    allow:\n      users:\n        - ${id('b')}`) }
+		]), { kind: 'user-session', cookie: null, authorization: null });
+		expect(result.entries.map((entry) => entry.title)).toEqual(['Allowed']);
+	});
+	it('rejects unsupported or malformed visibility claims without admitting an album', async () => {
+		const result = await discoverLibrary(provider([
+			{ id: id('a'), albumName: 'Group', description: description('2024-01-01', '\n  auth:\n    allow:\n      groups:\n        - family') },
+			{ id: id('b'), albumName: 'Ambiguous', description: description('2024-01-01', '\n  auth: all') }
+		]), { kind: 'user-session', cookie: null, authorization: null });
+		expect(result.entries).toHaveLength(0);
+	});
 	it('treats visibility as deny-only and rejects ambiguous claims', () => {
 		expect(visibilityAllows(undefined, { id: id('a') })).toBe(true);
-		expect(visibilityAllows({ allow: [id('a')] }, { id: id('a') })).toBe(true);
-		expect(visibilityAllows({ allow: [id('b')] }, { id: id('a') })).toBe(false);
-		expect(visibilityAllows({ allow: ['group:travel'] }, { id: id('a') })).toBe(false);
+		expect(visibilityAllows({ allow: { users: [id('a')] } }, { id: id('a') })).toBe(true);
+		expect(visibilityAllows({ allow: { users: [id('b')] } }, { id: id('a') })).toBe(false);
+		expect(visibilityAllows({ allow: { users: ['group:travel'] } }, { id: id('a') })).toBe(false);
 	});
 });

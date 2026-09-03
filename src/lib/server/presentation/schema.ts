@@ -22,6 +22,9 @@ const MapSchema = z.object({
 		if (map.source === 'brouter-web' && map.url === undefined) ctx.addIssue({ code: 'custom', path: ['url'], message: 'brouter-web requires url' });
 	});
 const DateText = z.string().trim().min(1).max(64);
+const AuthSchema = z.object({
+	allow: z.object({ users: z.array(SafeText).min(1).max(256) }).strict()
+}).strict();
 
 export const PresentationSchema = z.object({
 	type: z.literal('journey'),
@@ -34,6 +37,7 @@ export const PresentationSchema = z.object({
 	}).default({ source: 'album-thumbnail' }),
 	date: DateText.optional(),
 	dateRange: z.object({ start: DateText.optional(), end: DateText.optional() }).optional(),
+	auth: AuthSchema.optional(),
 	map: MapSchema.default({ enabled: false, source: 'auto', styleName: 'quiet-atlas', markerActivation: 'gallery', showMarkerList: false, clustering: true, clusterRadius: 24, markerColor: '#c96b4b', routeColor: '#c96b4b', routeWidth: 3, routeStartColor: '#356859', routeEndColor: '#c96b4b' }),
 	gallery: z.object({
 		sort: z.literal('album').default('album'),
