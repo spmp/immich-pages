@@ -41,8 +41,9 @@ test('direct shares expose desktop collapse and mobile drawer focus behavior', a
   await expect(sidebar).toBeVisible();
   const collapse = sidebar.getByRole('button', { name: 'Collapse journeys' });
   await collapse.click();
-  await expect(sidebar.getByRole('button', { name: 'Expand journeys' })).toBeVisible();
-  await sidebar.getByRole('button', { name: 'Expand journeys' }).click();
+  const expand = sidebar.locator('button.collapse');
+  await expect(expand).toHaveAttribute('aria-label', 'Expand journeys');
+  await expand.click();
   await expect(sidebar.getByRole('link', { name: /Mock Journey/ })).toBeVisible();
 
   await page.setViewportSize({ width: 390, height: 844 });

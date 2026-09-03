@@ -63,7 +63,7 @@ const page = {
 };
 
 function shareForRef(ref) {
-  if (ref === 'second-ref') return { ...page, key: null, slug: ref, album: { ...page.album, albumName: 'Second Journey', description: '---\nimmich-presentation:\n  type: journey\n  version: 1\n---\nMock browser proof two' } };
+  if (ref === 'second-ref') return { ...page, slug: ref, album: { ...page.album, albumName: 'Second Journey', description: '---\nimmich-presentation:\n  type: journey\n  version: 1\n---\nMock browser proof two' } };
   return page;
 }
 
