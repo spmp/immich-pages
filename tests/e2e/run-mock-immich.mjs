@@ -72,6 +72,7 @@ try {
         ...process.env,
          IMMICH_BASE_URL: `http://127.0.0.1:${match[1]}`,
          PAGES_LOCATOR_SECRET: process.env.PAGES_LOCATOR_SECRET ?? 'fixture-locator-secret-0123456789012345',
+         PAGES_VISITED_SHARES_SECRET: process.env.PAGES_VISITED_SHARES_SECRET ?? 'fixture-visited-shares-secret-0123456789012345',
          MOCK_IMMICH_URL: `http://127.0.0.1:${match[1]}`,
         MAP_STYLE_URL_QUIET_ATLAS: `http://127.0.0.1:${match[1]}/api/map-style.json`,
         BROUTER_ENDPOINT: process.env.BROUTER_ENDPOINT ?? `http://127.0.0.1:${match[1]}/brouter`,

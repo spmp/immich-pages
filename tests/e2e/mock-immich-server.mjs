@@ -62,6 +62,11 @@ const page = {
    allowDownload: false
 };
 
+function shareForRef(ref) {
+  if (ref === 'second-ref') return { ...page, key: null, slug: ref, album: { ...page.album, albumName: 'Second Journey', description: '---\nimmich-presentation:\n  type: journey\n  version: 1\n---\nMock browser proof two' } };
+  return page;
+}
+
 const mapMarkers = [
   { id: assets[0].id, lat: 51.5074, lon: -0.1278, city: 'London', state: null, country: 'United Kingdom' },
   { id: assets[2].id, lat: 48.8566, lon: 2.3522, city: 'Paris', state: null, country: 'France' }
@@ -123,11 +128,8 @@ const server = http.createServer((request, response) => {
 
   if (url.pathname === '/api/shared-links/me' && (url.searchParams.has('key') || url.searchParams.has('slug'))) {
     const ref = url.searchParams.get('key') ?? url.searchParams.get('slug');
-    if (request.headers.cookie !== 'immich_shared_link_token=fixture' || request.headers.authorization !== 'Bearer fixture') {
-      response.writeHead(403, { 'content-type': 'application/json', 'set-cookie': 'secret=must-not-relay; Path=/' });
-      response.end(JSON.stringify({ error: 'request context rejected' }));
-      return;
-    }
+    const shareRef = url.searchParams.get('key') ?? url.searchParams.get('slug');
+    if (!['opaque-ref', 'second-ref'].includes(shareRef)) { response.writeHead(403); response.end(); return; }
     if (ref === 'password-share' && request.headers.cookie !== 'immich_shared_link_token=fixture') {
       response.writeHead(200, { 'content-type': 'application/json', 'set-cookie': 'secret=must-not-relay; Path=/' });
       response.end(JSON.stringify({ ...page, password: 'required' }));
@@ -144,12 +146,12 @@ const server = http.createServer((request, response) => {
       return;
     }
     const body = routeDescriptions[ref]
-      ? { ...page, album: { ...page.album, description: routeDescriptions[ref] } }
+      ? { ...shareForRef(ref), album: { ...shareForRef(ref).album, description: routeDescriptions[ref] } }
       : ref === 'non-page'
       ? { ...page, album: { ...page.album, description: 'An ordinary album' } }
          : ref === 'map-ref'
          ? { ...page, assets: assets.map((asset, index) => index === 0 ? { ...asset, localDateTime: '2026-01-01T00:00:00.000Z' } : index === 2 ? { ...asset, localDateTime: '2026-01-02T00:00:00.000Z' } : asset), album: { ...page.album, description: '---\nimmich-presentation:\n  type: journey\n  version: 1\n  map:\n    enabled: true\n    source: auto\n    showMarkerList: true\n    styleName: quiet-atlas\n---\nMap browser proof' } }
-        : page;
+         : shareForRef(ref);
     response.writeHead(200, { 'content-type': 'application/json', 'set-cookie': 'secret=must-not-relay; Path=/' });
     response.end(JSON.stringify({ ...body, album: { ...body.album, assetCount: assets.length } }));
     return;
