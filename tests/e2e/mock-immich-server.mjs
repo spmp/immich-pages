@@ -31,6 +31,7 @@ const libraryAlbums = [{
   id: '550e8400-e29b-41d4-a716-446655440010', albumName: 'Private Family Album', description: 'Ordinary album'
 }];
 let revokedLibraryAlbums = new Set();
+let shareLoginAttempts = 0;
 
 function isUserSession(request) {
   return request.headers.cookie === 'immich_user=fixture' && ['Bearer fixture-user', 'Bearer fixture-revoked'].includes(request.headers.authorization);
@@ -127,6 +128,11 @@ const server = http.createServer((request, response) => {
       response.end(JSON.stringify({ error: 'request context rejected' }));
       return;
     }
+    if (ref === 'password-share' && request.headers.cookie !== 'immich_shared_link_token=fixture') {
+      response.writeHead(200, { 'content-type': 'application/json', 'set-cookie': 'secret=must-not-relay; Path=/' });
+      response.end(JSON.stringify({ ...page, password: 'required' }));
+      return;
+    }
     if (ref === 'unauthorized') {
       response.writeHead(403, { 'content-type': 'application/json', 'set-cookie': 'secret=must-not-relay; Path=/' });
       response.end(JSON.stringify({ error: 'not authorized' }));
@@ -146,6 +152,19 @@ const server = http.createServer((request, response) => {
         : page;
     response.writeHead(200, { 'content-type': 'application/json', 'set-cookie': 'secret=must-not-relay; Path=/' });
     response.end(JSON.stringify({ ...body, album: { ...body.album, assetCount: assets.length } }));
+    return;
+  }
+
+  if (request.method === 'POST' && url.pathname === '/api/shared-links/login' && (url.searchParams.has('key') || url.searchParams.has('slug'))) {
+    shareLoginAttempts += 1;
+    let body = '';
+    request.on('data', (chunk) => { body += chunk; });
+    request.on('end', () => {
+      const password = JSON.parse(body).password;
+      if (password !== 'fixture-password') { response.writeHead(401); response.end(); return; }
+      response.writeHead(200, { 'content-type': 'application/json', 'set-cookie': 'immich_shared_link_token=fixture; Path=/' });
+      response.end(JSON.stringify({ ...page, password: null, token: 'fixture' }));
+    });
     return;
   }
 
