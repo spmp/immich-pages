@@ -85,8 +85,8 @@ const server = http.createServer((request, response) => {
       ? { ...page, album: { ...page.album, description: routeDescriptions[ref] } }
       : ref === 'non-page'
       ? { ...page, album: { ...page.album, description: 'An ordinary album' } }
-      : ref === 'map-ref'
-        ? { ...page, assets: assets.map((asset, index) => index === 0 ? { ...asset, localDateTime: '2026-01-01T00:00:00.000Z' } : index === 2 ? { ...asset, localDateTime: '2026-01-02T00:00:00.000Z' } : asset), album: { ...page.album, description: '---\nimmich-presentation:\n  type: journey\n  version: 1\n  map:\n    enabled: true\n    source: auto\n    styleName: quiet-atlas\n---\nMap browser proof' } }
+         : ref === 'map-ref'
+         ? { ...page, assets: assets.map((asset, index) => index === 0 ? { ...asset, localDateTime: '2026-01-01T00:00:00.000Z' } : index === 2 ? { ...asset, localDateTime: '2026-01-02T00:00:00.000Z' } : asset), album: { ...page.album, description: '---\nimmich-presentation:\n  type: journey\n  version: 1\n  map:\n    enabled: true\n    source: auto\n    showMarkerList: true\n    styleName: quiet-atlas\n---\nMap browser proof' } }
         : page;
     response.writeHead(200, { 'content-type': 'application/json', 'set-cookie': 'secret=must-not-relay; Path=/' });
     response.end(JSON.stringify({ ...body, album: { ...body.album, assetCount: assets.length } }));

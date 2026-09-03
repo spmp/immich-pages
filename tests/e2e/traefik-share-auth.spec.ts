@@ -39,3 +39,15 @@ test('keeps non-page and ordinary Immich paths outside the Pages surface', async
   expect(ordinary.status()).toBe(200);
   expect(await ordinary.text()).toContain('ordinary Immich path');
 });
+
+for (const host of ['pages.example.xyz', 'immich.example.xyz']) {
+  test(`rejects an expired share at both ${host} authorization boundaries`, async ({ page, context }) => {
+    const base = `https://${host}:18080`;
+    await context.addCookies([{ name: 'immich_shared_link_token', value: 'fixture', domain: host, path: '/' }]);
+    const pageResponse = await page.goto(`${base}/share/key/expired`);
+    expect(pageResponse?.status()).toBe(200);
+    await expect(page.getByText('This journey is no longer available')).toBeVisible();
+    const media = await page.request.get(`${base}/share/key/expired/media/550e8400-e29b-41d4-a716-446655440002/thumbnail`);
+    expect(media.status()).toBe(403);
+  });
+}

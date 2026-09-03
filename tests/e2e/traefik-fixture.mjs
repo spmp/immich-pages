@@ -29,6 +29,7 @@ function observe(request, operation) {
 function json(res, status, body, headers = {}) { res.writeHead(status, { 'content-type': 'application/json', ...headers }); res.end(JSON.stringify(body)); }
 function refFromUrl(url) { return new URL(`http://fixture${url}`).searchParams.get('key') ?? new URL(`http://fixture${url}`).searchParams.get('slug'); }
 function authorized(request, key) { return request.headers.cookie === 'immich_shared_link_token=fixture' || (key === 'opaque-ref' && request.headers.authorization === 'Bearer fixture'); }
+function expired(share) { return Boolean(share?.expiresAt && Date.parse(share.expiresAt) <= Date.now()); }
 
 const server = http.createServer(async (request, res) => {
   const url = request.url ?? '/';
@@ -44,6 +45,7 @@ const server = http.createServer(async (request, res) => {
     const key = refFromUrl(url); observe(request, 'page');
     if (!key || !shares.has(key) || revoked.has(key)) return json(res, 404, { error: 'not found' }, { 'set-cookie': 'immich_shared_link_token=upstream-secret; Path=/' });
     const share = shares.get(key);
+    if (expired(share)) return json(res, 403, { error: 'expired' });
     if (share.password && !authorized(request, key)) return json(res, 401, { error: 'password required' });
     if (!authorized(request, key)) return json(res, 403, { error: 'forbidden' });
     return json(res, 200, share, { 'set-cookie': 'immich_shared_link_token=upstream-secret; Path=/' });
@@ -51,7 +53,7 @@ const server = http.createServer(async (request, res) => {
   const media = url.match(/^\/api\/assets\/([^/]+)\/(thumbnail|video\/playback)/);
   if (media) {
     const key = refFromUrl(url); observe(request, media[2] === 'thumbnail' ? 'thumbnail' : 'video');
-    if (!key || !shares.has(key) || revoked.has(key) || !authorized(request, key)) return json(res, 403, { error: 'forbidden' });
+    if (!key || !shares.has(key) || revoked.has(key) || expired(shares.get(key)) || !authorized(request, key)) return json(res, 403, { error: 'forbidden' });
     if (media[2] === 'thumbnail') { res.writeHead(200, { 'content-type': 'image/jpeg', 'cache-control': 'private, no-store' }); return res.end('fixture-image'); }
     const body = Buffer.from('fixture-video-range'); const range = request.headers.range;
     const headers = { 'content-type': 'video/mp4', 'cache-control': 'private, no-store', 'accept-ranges': 'bytes' };
