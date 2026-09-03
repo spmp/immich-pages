@@ -7,6 +7,7 @@ services:
       IMMICH_SUPPORTED_VERSION: ${IMMICH_SUPPORTED_VERSION:-3.1.0}
       PAGES_SESSION_SECRET: ${PAGES_SESSION_SECRET:?PAGES_SESSION_SECRET is required}
       PAGES_LOCATOR_SECRET: ${PAGES_LOCATOR_SECRET:?PAGES_LOCATOR_SECRET is required}
+      PAGES_VISITED_SHARES_SECRET: ${PAGES_VISITED_SHARES_SECRET:?PAGES_VISITED_SHARES_SECRET is required}
       MAP_STYLE_URL_QUIET_ATLAS: ${MAP_STYLE_URL_QUIET_ATLAS:-https://maps.example.xyz/styles/quiet-atlas.json}
       BROUTER_ENDPOINT: ${BROUTER_ENDPOINT:-https://brouter.de/brouter}
       BROUTER_ALLOWED_ORIGINS: ${BROUTER_ALLOWED_ORIGINS:-https://brouter.de}
@@ -22,12 +23,6 @@ services:
       - traefik.enable=true
       - traefik.docker.network=immich-pages-proxy
       - traefik.http.routers.pages.rule=Host(`pages.example.xyz`)
-      - traefik.http.routers.pages-share-replacement.rule=Host(`immich.example.xyz`) && PathPrefix(`/share`)
-      - traefik.http.routers.pages-share-replacement.priority=100
-      - traefik.http.routers.pages-share-replacement.entrypoints=websecure
-      - traefik.http.routers.pages-share-replacement.tls=true
-      - traefik.http.routers.pages-share-replacement.tls.certresolver=letsencrypt
-      - traefik.http.routers.pages-share-replacement.service=pages
       - traefik.http.routers.pages.entrypoints=websecure
       - traefik.http.routers.pages.tls=true
       - traefik.http.routers.pages.tls.certresolver=letsencrypt

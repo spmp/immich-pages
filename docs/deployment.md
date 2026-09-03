@@ -10,12 +10,14 @@ Immich. Caches, if introduced later, are optimizations and must be disposable.
 Use separate hosts:
 
 ```text
-pages.example.xyz  -- Traefik Host router --> Pages:3000
-Pages              -- IMMICH_BASE_URL ----> https://immich.example.xyz
+ pages.example.xyz         -- Traefik Host router --> Pages:3000
+ immich.example.xyz/share  -- Traefik redirect --> pages.example.xyz/share
+ Pages                     -- IMMICH_BASE_URL ----> https://immich.example.xyz
 ```
 
-Do not transparently intercept Immich `/share/...` in Phase 1. The exact Pages
-routes are `/share/key/<opaque-ref>` and `/share/slug/<opaque-ref>`.
+The exact Pages routes are `/share/key/<opaque-ref>` and
+`/share/slug/<opaque-ref>`. Immich share links must redirect viewers to the Pages
+host; do not proxy or internally replace the Immich host for share requests.
 
 ## Environment and container
 
@@ -43,6 +45,12 @@ logs. Keep the same value across container recreation and stateless rebuilds so
 existing library links continue to work. Rotating it is supported, but changing
 it invalidates previously issued library locators and requires users to open the
 library again. Keep it separate from `PAGES_SESSION_SECRET`.
+
+`PAGES_VISITED_SHARES_SECRET` is also required for the encrypted, bounded
+visited-share registry. Generate a separate stable random value and keep it
+separate from both session and locator secrets. The registry stores only
+validated share kind/reference pairs; it never grants access or stores visitor
+credentials.
 
 This secret protects the integrity and confidentiality of routing handles only;
 it is not a visitor credential and does not grant Immich access. Every locator
@@ -89,8 +97,32 @@ re-resolves the share and checks asset membership before forwarding the
 thumbnail request to Immich. There is no API-key fallback, direct Immich media
 URL, original/download proxy, or credential persistence.
 
+### Immich share redirect
+
+Add this higher-priority router and middleware to the Immich service's Traefik
+labels. These labels belong on the Immich router, not the Pages service:
+
+```yaml
+labels:
+  traefik.http.routers.immich-share-to-pages.rule: Host(`immich.example.xyz`) && PathPrefix(`/share`)
+  traefik.http.routers.immich-share-to-pages.priority: 100
+  traefik.http.routers.immich-share-to-pages.entrypoints: websecure
+  traefik.http.routers.immich-share-to-pages.tls: true
+  traefik.http.routers.immich-share-to-pages.middlewares: immich-share-redirect
+  traefik.http.routers.immich-share-to-pages.service: immich
+  traefik.http.middlewares.immich-share-redirect.redirectregex.regex: '^https://immich\.example\.xyz/share/(.*)'
+  traefik.http.middlewares.immich-share-redirect.redirectregex.replacement: 'https://pages.example.xyz/share/key/$${1}'
+  traefik.http.middlewares.immich-share-redirect.redirectregex.permanent: true
+```
+
+The redirect preserves the query string because the replacement does not define
+one. Keep the normal Immich router for all other paths. If the deployment uses
+file-based Traefik configuration instead of Docker labels, create the equivalent
+`redirectRegex` middleware and `/share` router with a higher priority than the
+normal Immich router.
+
 Validate TLS separately in production, including the certificate, HTTPS
-redirect/entrypoint, and deep links such as
+redirect/entrypoint, the Immich-to-Pages redirect, and deep links such as
 `/share/key/fixture?view=gallery`. A deep link must reach Pages rather than a
 Traefik or static-file 404.
 

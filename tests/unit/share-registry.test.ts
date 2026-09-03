@@ -38,4 +38,21 @@ describe('visited share registry', () => {
 		expect(decodeRegistry('not-a-registry', Date.now())).toBeNull();
 		expect(encodeRegistry({ version: 1, entries: [] })).toEqual(expect.any(String));
 	});
+
+	it('rejects invalid refs, duplicate entries, and oversized envelopes', () => {
+		const invalid = encodeRegistry({ version: 1, entries: [{ kind: 'key', value: 'bad/ref', firstSeenAt: 1, lastSeenAt: 1, expiresAt: 2_000 }] } as never);
+		expect(decodeRegistry(invalid, 1)).toBeNull();
+		const duplicate = encodeRegistry({ version: 1, entries: [
+			{ ...ref, firstSeenAt: 1, lastSeenAt: 1, expiresAt: 2_000 },
+			{ ...ref, firstSeenAt: 2, lastSeenAt: 2, expiresAt: 2_000 }
+		] });
+		expect(decodeRegistry(duplicate, 1)).toBeNull();
+		const oversized = encodeRegistry({ version: 1, entries: Array.from({ length: 9 }, (_, index) => ({ kind: 'key' as const, value: `ref-${index}`, firstSeenAt: 1, lastSeenAt: 1, expiresAt: 2_000 })) });
+		expect(decodeRegistry(oversized, 1)).toBeNull();
+	});
+
+	it('expires entries without making them candidates', () => {
+		const value = registerShare(undefined, ref, 1_000);
+		expect(decodeRegistry(value, 1_000 + 30 * 24 * 60 * 60 * 1000)?.entries).toEqual([]);
+	});
 });
