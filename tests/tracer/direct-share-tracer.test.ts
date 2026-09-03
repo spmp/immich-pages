@@ -26,7 +26,7 @@ describe('direct-share tracer', () => {
 		const outcome = await assembleDirectShare(provider, { shareRef: ref, cookie: 'session=visitor', authorization: 'Bearer visitor' }, 'req-1');
 		expect(outcome.kind).toBe('page');
 		if (outcome.kind === 'page') {
-			expect(outcome.page.album.id).toBe('11111111-1111-4111-8111-111111111111');
+			expect(outcome.page.album).not.toHaveProperty('id');
 				expect(outcome.page.assets[0]).toEqual({
 					id: '22222222-2222-4222-8222-222222222222', type: 'IMAGE', fileName: 'one.jpg',
 					thumbnail: `/share/${kind}/opaque_ref/media/22222222-2222-4222-8222-222222222222/thumbnail?${kind}=opaque_ref`, width: 100, height: 100

@@ -28,7 +28,7 @@ test('anonymous library is share-only and never presents Immich user-session set
 test('multiple opened shares navigate through direct-share routes with fresh requests', async ({ page }) => {
   const requests: string[] = [];
   page.on('request', (request) => requests.push(request.url()));
-  await page.goto('/share/key/opaque-ref');
+  await page.goto('/share/key/revoke-ref');
   await page.goto('/share/slug/second-ref');
   await page.goto('/library');
   await expect(page.getByRole('link', { name: /Mock Journey/ })).toBeVisible();
@@ -73,24 +73,24 @@ test('direct shares expose desktop collapse and mobile drawer focus behavior', a
 });
 
 test('revocation and expiry remove a previously opened share and block fresh page/media access', async ({ page }) => {
-  await page.goto('/share/key/opaque-ref');
+  await page.goto('/share/key/revoke-ref');
   await expect(page.getByRole('heading', { name: 'Mock Journey' })).toBeVisible();
 
-  await fetch(`${process.env.MOCK_IMMICH_URL}/__fixture/revoke?ref=opaque-ref`, { method: 'POST' });
+  await fetch(`${process.env.MOCK_IMMICH_URL}/__fixture/revoke?ref=revoke-ref`, { method: 'POST' });
   await page.goto('/library');
   await expect(page.getByRole('link', { name: /Mock Journey/ })).toHaveCount(0);
-  const revokedPage = await page.goto('/share/key/opaque-ref');
+  const revokedPage = await page.goto('/share/key/revoke-ref');
   expect(revokedPage?.status()).toBe(200);
   await expect(page.getByRole('heading', { name: 'This journey is no longer available' })).toBeVisible();
-  expect((await page.request.get('/share/key/opaque-ref/media/550e8400-e29b-41d4-a716-446655440002/thumbnail')).status()).toBe(403);
+  expect((await page.request.get('/share/key/revoke-ref/media/550e8400-e29b-41d4-a716-446655440002/thumbnail')).status()).toBe(403);
 
   await fetch(`${process.env.MOCK_IMMICH_URL}/__fixture/reset`, { method: 'POST' });
-  await page.goto('/share/key/opaque-ref');
+  await page.goto('/share/key/expire-ref');
   await expect(page.getByRole('heading', { name: 'Mock Journey' })).toBeVisible();
-  await fetch(`${process.env.MOCK_IMMICH_URL}/__fixture/expire?ref=opaque-ref`, { method: 'POST' });
+  await fetch(`${process.env.MOCK_IMMICH_URL}/__fixture/expire?ref=expire-ref`, { method: 'POST' });
   await page.goto('/library');
   await expect(page.getByRole('link', { name: /Mock Journey/ })).toHaveCount(0);
-  const expiredPage = await page.goto('/share/key/opaque-ref');
+  const expiredPage = await page.goto('/share/key/expire-ref');
   expect(expiredPage?.status()).toBe(200);
   await expect(page.getByRole('heading', { name: 'This journey is no longer available' })).toBeVisible();
 });

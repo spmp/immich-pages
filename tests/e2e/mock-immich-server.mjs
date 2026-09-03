@@ -143,7 +143,7 @@ const server = http.createServer((request, response) => {
   if (url.pathname === '/api/shared-links/me' && (url.searchParams.has('key') || url.searchParams.has('slug'))) {
     const ref = url.searchParams.get('key') ?? url.searchParams.get('slug');
     const shareRef = url.searchParams.get('key') ?? url.searchParams.get('slug');
-    if (!['opaque-ref', 'second-ref', 'password-share', 'unauthorized', 'error'].includes(shareRef)) { response.writeHead(403); response.end(); return; }
+    if (!['opaque-ref', 'second-ref', 'revoke-ref', 'expire-ref', 'password-share', 'unauthorized', 'error', 'non-page', 'map-ref', ...Object.keys(routeDescriptions)].includes(shareRef)) { response.writeHead(403); response.end(); return; }
     if (revokedShareRefs.has(ref) || expiredShareRefs.has(ref)) { response.writeHead(403); response.end(); return; }
     if (ref === 'password-share' && request.headers.cookie !== 'immich_shared_link_token=fixture') {
       response.writeHead(200, { 'content-type': 'application/json', 'set-cookie': 'secret=must-not-relay; Path=/' });
@@ -234,7 +234,7 @@ const server = http.createServer((request, response) => {
     return;
   }
 
-  if ((url.pathname === '/api/assets/550e8400-e29b-41d4-a716-446655440002/thumbnail' || url.pathname === '/api/assets/550e8400-e29b-41d4-a716-446655440007/thumbnail') && (url.searchParams.get('key') === 'opaque-ref' || url.searchParams.get('slug') === 'opaque-ref')) {
+  if ((url.pathname === '/api/assets/550e8400-e29b-41d4-a716-446655440002/thumbnail' || url.pathname === '/api/assets/550e8400-e29b-41d4-a716-446655440007/thumbnail') && ['opaque-ref', 'revoke-ref', 'expire-ref'].includes(url.searchParams.get('key') ?? url.searchParams.get('slug'))) {
     if (request.headers.cookie !== 'immich_shared_link_token=fixture' || request.headers.authorization !== 'Bearer fixture') {
       response.writeHead(403, { 'content-type': 'application/json', 'set-cookie': 'secret=must-not-relay; Path=/' });
       response.end(JSON.stringify({ error: 'thumbnail request context rejected' }));
