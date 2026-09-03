@@ -6,6 +6,9 @@ const source = (name: string) => readFileSync(`src/lib/components/navigation/${n
 describe('authenticated navigation components', () => {
 	it('renders projected entries with safe same-origin links and desktop collapse', () => {
 		const page = source('PageNavigation');
+		expect(page).toContain('class="collapse"');
+		expect(page).toContain("'Collapse journeys'");
+		expect(page).toContain("'Expand journeys'");
 		expect(page).toContain('NavigationEntry');
 		expect(page).toContain('aria-expanded={expanded}');
 		expect(page).toContain('aria-current');
@@ -17,6 +20,8 @@ describe('authenticated navigation components', () => {
 	});
 
 	it('keeps the desktop navigation out of the mobile breakpoint', () => {
-		expect(source('PageNavigation')).toContain('@media (max-width: 959px)');
+		const page = source('PageNavigation');
+		expect(page).toContain('@media (max-width: 959px)');
+		expect(page).toContain('@media (prefers-reduced-motion: reduce)');
 	});
 });
