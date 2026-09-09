@@ -1,0 +1,30 @@
+:root {
+	--theme-bg: #f6f3ee;
+	--theme-surface: #fffdf9;
+	--theme-text: #202522;
+	--theme-muted: #66706b;
+	--theme-accent: #bd4d2e;
+	--theme-rule: #d9d4ca;
+	--theme-radius: 0.25rem;
+	--theme-content-width: 80rem;
+	--theme-space-section: clamp(3rem, 8vw, 7rem);
+	--theme-font-heading: ui-sans-serif, system-ui, sans-serif;
+	--theme-font-body: ui-sans-serif, system-ui, sans-serif;
+	--theme-font-caption: ui-sans-serif, system-ui, sans-serif;
+}
+
+.theme-root {
+	min-height: 100svh;
+	background: var(--theme-bg);
+	color: var(--theme-text);
+	font-family: var(--theme-font-body);
+}
+
+.theme-root[data-theme='studio'] { --theme-bg: #e9e2d7; --theme-surface: #faf7f0; --theme-text: #302b25; --theme-muted: #756b5f; --theme-accent: #8d4f38; --theme-rule: #cfc2b1; --theme-radius: 0.5rem; --theme-content-width: 78rem; --theme-space-section: clamp(3.5rem, 9vw, 8rem); --theme-font-heading: ui-serif, Georgia, serif; }
+.theme-root[data-theme='minimal'] { --theme-bg: #fff; --theme-surface: #fff; --theme-text: #111; --theme-muted: #555; --theme-accent: #111; --theme-rule: #ddd; --theme-radius: 0; --theme-content-width: 90rem; --theme-space-section: clamp(2rem, 5vw, 5rem); }
+.theme-root[data-theme='editorial'] { --theme-bg: #f1eadf; --theme-surface: #fbf7f0; --theme-text: #332b26; --theme-muted: #77695f; --theme-accent: #a24b36; --theme-rule: #d8c9b9; --theme-radius: 0.125rem; --theme-content-width: 74rem; --theme-space-section: clamp(4rem, 10vw, 9rem); --theme-font-heading: ui-serif, Georgia, serif; --theme-font-body: ui-serif, Georgia, serif; }
+.theme-root[data-theme='classic'] { --theme-bg: #f4f0e7; --theme-surface: #fffdf7; --theme-text: #302d27; --theme-muted: #746c5d; --theme-accent: #a37a36; --theme-rule: #d8cdb8; --theme-radius: 0.75rem; --theme-content-width: 76rem; --theme-font-heading: ui-serif, Georgia, serif; --theme-font-body: ui-serif, Georgia, serif; }
+.theme-root[data-theme='noir'] { --theme-bg: #161616; --theme-surface: #222; --theme-text: #f1eee7; --theme-muted: #aaa59b; --theme-accent: #d89a4a; --theme-rule: #46433e; --theme-radius: 0.125rem; --theme-font-heading: ui-sans-serif, system-ui, sans-serif; }
+.theme-root[data-theme='monograph'] { --theme-bg: #fafafa; --theme-surface: #fff; --theme-text: #1b1b1b; --theme-muted: #676767; --theme-accent: #8b3027; --theme-rule: #cfcfcf; --theme-radius: 0; --theme-content-width: 68rem; --theme-space-section: clamp(4rem, 12vw, 10rem); --theme-font-heading: ui-serif, Georgia, serif; --theme-font-body: ui-serif, Georgia, serif; }
+
+.theme-root :global(h1), .theme-root :global(h2), .theme-root :global(h3) { font-family: var(--theme-font-heading); }
