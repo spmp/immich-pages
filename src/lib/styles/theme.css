@@ -27,4 +27,4 @@
 .theme-root[data-theme='noir'] { --theme-bg: #161616; --theme-surface: #222; --theme-text: #f1eee7; --theme-muted: #aaa59b; --theme-accent: #d89a4a; --theme-rule: #46433e; --theme-radius: 0.125rem; --theme-font-heading: ui-sans-serif, system-ui, sans-serif; }
 .theme-root[data-theme='monograph'] { --theme-bg: #fafafa; --theme-surface: #fff; --theme-text: #1b1b1b; --theme-muted: #676767; --theme-accent: #8b3027; --theme-rule: #cfcfcf; --theme-radius: 0; --theme-content-width: 68rem; --theme-space-section: clamp(4rem, 12vw, 10rem); --theme-font-heading: ui-serif, Georgia, serif; --theme-font-body: ui-serif, Georgia, serif; }
 
-.theme-root :global(h1), .theme-root :global(h2), .theme-root :global(h3) { font-family: var(--theme-font-heading); }
+.theme-root h1, .theme-root h2, .theme-root h3 { font-family: var(--theme-font-heading); }
