@@ -90,6 +90,7 @@ test('compares every allowlisted theme on the representative share journey', asy
   await page.reload();
   await expect(page.locator('[data-theme]')).toHaveAttribute('data-theme', 'studio-modern');
   await page.setViewportSize(fixture.viewports.tablet);
+  await page.waitForLoadState('networkidle');
   for (const preset of presets) {
     await page.getByRole('button', { name: 'Open journeys' }).click();
     const drawer = page.getByRole('dialog', { name: 'Journeys' });
@@ -181,6 +182,33 @@ test('covers the documented presentation-state fixture cases', async ({ page }) 
   expect(fixture.states.map((state) => state.name)).toEqual(expect.arrayContaining([
     'long-title', 'no-hero', 'narrative', 'mixed-media', 'map-warnings', 'library', 'empty', 'error', 'lightbox'
   ]));
+  await page.context().addCookies([{ name: 'immich_shared_link_token', value: 'fixture', domain: '127.0.0.1', path: '/' }]);
+  await page.setExtraHTTPHeaders({ authorization: 'Bearer fixture' });
+  await page.goto(fixture.share.href);
+  await expect(page.locator('[data-lightbox-status]')).toHaveAttribute('data-lightbox-status', 'ready');
+  const media = page.locator('#asset-550e8400-e29b-41d4-a716-446655440002 a');
+  await media.focus();
+  await media.press('Enter');
+  const viewer = page.locator('.pswp');
+  await expect(viewer).toBeVisible();
+  await expect.poll(() => page.evaluate(() => Boolean(document.querySelector('.pswp')?.contains(document.activeElement)))).toBe(true);
+  await page.keyboard.press('Escape');
+  await expect(viewer).toBeHidden();
+  await page.setViewportSize(fixture.viewports.mobile);
+  await page.reload();
+  const drawerTrigger = page.getByRole('button', { name: 'Open journeys' });
+  await drawerTrigger.focus();
+  await drawerTrigger.click();
+  const drawer = page.getByRole('dialog', { name: 'Journeys' });
+  await expect(drawer).toBeVisible();
+  await page.keyboard.press('Tab');
+  expect(await drawer.evaluate((element) => element.contains(document.activeElement))).toBe(true);
+  await page.keyboard.press('Shift+Tab');
+  expect(await drawer.evaluate((element) => element.contains(document.activeElement))).toBe(true);
+  await page.keyboard.press('Escape');
+  await expect(drawer).toBeHidden();
+  await page.goto('/share/key/map-ref');
+  await expect(page.getByRole('region', { name: 'Journey map' })).toBeVisible();
   await page.goto('/share/key/error');
   await expect(page.getByRole('heading', { name: /unavailable|try again/i })).toBeVisible();
   await page.goto(fixture.library.href);
