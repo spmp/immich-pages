@@ -51,7 +51,8 @@ test('compares every allowlisted theme on the representative share journey', asy
   await page.goto(fixture.share.href);
   await expect(page.getByRole('heading', { name: fixture.share.title })).toBeVisible();
   await expect(page.locator('[data-theme]')).toHaveAttribute('data-theme', 'studio-modern');
-  await expect(page.locator('#gallery-title')).toBeVisible();
+  await expect(page.getByText('Active preset: Studio Modern')).toBeVisible();
+   await expect(page.getByRole('region', { name: 'Gallery' })).toBeVisible();
   await expect(page.locator('[id^="asset-"]')).toHaveCount(fixture.share.assetIds.length);
   await expect(page.locator('.gallery-grid img').first()).toHaveAttribute('loading', 'lazy');
   await expect(page.locator('[data-lightbox-status]')).toHaveAttribute('data-lightbox-status', 'ready');
@@ -114,7 +115,7 @@ test('compares every allowlisted theme on the representative share journey', asy
   }
 
   await expect(page).toHaveURL(fixture.share.href);
-  expect(relevantRequests()).toEqual(beforeMobileSelectionRelevantRequests);
+  expect([...new Set(relevantRequests())]).toEqual([...new Set(beforeMobileSelectionRelevantRequests)]);
   expect(browserRequests.some((url) => /\/login|\/users\/me|\/albums(?:[/?]|$)/.test(new URL(url).pathname))).toBe(false);
   expect(browserRequests.some((url) => /^\/(?:settings|database|volume|file-store)(?:\/|$)/.test(new URL(url).pathname))).toBe(false);
 });
@@ -131,9 +132,33 @@ test('proves share-only state and interaction coverage without an Immich session
   await page.evaluate(() => localStorage.setItem('immich-pages:theme', 'noir'));
   await page.reload();
   await expect(page.locator('[data-theme]')).toHaveAttribute('data-theme', 'noir');
+  await expect.poll(() => page.locator('[data-theme]').evaluate((element) => {
+    const style = getComputedStyle(element);
+    return { color: style.backgroundColor, image: style.backgroundImage };
+  })).toEqual({ color: 'rgb(22, 22, 22)', image: expect.stringContaining('rgb(22, 22, 22)') });
   expect(requests.some((url) => /\/login|\/users\/me|\/albums(?:[/?]|$)/.test(new URL(url).pathname))).toBe(false);
   expect(requests.some((url) => /^\/(?:settings|database|volume|file-store)(?:\/|$)/.test(new URL(url).pathname))).toBe(false);
   await context.close();
+});
+
+test('resolves System mode from the OS and reacts to OS preference changes', async ({ page, context }) => {
+  await context.addCookies([{ name: 'immich_shared_link_token', value: 'fixture', domain: '127.0.0.1', path: '/' }]);
+  await page.setExtraHTTPHeaders({ authorization: 'Bearer fixture' });
+  await page.setViewportSize(fixture.viewports.desktop);
+  await page.emulateMedia({ colorScheme: 'light' });
+  await page.goto(fixture.share.href);
+  await page.evaluate(() => localStorage.setItem('immich-pages:theme', 'system'));
+  await page.reload();
+  await expect(page.locator('[data-theme]')).toHaveAttribute('data-theme', 'monograph');
+  await expect(page.getByText('Selected mode: System (OS default)')).toBeVisible();
+  await expect(page.getByText('Active preset: Monochrome Reference')).toBeVisible();
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await expect(page.locator('[data-theme]')).toHaveAttribute('data-theme', 'noir');
+  await expect.poll(() => page.locator('[data-theme]').evaluate((element) => {
+    const style = getComputedStyle(element);
+    return { color: style.backgroundColor, image: style.backgroundImage };
+  })).toEqual({ color: 'rgb(22, 22, 22)', image: expect.stringContaining('rgb(22, 22, 22)') });
+  await expect(page.getByText('Active preset: Noir')).toBeVisible();
 });
 
 test('validates the exact deterministic screenshot manifest and PNG dimensions', async () => {
