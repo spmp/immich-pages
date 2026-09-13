@@ -1,6 +1,12 @@
 import { z } from 'zod';
 
 const SafeText = z.string().trim().min(1).max(512);
+const HexColor = z.string().regex(/^#[0-9a-fA-F]{6}$/).transform((value) => value.toLowerCase());
+const GradientSchema = z.object({
+		direction: z.enum(['to bottom', '135deg']),
+		top: HexColor,
+		bottom: HexColor
+}).strict();
 const MapSchema = z.object({
 		enabled: z.boolean().default(false),
 		source: z.enum(['auto', 'waypoints', 'geojson', 'brouter-web']).default('auto'),
@@ -43,8 +49,10 @@ export const PresentationSchema = z.object({
 		sort: z.literal('album').default('album'),
 		showCaptions: z.boolean().default(true),
 		showDates: z.boolean().default(false),
-		captions: z.record(z.string().uuid(), z.string().trim().max(512)).default({})
-	}).default({ sort: 'album', showCaptions: true, showDates: false, captions: {} })
+		captions: z.record(z.string().uuid(), z.string().trim().max(512)).default({}),
+		fullWidth: z.array(z.string().uuid()).max(256).default([])
+	}).default({ sort: 'album', showCaptions: true, showDates: false, captions: {}, fullWidth: [] }),
+	gradient: GradientSchema.optional()
 });
 
 export type PresentationConfig = z.infer<typeof PresentationSchema>;

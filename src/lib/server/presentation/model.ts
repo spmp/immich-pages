@@ -2,10 +2,11 @@ import type { SharedLinkResponse } from '$server/immich/types';
 import type { PresentationConfig } from './schema';
 import type { MapMarker, MapRoute } from '$server/map/types';
 
-export type NormalizedAsset = { id: string; type: string; fileName?: string; thumbnail: string; caption?: string; width?: number | null; height?: number | null; videoHref?: string };
+export type NormalizedGradient = { direction: 'to bottom' | '135deg'; top: string; bottom: string };
+export type NormalizedAsset = { id: string; type: string; thumbnail: string; fullsize?: string; sourceMimeType?: string; caption?: string; width?: number | null; height?: number | null; videoHref?: string; fullWidth?: boolean };
 export type NormalizedPageModel = {
 	album: { id?: string; title: string; thumbnailAssetId?: string; startDate?: string; endDate?: string; updatedAt?: string };
-	presentation: PresentationConfig & { template: string };
+	presentation: Omit<PresentationConfig, 'gradient'> & { template: string; gradient?: NormalizedGradient };
 	narrativeHtml: string;
 	assets: NormalizedAsset[];
 	permissions: { showMetadata: boolean; allowDownload: boolean };

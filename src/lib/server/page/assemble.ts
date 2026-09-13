@@ -36,16 +36,17 @@ async function assemblePageModel(provider: ImmichProvider, context: AuthContext,
 	logShareHeroSelection({ selection: heroSelection(document.config, share) });
 	const template = normalizeTemplate(document.config);
 	const displayDate = deriveDisplayDate(document.config, share);
-	const { auth: _auth, ...presentationSafeConfig } = document.config;
+	const { auth: _auth, gradient, ...presentationSafeConfig } = document.config;
 	const { url: _brouterUrl, ...browserMap } = document.config.map;
 	const assets = share.assets.map((asset) => {
 		const normalized = {
 			id: asset.id, type: asset.type,
 			thumbnail: `${mediaPath(asset.id)}/thumbnail${'shareRef' in context ? `?${context.shareRef.kind}=${encodeURIComponent(context.shareRef.value)}` : ''}`
+			, ...(asset.type !== 'VIDEO' ? { fullsize: `${mediaPath(asset.id)}/image/fullsize${'shareRef' in context ? `?${context.shareRef.kind}=${encodeURIComponent(context.shareRef.value)}` : ''}` } : {})
+			, ...(asset.originalMimeType?.startsWith('image/') ? { sourceMimeType: asset.originalMimeType } : {})
 		};
 		return {
 			...normalized,
-			...(share.showMetadata && asset.originalFileName !== undefined ? { fileName: asset.originalFileName } : {}),
 			...(share.showMetadata && asset.width !== undefined ? { width: asset.width } : {}),
 			...(share.showMetadata && asset.height !== undefined ? { height: asset.height } : {}),
 			...(asset.type === 'VIDEO' && 'shareRef' in context ? { videoHref: `${mediaPath(asset.id)}/video/playback?${context.shareRef.kind}=${encodeURIComponent(context.shareRef.value)}` } : {})
@@ -60,9 +61,13 @@ async function assemblePageModel(provider: ImmichProvider, context: AuthContext,
 	const safeMap = share.showMetadata ? browserMap : { ...metadataSafeMap, enabled: false };
 	const normalized: NormalizedPageModel = {
 		album,
-		presentation: { ...presentationSafeConfig, map: safeMap, template: template.template },
+		presentation: { ...presentationSafeConfig, ...(gradient ? { gradient } : {}), map: safeMap, template: template.template },
 		narrativeHtml: narrative.html,
-		assets: assets.map((asset) => document.config.gallery.captions[asset.id] ? { ...asset, caption: document.config.gallery.captions[asset.id] } : asset),
+		assets: assets.map((asset) => ({
+			...asset,
+			...(document.config.gallery.showCaptions && document.config.gallery.captions[asset.id] ? { caption: document.config.gallery.captions[asset.id] } : {}),
+			...(document.config.gallery.fullWidth.includes(asset.id) ? { fullWidth: true } : {})
+		})),
 		permissions: { showMetadata: share.showMetadata, allowDownload: share.allowDownload },
 		hero: hero ? { id: hero.id, thumbnail: assets.find((asset) => asset.id === hero.id)?.thumbnail ?? '' } : null,
 		markers: [], routeData: null,
