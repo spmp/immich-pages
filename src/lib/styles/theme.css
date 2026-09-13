@@ -17,6 +17,10 @@
 	--theme-gradient-top: var(--theme-bg);
 	--theme-gradient-bottom: var(--theme-bg);
 	--theme-overlay: #000;
+	--theme-nav-bg: var(--theme-bg);
+	--theme-control-bg: var(--theme-surface);
+	--theme-backdrop: color-mix(in srgb, var(--theme-text) 55%, transparent);
+	--theme-card: var(--theme-surface);
 	--theme-gradient: linear-gradient(var(--theme-gradient-direction), var(--theme-gradient-top) 0%, var(--theme-gradient-bottom) 100%);
 }
 
