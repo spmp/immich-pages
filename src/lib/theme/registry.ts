@@ -43,7 +43,7 @@ const lightGradient: ThemeGradient = { direction: 'to bottom', top: '#fafafa', b
 const darkGradient: ThemeGradient = { direction: 'to bottom', top: '#161616', bottom: '#161616' };
 
 /** Fixed profiles are metadata for the selector; values never come from storage. */
-export const THEME_REGISTRY: Readonly<Record<string, ThemeProfile>> = {
+export const THEME_REGISTRY: Readonly<Record<ThemeKey, ThemeProfile>> = {
 	default: {
 		label: 'Default', description: 'Follows your operating system light or dark preference.',
 		tokens: { background: composeThemeGradient(darkGradient), gradient: darkGradient, surface: '#222222', text: '#f1eee7', muted: '#aaa59b', accent: '#d89a4a', rule: '#46433e', radius: '0rem', contentWidth: '68rem', sectionSpace: 'clamp(4rem, 12vw, 10rem)', fontHeading: systemSerif, fontBody: systemSerif, fontCaption: systemSans }
