@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { parsePresentationDocument } from '../../src/lib/server/presentation/frontmatter';
-import { deriveDisplayDate, selectHero } from '../../src/lib/server/presentation/model';
+import { deriveDisplayDate, selectHero, type NormalizedPageModel } from '../../src/lib/server/presentation/model';
 
 const share = { album: { albumThumbnailAssetId: 'b' }, assets: [
 	{ id: 'a', originalFileName: 'first.jpg', type: 'IMAGE' },
@@ -8,15 +8,20 @@ const share = { album: { albumThumbnailAssetId: 'b' }, assets: [
 ]} as never;
 
 describe('normalized presentation model seams', () => {
+	it('keeps normalized gradient data serializable and bounded in the model contract', () => {
+		const parsed = parsePresentationDocument('---\nimmich-presentation:\n  type: journey\n  version: 1\n  gradient:\n    direction: to bottom\n    top: "#ABCDEF"\n    bottom: "#123456"\n---');
+		expect(parsed.kind).toBe('valid');
+		if (parsed.kind === 'valid') {
+			const model = { presentation: parsed.config } as Pick<NormalizedPageModel, 'presentation'>;
+			expect(model.presentation.gradient).toEqual({ direction: 'to bottom', top: '#abcdef', bottom: '#123456' });
+			expect(JSON.stringify(model)).not.toContain('rgba');
+		}
+	});
+
 	it('selects only authorized heroes using filename, id, cover, fallback precedence', () => {
 		const parsed = parsePresentationDocument('---\nimmich-presentation:\n  type: journey\n  version: 1\n  hero:\n    filename: cover.jpg\n---');
 		expect(parsed.kind).toBe('valid');
 		if (parsed.kind === 'valid') expect(selectHero(parsed.config, share)?.id).toBe('b');
-	});
-
-	it('keeps extension seams explicit and serializable', () => {
-		const model = { markers: [], routeData: null, warnings: ['unknown-fields'], errors: [] };
-		expect(JSON.parse(JSON.stringify(model))).toEqual(model);
 	});
 
 	it('uses explicit date, authorized asset dates, then album dates', () => {

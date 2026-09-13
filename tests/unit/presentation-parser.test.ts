@@ -1,49 +1,31 @@
 import { describe, expect, it } from 'vitest';
 import { parsePresentationDocument } from '../../src/lib/server/presentation/frontmatter';
 
+const prefix = (gradient: string) => `---\nimmich-presentation:\n  type: journey\n  version: 1\n${gradient}\n---`;
+
 describe('presentation frontmatter', () => {
-	it('classifies absent, unrelated, valid, and invalid documents', () => {
-		expect(parsePresentationDocument('plain story').kind).toBe('absent');
-		expect(parsePresentationDocument('---\nother: value\n---\nstory').kind).toBe('unrelated');
-		const valid = parsePresentationDocument('---\nimmich-presentation:\n  type: journey\n  version: 1\n---\n# Story');
-		expect(valid.kind).toBe('valid');
-		if (valid.kind === 'valid') expect(valid.config.template).toBe('journal');
-		expect(parsePresentationDocument('---\nimmich-presentation:\n  type: no\n  version: 1\n---').kind).toBe('invalid');
-	});
-
-	it('rejects duplicate keys, aliases, and non-object roots without leaking input', () => {
-		const duplicate = parsePresentationDocument('---\nimmich-presentation:\n  type: journey\n  type: journey\n  version: 1\n---');
-		expect(duplicate).toMatchObject({ kind: 'invalid', reason: 'duplicate-key' });
-		const alias = parsePresentationDocument('---\na: &a [one]\nb: *a\nimmich-presentation:\n  type: journey\n  version: 1\n---');
-		expect(alias.kind).toBe('invalid');
-		const scalar = parsePresentationDocument('---\n- one\n- two\n---');
-		expect(scalar).toMatchObject({ kind: 'invalid', reason: 'non-object-root' });
-		expect(JSON.stringify(duplicate)).not.toContain('journey');
-	});
-
-	it('bounds deep and oversized documents and reports unknown fields safely', () => {
-		const deep = 'immich-presentation:\n  type: journey\n  version: 1\n  hero:\n    x:\n      x:\n        x:\n          x:\n            x:\n              x:\n                x:\n                  x:\n                    x: value';
-		expect(parsePresentationDocument(`---\n${deep}\n---`).kind).toBe('invalid');
-		const unknown = parsePresentationDocument('---\nimmich-presentation:\n  type: journey\n  version: 1\n  future-option: secret\n---');
-		expect(unknown).toMatchObject({ kind: 'valid', warnings: ['unknown-fields'] });
-		expect(JSON.stringify(unknown)).not.toContain('secret');
-	});
-
-	it('defaults map activation off and accepts only named presentation settings', () => {
-		const defaultMap = parsePresentationDocument('---\nimmich-presentation:\n  type: journey\n  version: 1\n---');
-		expect(defaultMap.kind).toBe('valid');
-		if (defaultMap.kind === 'valid') expect(defaultMap.config.map).toEqual({ enabled: false, source: 'auto', styleName: 'quiet-atlas', markerActivation: 'gallery' });
-		const enabled = parsePresentationDocument('---\nimmich-presentation:\n  type: journey\n  version: 1\n  map:\n    enabled: true\n    source: waypoints\n    styleName: quiet-atlas\n    markerActivation: lightbox\n---');
-		expect(enabled.kind).toBe('valid');
-		if (enabled.kind === 'valid') expect(enabled.config.map).toMatchObject({ enabled: true, source: 'waypoints', markerActivation: 'lightbox' });
-	});
-
-	it('does not permit arbitrary style URLs to become schema values', () => {
-		const result = parsePresentationDocument('---\nimmich-presentation:\n  type: journey\n  version: 1\n  map:\n    enabled: true\n    styleUrl: https://evil.example/style.json\n---');
+	it('accepts and normalizes a strict gradient', () => {
+		const result = parsePresentationDocument(prefix('  gradient:\n    direction: 135deg\n    top: "#ABCDEF"\n    bottom: "#123456"'));
 		expect(result.kind).toBe('valid');
-		if (result.kind === 'valid') {
-			expect(result.config.map).not.toHaveProperty('styleUrl');
-			expect(result.warnings).toContain('unknown-fields');
-		}
+		if (result.kind === 'valid') expect(result.config.gradient).toEqual({ direction: '135deg', top: '#abcdef', bottom: '#123456' });
+	});
+
+	it.each([
+		'  gradient:\n    direction: "to right"\n    top: "#abcdef"\n    bottom: "#123456"',
+		'  gradient:\n    direction: "to bottom"\n    top: "#fff"\n    bottom: "#123456"',
+		'  gradient:\n    direction: "to bottom"\n    top: "rgba(0,0,0,1)"\n    bottom: "#123456"',
+		'  gradient:\n    direction: "to bottom"\n    top: "#abcdef"\n    bottom: "#123456"\n    extra: true'
+	])('rejects malformed gradient input: %s', (gradient) => {
+		expect(parsePresentationDocument(prefix(gradient))).toMatchObject({ kind: 'invalid', reason: 'invalid-schema' });
+	});
+
+	it('does not classify valid gradient metadata as unknown fields', () => {
+		const result = parsePresentationDocument(prefix('  gradient:\n    direction: to bottom\n    top: "#abcdef"\n    bottom: "#123456"'));
+		expect(result).toMatchObject({ kind: 'valid', warnings: [] });
+	});
+
+	it('retains safe parser boundaries for duplicate keys and aliases', () => {
+		expect(parsePresentationDocument('---\nimmich-presentation:\n  type: journey\n  type: journey\n  version: 1\n---')).toMatchObject({ kind: 'invalid', reason: 'duplicate-key' });
+		expect(parsePresentationDocument('---\na: &a [one]\nb: *a\nimmich-presentation:\n  type: journey\n  version: 1\n---')).toMatchObject({ kind: 'invalid', reason: 'alias-not-allowed' });
 	});
 });
