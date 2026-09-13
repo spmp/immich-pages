@@ -75,8 +75,31 @@
 				const { default: PhotoSwipeLightbox } = await import('photoswipe/lightbox');
 				if (destroyed) return;
 				const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-				const instance = new PhotoSwipeLightbox({ gallery: `#${galleryId}`, children: 'a', pswpModule: () => import('photoswipe'), showHideAnimationType: reducedMotion ? 'none' : 'zoom', wheelToZoom: true });
+				const instance = new PhotoSwipeLightbox({ gallery: `#${galleryId}`, children: 'a', pswpModule: () => import('photoswipe'), showHideAnimationType: reducedMotion ? 'none' : 'zoom', wheelToZoom: true, bgOpacity: 1 });
 				lightbox = instance;
+				instance.addFilter('itemData', (itemData: any) => {
+					const element = itemData.element as HTMLAnchorElement | undefined;
+					return element?.dataset.pswpType === 'video'
+						? { ...itemData, type: 'video', src: element.dataset.videoSrc, poster: element.dataset.videoPoster }
+						: itemData;
+				});
+				instance.on('contentLoad', (event: any) => {
+					const { content } = event;
+					if (content.type !== 'video') return;
+					event.preventDefault();
+					const video = document.createElement('video');
+					video.src = content.data.src;
+					video.poster = content.data.poster;
+					video.controls = true;
+					video.playsInline = true;
+					video.preload = 'metadata';
+					video.className = 'pswp__video';
+					video.setAttribute('aria-label', content.data.element?.getAttribute('aria-label') ?? 'Journey video');
+					const track = document.createElement('track');
+					track.kind = 'captions';
+					video.appendChild(track);
+					content.element = video;
+				});
 				instance.on('beforeOpen', (event: any) => {
 					activeViewer = event.pswp;
 					opener = document.activeElement as HTMLElement;
@@ -135,4 +158,8 @@
 
 <p class="sr-only" aria-live="polite" data-pswp-announcement data-lightbox-status={status}>Images open in the full-screen viewer. Use Escape to close. <span aria-label="Close full-screen viewer"></span></p>
 
-<style>.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }</style>
+<style>
+	.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+	:global(.pswp), :global(.pswp__bg) { --pswp-bg: var(--theme-overlay, #000); --pswp-bg-opacity: 1; background-color: var(--theme-overlay, #000); opacity: 1; }
+	:global(.pswp__video) { display: block; max-width: 100%; max-height: 100%; width: auto; height: auto; object-fit: contain; }
+</style>

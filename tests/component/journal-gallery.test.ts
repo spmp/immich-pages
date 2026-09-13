@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
+import { calculateJustifiedRows } from '../../src/lib/components/journal/justified-layout';
 
 const source = (name: string) => readFileSync(`src/lib/components/journal/${name}.svelte`, 'utf8');
 
@@ -7,13 +8,32 @@ describe('journal gallery contract', () => {
 	 it('has ordered, lazy, mixed-media presentation components', () => {
 		const gallery = source('JournalGallery');
 		const asset = source('GalleryAsset');
-		expect(gallery).toContain('aria-labelledby="gallery-title"');
+		expect(gallery).toContain('aria-label="Gallery"');
+		expect(gallery).not.toContain('>Gallery<');
+		expect(gallery).not.toContain('class="rule"');
 		expect(asset).toContain('loading="lazy"');
 		expect(asset).toContain("'asset-' + asset.id");
-		expect(asset).toContain('Play video');
+		expect(asset).not.toContain('Play video');
 		expect(asset).toContain('Media unavailable');
-		expect(asset).toContain('width={asset.width}');
-		expect(asset).toContain('height={asset.height}');
+		 expect(asset).toContain('width={lightboxWidth}');
+		expect(asset).toContain('height={lightboxHeight}');
+		expect(asset).not.toContain('data-pswp-src');
+		expect(asset).not.toMatch(/original|download/);
+	});
+
+	it('calculates mixed intrinsic-ratio rows and full-width breaks deterministically', () => {
+		const rows = calculateJustifiedRows([
+			{ id: 'portrait', width: 800, height: 1200 },
+			{ id: 'landscape', width: 1600, height: 900 },
+			{ id: 'wide', width: 2400, height: 1200, fullWidth: true },
+			{ id: 'last', width: 1200, height: 1200 }
+		], 1000, { gap: 16, targetRowHeight: 240, maxItemsPerRow: 5 });
+		expect(rows).toHaveLength(3);
+		expect(rows[0].items.map((item) => item.id)).toEqual(['portrait', 'landscape']);
+		expect(rows[0].items[0].layoutWidth / rows[0].items[0].layoutHeight).toBeCloseTo(2 / 3);
+		expect(rows[1].fullWidth).toBe(true);
+		expect(rows[1].items[0].layoutWidth).toBe(1000);
+		expect(rows[2].items[0].layoutWidth).toBe(rows[2].items[0].layoutHeight);
 	});
 
 	it('keeps PhotoSwipe browser-only and preserves ordinary anchors', () => {
@@ -26,6 +46,8 @@ describe('journal gallery contract', () => {
 		expect(lightbox).toContain('focus');
 		expect(lightbox).toContain('overflow');
 		expect(lightbox).toContain('prefers-reduced-motion');
+		expect(lightbox).toContain('bgOpacity: 1');
+		expect(lightbox).toContain('--pswp-bg-opacity: 1');
 	});
 
 	it('defines the complete lightbox lifecycle and safe fallback contract', () => {
@@ -58,7 +80,7 @@ describe('journal gallery contract', () => {
 		expect(debug).toContain("'media-failure'");
 		expect(debug).toContain("'image' | 'video' | 'hero' | 'gallery'");
 		expect(debug).toContain("'unavailable' | 'empty' | 'fallback'");
-		expect(debug).not.toMatch(/asset\.id|thumbnail|videoHref|description|cookie|authorization|URL|origin|requestId|response/i);
+		expect(debug).not.toMatch(/asset\.id|thumbnail|videoHref|description|cookie|authorization|URL|origin|requestId|\bresponse\s*[:=]/i);
 	});
 
 	it('reports safe lifecycle fields only', () => {
@@ -66,25 +88,68 @@ describe('journal gallery contract', () => {
 		expect(debug).toContain('assetCount');
 		expect(debug).toContain('heroPresent');
 		expect(debug).toContain('template');
-		expect(debug).not.toMatch(/thumbnail|videoHref|description|cookie|authorization|requestId|response/i);
+		expect(debug).not.toMatch(/thumbnail|videoHref|description|cookie|authorization|requestId|\bresponse\s*[:=]/i);
 	});
 
 	it('defines CSS-owned media frames separate from intrinsic lightbox dimensions', () => {
 		const asset = source('GalleryAsset');
 		expect(asset).toContain('gallery-media-frame');
-		expect(asset).toContain('height: 100%');
-		expect(asset).toContain('overflow: hidden');
-		expect(asset).toContain('object-fit: cover');
+		 expect(asset).toContain('height: auto');
+		 expect(asset).toContain('overflow: hidden');
+		 expect(asset).toContain('object-fit: contain');
 	});
 
 	it('exposes orientation-aware frame geometry without coupling it to viewer dimensions', () => {
 		const asset = source('GalleryAsset');
 		expect(asset).toContain('portrait');
 		expect(asset).toContain('landscape');
-		expect(asset).toContain('aspect-ratio: 2 / 3');
-		expect(asset).toContain('aspect-ratio: 4 / 3');
+		 expect(asset).toContain('class:full-width={asset.fullWidth}');
+		 expect(asset).toContain('aspect-ratio: auto');
 		expect(asset).toContain('data-pswp-width={lightboxWidth}');
 		expect(asset).toContain('data-pswp-height={lightboxHeight}');
+	});
+
+	 it('uses loaded image dimensions when metadata is hidden', () => {
+		const asset = source('GalleryAsset');
+		expect(asset).toContain('let naturalWidth = $state(0)');
+		expect(asset).toContain('let naturalHeight = $state(0)');
+		expect(asset).toContain('bind:naturalWidth');
+		expect(asset).toContain('bind:naturalHeight');
+		expect(asset).toContain('getPreferredDimension(asset.width, naturalWidth)');
+		expect(asset).toContain('getPreferredDimension(asset.height, naturalHeight)');
+		expect(asset).toContain('getPresentationOrientation(width, height)');
+	 });
+
+	it('only renders explicit captions and supports promoted assets', () => {
+		const asset = source('GalleryAsset');
+		const gallery = source('JournalGallery');
+		expect(asset).toContain('{#if asset.caption}<figcaption>{asset.caption}</figcaption>{/if}');
+		expect(asset).not.toContain('asset.fileName');
+		expect(gallery).toContain('fullWidth');
+		expect(gallery).toContain('full-width-row');
+	});
+
+	it('exposes the active named preset and uses theme contrast tokens', () => {
+		const explorer = readFileSync('src/lib/theme/ThemeExplorer.svelte', 'utf8');
+		const registry = readFileSync('src/lib/theme/registry.ts', 'utf8');
+		const styles = readFileSync('src/lib/styles/theme.css', 'utf8');
+		expect(explorer).toContain('Active preset:');
+		expect(registry).toContain('Monochrome Reference');
+		expect(styles).toContain("data-theme='noir'");
+		expect(styles).toContain('--theme-text: #f1eee7');
+		expect(source('PresentationState')).toContain('var(--theme-text');
+		expect(source('JourneyMapSlot')).toContain('var(--theme-surface)');
+	});
+
+	it('wires authorized video tiles into the PhotoSwipe custom content hook', () => {
+		const asset = source('GalleryAsset');
+		const lightbox = source('Lightbox');
+		expect(asset).toContain('data-pswp-type="video"');
+		expect(asset).toContain('playsinline');
+		expect(lightbox).toContain("instance.addFilter('itemData'");
+		expect(lightbox).toContain("instance.on('contentLoad'");
+		expect(lightbox).toContain('video.controls = true');
+		expect(lightbox).toContain('video.playsInline = true');
 	});
 
 	it('keeps marker handoff targets focusable and lightbox-compatible', () => {

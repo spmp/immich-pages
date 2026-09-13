@@ -1,12 +1,17 @@
-<script lang="ts">
+	<script lang="ts">
+	import { resolve } from '$app/paths';
 	import type { NormalizedAsset } from '$server/presentation/model';
 	import { reportJournalDebug } from './journal-debug';
-	let { asset }: { asset: NormalizedAsset & { width?: number | null; height?: number | null; videoHref?: string } } = $props();
+	let { asset, layoutWidth, layoutHeight }: { asset: NormalizedAsset & { width?: number | null; height?: number | null; videoHref?: string; fullWidth?: boolean }; layoutWidth?: number; layoutHeight?: number } = $props();
 	let failed = $state(false);
+	let naturalWidth = $state(0);
+	let naturalHeight = $state(0);
 	const isVideo = $derived(asset.type === 'VIDEO');
-	const label = $derived(asset.caption ?? asset.fileName ?? (isVideo ? 'Journey video' : 'Journey photograph'));
-	const orientation = $derived(getPresentationOrientation(asset.width, asset.height));
-	const dimensions = $derived(getLightboxDimensions(asset.width, asset.height));
+	const label = $derived(asset.caption ?? (isVideo ? 'Journey video' : 'Journey photograph'));
+	const width = $derived(getPreferredDimension(asset.width, naturalWidth));
+	const height = $derived(getPreferredDimension(asset.height, naturalHeight));
+	const orientation = $derived(getPresentationOrientation(width, height));
+	const dimensions = $derived(getLightboxDimensions(width, height));
 	const lightboxWidth = $derived(dimensions.width);
 	const lightboxHeight = $derived(dimensions.height);
 
@@ -33,6 +38,10 @@
 		}
 		return { width: 1600, height: 900 };
 	}
+	function getPreferredDimension(provided: number | null | undefined, natural: number) {
+		if (Number.isFinite(provided) && (provided as number) > 0) return provided;
+		return Number.isFinite(natural) && natural > 0 ? natural : null;
+	}
 	function getPresentationOrientation(width: number | null | undefined, height: number | null | undefined) {
 		if (Number.isFinite(width) && Number.isFinite(height) && (width as number) > 0 && (height as number) > 0) {
 			return (height as number) > (width as number) ? 'portrait' : 'landscape';
@@ -48,40 +57,35 @@
 	}
 </script>
 
-	<figure id={'asset-' + asset.id} tabindex="-1" class:failed class:portrait={orientation === 'portrait'} class:landscape={orientation === 'landscape'}>
+	<figure id={'asset-' + asset.id} tabindex="-1" style={layoutWidth && layoutHeight ? `width: ${layoutWidth}px; height: ${layoutHeight}px` : undefined} class:failed class:full-width={asset.fullWidth} class:portrait={orientation === 'portrait'} class:landscape={orientation === 'landscape'}>
 	{#if failed}<div class="unavailable" role="status">Media unavailable</div>
 	{:else if isVideo}
 		<div class="gallery-media-frame">
-			<video src={asset.videoHref} poster={asset.thumbnail} controls preload="metadata" aria-label={label} onloadstart={handleMediaLoad} onerror={handleMediaError}>
-				<track kind="captions" />
-			</video>
+			<a href={resolve((asset.videoHref ?? asset.thumbnail) as any)} aria-label={label} data-pswp-type="video" data-video-src={asset.videoHref} data-video-poster={asset.thumbnail} data-pswp-width={lightboxWidth} data-pswp-height={lightboxHeight}>
+				<video src={asset.videoHref} poster={asset.thumbnail} controls playsinline preload="metadata" aria-label={label} onloadstart={handleMediaLoad} onerror={handleMediaError}><track kind="captions" /></video>
+			</a>
 		</div>
-		<span class="video-action">Play video</span>
 	{:else}
 		<div class="gallery-media-frame">
-			<a href={asset.thumbnail} aria-label={label} data-pswp-width={lightboxWidth} data-pswp-height={lightboxHeight}>
-				<img src={asset.thumbnail} alt={label} loading="lazy" width={lightboxWidth} height={lightboxHeight} onload={handleMediaLoad} onerror={handleMediaError} />
+			<a href={resolve(asset.thumbnail as any)} aria-label={label} data-pswp-width={lightboxWidth} data-pswp-height={lightboxHeight}>
+				<img src={asset.thumbnail} alt={label} loading="lazy" width={lightboxWidth} height={lightboxHeight} bind:naturalWidth bind:naturalHeight onload={handleMediaLoad} onerror={handleMediaError} />
 			</a>
 		</div>
 	{/if}
-	{#if asset.caption || asset.fileName}<figcaption>{asset.caption ?? asset.fileName}</figcaption>{/if}
+	{#if asset.caption}<figcaption>{asset.caption}</figcaption>{/if}
 </figure>
 
 <style>
 	/* Intrinsic dimensions are emitted as width={asset.width} and height={asset.height} when supplied. */
-	figure { min-width: 0; margin: 0; overflow: hidden; background: #e7e1d8; }
-	figure:focus-visible { outline: 3px solid #c96b4b; outline-offset: 4px; }
+	figure { min-width: 0; margin: 0; overflow: hidden; background: transparent; }
+	figure:focus-visible { outline: 3px solid var(--theme-accent); outline-offset: 4px; }
 	:global(figure.map-focus-highlight) { animation: map-focus-highlight 2.2s ease-out; }
-	@keyframes map-focus-highlight { 0%, 65% { box-shadow: 0 0 0 5px #c96b4b; } 100% { box-shadow: 0 0 0 0 transparent; } }
-	.gallery-media-frame { width: 100%; height: auto; aspect-ratio: 1; min-width: 0; overflow: hidden; }
-	figure a { display: block; height: 100%; min-height: 44px; }
-	figure a:focus-visible, figure video:focus-visible { outline: 3px solid #c96b4b; outline-offset: -3px; }
-	img, video { display: block; width: 100%; height: 100%; aspect-ratio: auto; object-fit: cover; }
-	figcaption { padding: 4px 8px 8px; color: #626860; font-size: 14px; line-height: 1.3; overflow-wrap: anywhere; }
-	.unavailable { min-height: 120px; display: grid; place-items: center; color: #626860; }
-	@media (min-width: 640px) {
-		.gallery-media-frame { aspect-ratio: 4 / 3; }
-		figure.portrait .gallery-media-frame { aspect-ratio: 2 / 3; }
-		img, video { object-fit: contain; }
-	}
+	@keyframes map-focus-highlight { 0%, 65% { box-shadow: 0 0 0 5px var(--theme-accent); } 100% { box-shadow: 0 0 0 0 transparent; } }
+	.gallery-media-frame { width: 100%; height: auto; min-width: 0; overflow: hidden; }
+	figure a { display: block; min-height: 44px; }
+	figure a:focus-visible, figure video:focus-visible { outline: 3px solid var(--theme-accent); outline-offset: -3px; }
+	img, video { display: block; width: 100%; height: 100%; aspect-ratio: auto; object-fit: contain; }
+	figcaption { padding: 4px 8px 8px; color: var(--theme-muted); font-size: 14px; line-height: 1.3; overflow-wrap: anywhere; }
+	.unavailable { min-height: 120px; display: grid; place-items: center; color: var(--theme-muted); }
+	@media (min-width: 960px) { figure.full-width .gallery-media-frame { max-width: 100%; } }
 </style>

@@ -3,6 +3,7 @@
 	import { env } from '$env/dynamic/public';
 	import type { MapMarker, MapRoute } from '$server/map/types';
 	import { focusGalleryAsset, type MarkerActivation } from './map-focus';
+	import { reportJournalDebug } from './journal-debug';
 	import 'maplibre-gl/dist/maplibre-gl.css';
 	import maplibreWorkerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url';
 	const MAX_COLLOCATED_LEAVES = 500;
@@ -19,6 +20,7 @@
 		if (warning === 'brouter-profile-unsupported') return 'The selected route profile is not supported; showing locations only.';
 		if (warning === 'brouter-endpoint-unsafe') return 'The map route service is unavailable; showing locations only.';
 		if (warning === 'brouter-timeout') return 'The map route service timed out; showing locations only.';
+		if (warning === 'brouter-route-rejected') return 'BRouter rejected the route; move each waypoint onto a routable road or check the profile.';
 		if (warning === 'brouter-response-too-large' || warning === 'map-route-limit') return 'The map route is too large; showing locations only.';
 		if (warning === 'brouter-request-failed' || warning === 'brouter-response-invalid') return 'The map route service failed; showing locations only.';
 		if (warning === 'map-route-invalid' || warning === 'brouter-permalink-invalid' || warning === 'brouter-permalink-unsupported') return 'The route is malformed or unsupported; showing locations only.';
@@ -26,6 +28,22 @@
 		return undefined;
 	}
 	const routeMessage = $derived(warnings.map(routeWarningCopy).find((message): message is string => Boolean(message)));
+	type RouteWarning = 'brouter-profile-unsupported' | 'brouter-endpoint-unsafe' | 'brouter-timeout' | 'brouter-response-too-large' | 'map-route-limit' | 'brouter-route-rejected' | 'brouter-request-failed' | 'brouter-response-invalid' | 'map-route-invalid' | 'brouter-permalink-invalid' | 'brouter-permalink-unsupported' | 'map-source-unsupported';
+	function routeWarningCode(warning: string): RouteWarning | undefined {
+		if (routeWarningCopy(warning)) return warning as RouteWarning;
+		return undefined;
+	}
+	const routeWarning = $derived(warnings.map(routeWarningCode).find((warning): warning is RouteWarning => Boolean(warning)));
+	function routeAction(warning: RouteWarning): 'check-profile' | 'check-endpoint' | 'check-road-access' | 'reduce-route-size' | 'check-permalink' | 'check-map-source' | undefined {
+		if (warning === 'brouter-profile-unsupported') return 'check-profile';
+		if (warning === 'brouter-endpoint-unsafe' || warning === 'brouter-timeout') return 'check-endpoint';
+		if (warning === 'brouter-route-rejected' || warning === 'brouter-request-failed') return 'check-road-access';
+		if (warning === 'brouter-response-too-large' || warning === 'map-route-limit') return 'reduce-route-size';
+		if (warning === 'brouter-response-invalid' || warning === 'map-route-invalid' || warning === 'brouter-permalink-invalid' || warning === 'brouter-permalink-unsupported') return 'check-permalink';
+		if (warning === 'map-source-unsupported') return 'check-map-source';
+		return undefined;
+	}
+	$effect(() => { if (routeWarning) reportJournalDebug('route-failure', { status: 'failure', errorContext: 'page-model', routeWarning, routeAction: routeAction(routeWarning) }); });
 	function firstRoutePosition(route: MapRoute) { return route.type === 'LineString' ? route.coordinates[0] : route.coordinates[0][0]; }
 	function lastRoutePosition(route: MapRoute) { return route.type === 'LineString' ? route.coordinates[route.coordinates.length - 1] : route.coordinates[route.coordinates.length - 1][route.coordinates[route.coordinates.length - 1].length - 1]; }
 	function routeVertexCount(route: MapRoute) { return route.type === 'LineString' ? route.coordinates.length : route.coordinates.reduce((count, segment) => count + segment.length, 0); }
@@ -100,28 +118,27 @@
 	});
 </script>
 
-	<section class:enabled class="journey-slot" data-phase="3-map-seam" data-route-ready={routeData !== null} data-route-layer-ready={routeLayerReady} data-route-vertex-count={routeData ? routeVertexCount(routeData) : 0} data-marker-count={markers.length} aria-labelledby="journey-map-title">
-	<h2 id="journey-map-title">Journey map</h2>
+	<section class:enabled class="journey-slot" data-phase="3-map-seam" data-route-ready={routeData !== null} data-route-layer-ready={routeLayerReady} data-route-vertex-count={routeData ? routeVertexCount(routeData) : 0} data-marker-count={markers.length} aria-label="Journey map">
 	{#if routeMessage}<p role="status">{routeMessage}</p>{/if}
 	{#if clusterMessage}<p role="status">{clusterMessage}</p>{/if}
-	{#if mapStatus === 'no-location'}<p role="status">No location data is available for this journey.</p>{:else if mapStatus === 'unavailable'}<p role="status">Map unavailable; the narrative and gallery remain available.</p>{:else if enabled}<p class="map-status" role="status" aria-live="polite">{mapStatus === 'ready' ? 'Interactive journey map' : 'Loading journey map'}</p><div class="map" bind:this={mapElement} aria-hidden={mapStatus !== 'ready'}></div>{/if}
-	{#if hasLocation && showMarkerList}<nav class="marker-list" aria-label="Journey map locations"><h3>Photo locations</h3>{#each markers as marker}<button type="button" onclick={() => activate(marker.id)}>{marker.label ?? 'Photo location'}</button>{/each}</nav>{/if}
-	{#if clusterLeaves.length}<section class="cluster-chooser" aria-labelledby="cluster-chooser-title"><h3 id="cluster-chooser-title">Choose a photo at this location</h3>{#each clusterLeaves as marker}<button type="button" onclick={() => activate(marker.id)}>{marker.label ?? 'Photo location'}</button>{/each}</section>{/if}
+	{#if mapStatus === 'no-location'}<p role="status">No location data is available for this journey.</p>{:else if mapStatus === 'unavailable'}<p role="status">Map unavailable; the narrative and gallery remain available.</p>{:else if enabled}{#if mapStatus !== 'ready'}<p class="map-status" role="status" aria-live="polite">Loading journey map</p>{/if}<div class="map" bind:this={mapElement} aria-hidden={mapStatus !== 'ready'}></div>{/if}
+	{#if hasLocation && showMarkerList}<nav class="marker-list" aria-label="Journey map locations"><h3>Photo locations</h3>{#each markers as marker (marker.id)}<button type="button" onclick={() => activate(marker.id)}>{marker.label ?? 'Photo location'}</button>{/each}</nav>{/if}
+	{#if clusterLeaves.length}<section class="cluster-chooser" aria-labelledby="cluster-chooser-title"><h3 id="cluster-chooser-title">Choose a photo at this location</h3>{#each clusterLeaves as marker (marker.id)}<button type="button" onclick={() => activate(marker.id)}>{marker.label ?? 'Photo location'}</button>{/each}</section>{/if}
 </section>
 
 <style>
 	.journey-slot { width: 100%; padding: 0; min-height: 0; overflow: hidden; }
 	.journey-slot:not(.enabled) { width: 0; height: 0; }
-	.journey-slot.enabled { padding: 32px 16px; background: #eeeae3; }
-	.map { min-height: 280px; height: clamp(280px, 48vw, 560px); border-radius: 8px; overflow: hidden; background: #dfe3df; }
-	.map-status { margin: 0 0 8px; color: #626860; }
+	.journey-slot.enabled { padding: 32px 16px; color: var(--theme-text); background: var(--theme-surface); }
+	.map { min-height: 280px; height: clamp(280px, 48vw, 560px); border-radius: 8px; overflow: hidden; background: var(--theme-rule); }
+	.map-status { margin: 0 0 8px; color: var(--theme-muted); }
 	.marker-list { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
 	.marker-list h3 { width: 100%; margin: 0; font-size: 14px; }
-	.marker-list button { min-height: 44px; padding: 8px 12px; border: 1px solid #aeb8b1; border-radius: 999px; background: #fff; color: #202522; cursor: pointer; }
+	.marker-list button { min-height: 44px; padding: 8px 12px; border: 1px solid var(--theme-rule); border-radius: 999px; background: var(--theme-surface); color: var(--theme-text); cursor: pointer; }
 	.marker-list button:focus-visible { outline: 3px solid #c96b4b; outline-offset: 3px; }
-	.cluster-chooser { margin-top: 16px; padding: 16px; border: 1px solid #c6c9c4; border-radius: 8px; background: #fff; }
+	.cluster-chooser { margin-top: 16px; padding: 16px; border: 1px solid var(--theme-rule); border-radius: 8px; background: var(--theme-surface); }
 	.cluster-chooser h3 { margin: 0 0 8px; font-size: 16px; }
-	.cluster-chooser button { display: block; width: 100%; min-height: 44px; padding: 8px; border: 0; border-bottom: 1px solid #e1e3df; background: transparent; text-align: left; cursor: pointer; }
+	.cluster-chooser button { display: block; width: 100%; min-height: 44px; padding: 8px; border: 0; border-bottom: 1px solid var(--theme-rule); background: transparent; color: var(--theme-text); text-align: left; cursor: pointer; }
 	.cluster-chooser button:focus-visible { outline: 3px solid #c96b4b; outline-offset: -3px; }
 	@media (min-width: 640px) { .journey-slot.enabled { padding: 48px 24px; } }
 	@media (min-width: 960px) { .journey-slot.enabled { padding-left: 32px; padding-right: 32px; } }
