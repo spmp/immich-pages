@@ -34,6 +34,7 @@ describe('shared theme surface contract', () => {
 		expect(library).toContain('<ThemeRoot themeKey={theme.effectiveKey}>');
 		expect(library).toMatch(/\.journey-card[^}]*var\(--theme-/);
 		expect(library).toMatch(/\.notice[^}]*var\(--theme-/);
+		expect(library).toContain('var(--theme-card)');
 	});
 
 	it('keeps fixed preset selectors in the shared stylesheet', () => {

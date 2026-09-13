@@ -10,10 +10,12 @@ describe('share navigation components', () => {
 		expect(page).toContain("'Collapse journeys'");
 		expect(page).toContain("'Expand journeys'");
 		expect(page).toContain('NavigationEntry');
-		expect(page).toContain('aria-expanded={expanded}');
+		expect(page).toContain('aria-expanded={navigationState.expanded}');
 		expect(page).toContain('aria-current');
 		expect(page).toContain('loading="lazy"');
-		expect(page).toContain('safeHref');
+		 expect(page).toContain('safeHref');
+		expect(page).toContain('var(--theme-nav-bg)');
+		expect(page).toContain('var(--theme-control-bg)');
 		expect(page).toContain('safeThumbnail');
 		expect(page).toContain('resolve(');
 		expect(page).toContain('date.start');
