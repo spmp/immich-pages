@@ -70,7 +70,7 @@
 </ThemeRoot>
 
 <style>
-	.library-shell { min-height: 100svh; display: flex; color: var(--theme-text); background: var(--theme-bg); }
+	.library-shell { min-height: 100svh; display: flex; color: var(--theme-text); background: var(--theme-gradient); }
 	main { flex: 1; min-width: 0; padding: 64px clamp(24px, 7vw, 96px) 80px; }
 	.library-header { display: grid; gap: 16px; max-width: 760px; }
 	.eyebrow { margin: 0; color: var(--theme-accent); font: 600 13px/1.3 ui-sans-serif, system-ui, sans-serif; letter-spacing: .08em; text-transform: uppercase; }
@@ -78,9 +78,9 @@
 	.intro, .notice { max-width: 42ch; margin: 0; color: var(--theme-muted); }
 	.notice { padding: 12px 16px; border-left: 3px solid var(--theme-accent); background: var(--theme-surface); }
 	.journey-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr)); gap: 20px; max-width: 1100px; margin: 56px 0 0; padding: 0; list-style: none; }
-	.journey-card { display: grid; min-height: 280px; color: inherit; text-decoration: none; background: var(--theme-card); border: 1px solid var(--theme-rule); transition: transform 180ms ease, box-shadow 180ms ease; }
+	.journey-card { display: grid; min-height: 280px; color: inherit; text-decoration: none; background: var(--theme-card); border: 1px solid var(--theme-rule); border-radius: var(--theme-radius); transition: transform 180ms ease, box-shadow 180ms ease; }
 	.journey-card:hover { transform: translateY(-3px); box-shadow: 0 14px 30px rgba(32, 37, 34, .12); }
-	.journey-card:focus-visible { outline: 3px solid var(--theme-accent); outline-offset: 4px; }
+	.journey-card:focus-visible { outline: 3px solid var(--theme-focus); outline-offset: 4px; }
 	.journey-card img, .thumbnail-placeholder { width: 100%; height: 170px; object-fit: cover; background: var(--theme-rule); }
 	.thumbnail-placeholder { display: grid; place-items: center; color: var(--theme-accent); font-size: 42px; }
 	.card-copy { display: grid; align-content: start; gap: 8px; padding: 20px; }
@@ -88,6 +88,8 @@
 	.card-copy small { color: var(--theme-muted); }
 	.card-action { margin-top: 8px; color: var(--theme-accent); font: 600 12px/1.3 ui-sans-serif, system-ui, sans-serif; letter-spacing: .05em; text-transform: uppercase; }
 	.mobile-navigation { display: none; position: fixed; z-index: 10; top: 16px; right: 16px; }
-	@media (max-width: 959px) { .library-shell { display: block; } .mobile-navigation { display: block; } main { min-height: 100svh; padding: 96px 24px 48px; } .journey-grid { margin-top: 40px; } }
+	@media (min-width: 640px) { main { padding-left: 32px; padding-right: 32px; } }
+	@media (max-width: 959px) { .library-shell { display: block; } .mobile-navigation { display: block; } main { min-height: 100svh; padding-top: 96px; padding-bottom: 48px; } .journey-grid { margin-top: 40px; } }
+	@media (min-width: 1200px) { main { padding-left: 48px; padding-right: 48px; } }
 	@media (prefers-reduced-motion: reduce) { .journey-card { transform: none !important; transition: none; } }
 </style>

@@ -130,16 +130,16 @@
 	.journey-slot { width: 100%; padding: 0; min-height: 0; overflow: hidden; }
 	.journey-slot:not(.enabled) { width: 0; height: 0; }
 	.journey-slot.enabled { padding: 32px 16px; color: var(--theme-text); background: var(--theme-surface); }
-	.map { min-height: 280px; height: clamp(280px, 48vw, 560px); border-radius: 8px; overflow: hidden; background: var(--theme-rule); }
+	.map { min-height: 280px; height: clamp(280px, 48vw, 560px); border-radius: var(--theme-radius); overflow: hidden; background: var(--theme-rule); }
 	.map-status { margin: 0 0 8px; color: var(--theme-muted); }
 	.marker-list { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
 	.marker-list h3 { width: 100%; margin: 0; font-size: 14px; }
-	.marker-list button { min-height: 44px; padding: 8px 12px; border: 1px solid var(--theme-rule); border-radius: 999px; background: var(--theme-surface); color: var(--theme-text); cursor: pointer; }
-	.marker-list button:focus-visible { outline: 3px solid #c96b4b; outline-offset: 3px; }
-	.cluster-chooser { margin-top: 16px; padding: 16px; border: 1px solid var(--theme-rule); border-radius: 8px; background: var(--theme-surface); }
+	.marker-list button { min-height: 44px; padding: 8px 12px; border: 1px solid var(--theme-rule); border-radius: var(--theme-radius); background: var(--theme-surface); color: var(--theme-text); cursor: pointer; }
+	.marker-list button:focus-visible { outline: 3px solid var(--theme-focus); outline-offset: 3px; }
+	.cluster-chooser { margin-top: 16px; padding: 16px; border: 1px solid var(--theme-rule); border-radius: var(--theme-radius); background: var(--theme-surface); }
 	.cluster-chooser h3 { margin: 0 0 8px; font-size: 16px; }
 	.cluster-chooser button { display: block; width: 100%; min-height: 44px; padding: 8px; border: 0; border-bottom: 1px solid var(--theme-rule); background: transparent; color: var(--theme-text); text-align: left; cursor: pointer; }
-	.cluster-chooser button:focus-visible { outline: 3px solid #c96b4b; outline-offset: -3px; }
+	.cluster-chooser button:focus-visible { outline: 3px solid var(--theme-focus); outline-offset: -3px; }
 	@media (min-width: 640px) { .journey-slot.enabled { padding: 48px 24px; } }
 	@media (min-width: 960px) { .journey-slot.enabled { padding-left: 32px; padding-right: 32px; } }
 </style>

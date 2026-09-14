@@ -49,11 +49,11 @@ import type { Snippet } from 'svelte';
 </header>
 
 <style>
-	.hero { position: relative; min-height: 56svh; max-height: 520px; display: grid; align-items: end; overflow: hidden; color: var(--theme-hero-text, var(--theme-surface)); background: var(--theme-text); }
+	.hero { position: relative; min-height: 56svh; max-height: 520px; display: grid; align-items: end; overflow: hidden; color: var(--theme-hero-text, var(--theme-surface)); background: var(--theme-bg); }
 	.hero-image, .hero-fallback, .hero-shade { position: absolute; inset: 0; width: 100%; height: 100%; }
 	.hero-image { display: block; object-fit: cover; }
-	.hero-fallback { background: var(--theme-muted); }
-	.hero-shade { background: linear-gradient(180deg, rgba(32, 37, 34, 0.05) 25%, rgba(32, 37, 34, 0.94) 100%); }
+	.hero-fallback { background: var(--theme-gradient); }
+	.hero-shade { background: linear-gradient(180deg, color-mix(in srgb, var(--theme-overlay) 5%, transparent) 25%, color-mix(in srgb, var(--theme-overlay) 94%, transparent) 100%); }
 	.hero-copy { position: relative; z-index: 1; width: min(100%, 1280px); margin: 0 auto; padding: 32px 16px; }
 	.eyebrow, .date { margin: 0 0 8px; font-size: 14px; line-height: 1.3; font-weight: 600; }
 	.date { margin-top: 8px; margin-bottom: 24px; font-variant-numeric: tabular-nums; }

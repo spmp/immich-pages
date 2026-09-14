@@ -4,6 +4,7 @@
 	--theme-text: #f1eee7;
 	--theme-muted: #aaa59b;
 	--theme-accent: #d89a4a;
+	--theme-focus: var(--theme-accent);
 	--theme-rule: #46433e;
 	--theme-radius: 0rem;
 	--theme-content-width: 68rem;
@@ -34,8 +35,8 @@
 	font-family: var(--theme-font-body);
 }
 
-.theme-root[data-theme='default'], .theme-root[data-theme='dark'] { --theme-bg: #161616; --theme-gradient-direction: to bottom; --theme-gradient-top: #161616; --theme-gradient-bottom: #161616; }
-.theme-root[data-theme='light'] { --theme-bg: #fafafa; --theme-gradient-direction: to bottom; --theme-gradient-top: #fafafa; --theme-gradient-bottom: #fafafa; --theme-surface: #fff; --theme-text: #1b1b1b; --theme-muted: #676767; --theme-accent: #8b3027; --theme-rule: #cfcfcf; }
+.theme-root[data-theme='default'], .theme-root[data-theme='dark'] { --theme-bg: #161616; --theme-gradient-direction: to bottom; --theme-gradient-top: #161616; --theme-gradient-bottom: #161616; --theme-focus: #d89a4a; }
+.theme-root[data-theme='light'] { --theme-bg: #fafafa; --theme-gradient-direction: to bottom; --theme-gradient-top: #fafafa; --theme-gradient-bottom: #fafafa; --theme-surface: #fff; --theme-text: #1b1b1b; --theme-muted: #676767; --theme-accent: #8b3027; --theme-focus: #8b3027; --theme-rule: #cfcfcf; }
 
 /* Keep the overscroll canvas in the same fixed, allowlisted palette as the page. */
 html:has(.theme-root[data-theme='default']), html:has(.theme-root[data-theme='default']) body,
