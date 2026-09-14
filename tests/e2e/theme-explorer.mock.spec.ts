@@ -3,6 +3,31 @@ import { expect, test } from '@playwright/test';
 const shareHref = '/share/key/opaque-ref';
 
 test.describe('production gradient boundary', () => {
+	test('hydrates OS theme, keeps wrapped content responsive, and changes no auth or media boundary', async ({ page, context }) => {
+		await context.addCookies([{ name: 'immich_shared_link_token', value: 'fixture', domain: '127.0.0.1', path: '/' }]);
+		await page.emulateMedia({ colorScheme: 'light', reducedMotion: 'reduce' });
+		await page.setViewportSize({ width: 390, height: 844 });
+		const requests: string[] = [];
+		page.on('request', (request) => requests.push(new URL(request.url()).pathname));
+		await page.goto(shareHref);
+
+		const root = page.locator('.theme-root');
+		await expect(root).toHaveAttribute('data-theme', 'light');
+		await expect(page.getByRole('heading', { name: 'Mock Journey' })).toBeVisible();
+		await expect(page.getByRole('button', { name: 'Open journeys' })).toBeVisible();
+		await expect.poll(() => page.evaluate(() => getComputedStyle(document.documentElement).scrollBehavior)).toBe('auto');
+		const baseline = requests.length;
+
+		await page.getByRole('button', { name: 'Open journeys' }).click();
+		await expect(page.getByRole('dialog', { name: 'Journeys' })).toBeVisible();
+		const themeSelect = page.locator('#mobile-theme-choice');
+		await themeSelect.selectOption('dark');
+		await expect(root).toHaveAttribute('data-theme', 'dark');
+		await themeSelect.selectOption('light');
+		await expect(root).toHaveAttribute('data-theme', 'light');
+		expect(requests.slice(baseline).some((path) => /\/login|\/users\/me|\/albums(?:\/|$)|\/media\//.test(path))).toBe(false);
+	});
+
 	test('renders the themed journal without adding authorization or remote image inputs', async ({ page, context }) => {
 		await context.addCookies([{ name: 'immich_shared_link_token', value: 'fixture', domain: '127.0.0.1', path: '/' }]);
 		await page.setExtraHTTPHeaders({ authorization: 'Bearer fixture' });
