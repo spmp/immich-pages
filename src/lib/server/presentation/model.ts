@@ -3,6 +3,7 @@ import type { PresentationConfig } from './schema';
 import type { MapMarker, MapRoute } from '$server/map/types';
 
 export type NormalizedGradient = { direction: 'to bottom' | '135deg'; top: string; bottom: string };
+export type AuthorizedHeroRepresentation = { id: string; thumbnail: string };
 export type NormalizedAsset = { id: string; type: string; thumbnail: string; fullsize?: string; sourceMimeType?: string; caption?: string; width?: number | null; height?: number | null; videoHref?: string; fullWidth?: boolean };
 export type NormalizedPageModel = {
 	album: { id?: string; title: string; thumbnailAssetId?: string; startDate?: string; endDate?: string; updatedAt?: string };
@@ -12,7 +13,7 @@ export type NormalizedPageModel = {
 	permissions: { showMetadata: boolean; allowDownload: boolean };
 	showMetadata: boolean;
 	allowDownload: boolean;
-	hero: { id: string; thumbnail: string } | null;
+	hero: AuthorizedHeroRepresentation | null;
 	markers: MapMarker[];
 	routeData: MapRoute | null;
 	mapStyle?: { name: 'quiet-atlas'; url: string };

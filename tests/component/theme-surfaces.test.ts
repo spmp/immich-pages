@@ -39,7 +39,25 @@ describe('shared theme surface contract', () => {
 
 	it('keeps fixed preset selectors in the shared stylesheet', () => {
 		const styles = read('src/lib/styles/theme.css');
-		expect(styles).toContain(".theme-root[data-theme='noir']");
+		expect(styles).toContain(".theme-root[data-theme='dark']");
 		expect(styles).not.toMatch(/\[data-theme=\{\{/);
+	});
+
+	it('passes only normalized gradient and authorized hero representation into ThemeRoot', () => {
+		const page = read('src/lib/components/journal/JournalPage.svelte');
+		const root = read('src/lib/components/journal/ThemeRoot.svelte');
+		expect(page).toContain('gradient={page.presentation.gradient}');
+		expect(page).toContain('heroSource={page.hero?.thumbnail}');
+		expect(root).toContain('sampleHeroGradient(heroSource)');
+		expect(root).toContain("onMount(() =>");
+		expect(root).not.toMatch(/authorization|cookie|original|download/i);
+	});
+
+	it('keeps gradient precedence explicit, automatic, then theme fallback', () => {
+		const root = read('src/lib/components/journal/ThemeRoot.svelte');
+		expect(root).toContain('explicitGradient ?? automaticGradient');
+		expect(root).toContain("data-gradient-mode={explicitGradient ? 'explicit' : automaticGradient ? 'automatic' : 'theme'}");
+		const styles = read('src/lib/styles/theme.css');
+		expect(styles).toContain('linear-gradient(var(--theme-gradient-direction), var(--theme-gradient-top) 0%, var(--theme-gradient-bottom) 100%)');
 	});
 });

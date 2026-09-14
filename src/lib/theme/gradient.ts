@@ -3,6 +3,7 @@ export { composeThemeGradient } from './registry';
 
 export const GRADIENT_DIRECTIONS = ['to bottom', '135deg'] as const;
 export const GRADIENT_SAMPLE_SIZE = 32;
+const HEX_COLOR = /^#[0-9a-f]{6}$/i;
 const SAMPLE_POINTS = [
 	[0.25, 0.25],
 	[0.75, 0.25],
@@ -12,6 +13,14 @@ const SAMPLE_POINTS = [
 ] as const;
 
 type Rgb = readonly [number, number, number];
+
+export function normalizeGradient(value: unknown): ThemeGradient | null {
+	if (!value || typeof value !== 'object') return null;
+	const candidate = value as Record<string, unknown>;
+	if (Object.keys(candidate).some((key) => !['direction', 'top', 'bottom'].includes(key))) return null;
+	if ((candidate.direction !== 'to bottom' && candidate.direction !== '135deg') || typeof candidate.top !== 'string' || typeof candidate.bottom !== 'string' || !HEX_COLOR.test(candidate.top) || !HEX_COLOR.test(candidate.bottom)) return null;
+	return { direction: candidate.direction, top: candidate.top.toLowerCase(), bottom: candidate.bottom.toLowerCase() };
+}
 
 export function composeSampledGradient(top: string, bottom: string): ThemeGradient {
 	return { direction: 'to bottom', top, bottom };

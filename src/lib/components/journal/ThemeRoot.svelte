@@ -1,11 +1,27 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
 	import type { Snippet } from 'svelte';
 	import { normalizeThemeKey, type ThemeKey } from '$lib/theme/registry';
+	import { normalizeGradient, sampleHeroGradient } from '$lib/theme/gradient';
+	import type { NormalizedGradient } from '$server/presentation/model';
 
-	let { themeKey, children }: { themeKey: ThemeKey; children: Snippet } = $props();
+	let { themeKey, gradient, heroSource, children }: { themeKey: ThemeKey; gradient?: NormalizedGradient; heroSource?: string | null; children: Snippet } = $props();
 	const normalizedKey = $derived(normalizeThemeKey(themeKey));
+	let automaticGradient = $state<NormalizedGradient | null>(null);
+	const explicitGradient = $derived(normalizeGradient(gradient));
+	const appliedGradient = $derived(explicitGradient ?? automaticGradient);
+	const gradientStyle = $derived(appliedGradient
+		? `--theme-gradient-direction: ${appliedGradient.direction}; --theme-gradient-top: ${appliedGradient.top}; --theme-gradient-bottom: ${appliedGradient.bottom};`
+		: undefined);
+
+	onMount(() => {
+		if (gradient || !heroSource) return;
+		void sampleHeroGradient(heroSource).then((sampled) => {
+			if (sampled) automaticGradient = sampled;
+		});
+	});
 </script>
 
-<div class="theme-root" data-theme={normalizedKey}>
+<div class="theme-root" data-theme={normalizedKey} data-gradient-mode={explicitGradient ? 'explicit' : automaticGradient ? 'automatic' : 'theme'} style={gradientStyle}>
 	{@render children()}
 </div>

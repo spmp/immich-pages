@@ -30,7 +30,7 @@
 
 {#snippet mobileNavigation()}<MobileDrawer entries={navigation?.entries} activeHref={navigation?.activeHref} {theme} />{/snippet}
 
-	<ThemeRoot themeKey={theme.effectiveKey}>
+	<ThemeRoot themeKey={theme.effectiveKey} gradient={page.presentation.gradient} heroSource={page.hero?.thumbnail}>
 		<div class:navigated={navigation} class="journal-layout">
 			{#if navigation}<PageNavigation entries={navigation.entries} activeHref={navigation.activeHref} {theme} />{/if}
 			<main class="journal">
