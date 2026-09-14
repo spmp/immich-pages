@@ -50,6 +50,13 @@ describe('journal gallery contract', () => {
 		expect(lightbox).toContain('--pswp-bg-opacity: 1');
 	});
 
+	it('marks the thumbnail anchor as the non-JavaScript lightbox fallback', () => {
+		const asset = source('GalleryAsset');
+		expect(asset).toContain('data-lightbox-fallback="native-anchor"');
+		expect(asset).toContain('data-media-source="thumbnail"');
+		expect(asset).not.toMatch(/\/original|\/download/);
+	});
+
 	it('defines the complete lightbox lifecycle and safe fallback contract', () => {
 		const lightbox = source('Lightbox');
 		const asset = source('GalleryAsset');
