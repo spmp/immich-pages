@@ -1,4 +1,5 @@
 import type { ThemeGradient } from './registry';
+export { composeThemeGradient } from './registry';
 
 export const GRADIENT_DIRECTIONS = ['to bottom', '135deg'] as const;
 export const GRADIENT_SAMPLE_SIZE = 32;
