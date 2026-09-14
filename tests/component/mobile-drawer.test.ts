@@ -34,4 +34,15 @@ describe('mobile navigation drawer contract', () => {
 		expect(source).toContain('prefers-reduced-motion');
 		expect(source).toContain('onkeydown={trap}');
 	});
+
+	it('uses the exact production theme selector without legacy options', () => {
+		expect(source).toContain('<label for="mobile-theme-choice">Theme</label>');
+		expect(source).toContain('<option value="default">Default</option>');
+		expect(source).toContain('<option value="light">Light</option>');
+		expect(source).toContain('<option value="dark">Dark</option>');
+		expect(source).not.toContain('THEME_KEYS');
+		expect(source).not.toContain('ThemeExplorer');
+		expect(source).toContain('theme.select(event.currentTarget.value)');
+		expect(source).toContain('min-height: 44px');
+	});
 });

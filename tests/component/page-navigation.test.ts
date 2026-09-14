@@ -27,4 +27,26 @@ describe('share navigation components', () => {
 		expect(page).toContain('@media (max-width: 959px)');
 		expect(page).toContain('@media (prefers-reduced-motion: reduce)');
 	});
+
+	it('uses the exact production theme selector and no exploratory surface', () => {
+		const page = source('PageNavigation');
+		expect(page).toContain('<label for="desktop-theme-choice">Theme</label>');
+		expect(page).toContain('<option value="default">Default</option>');
+		expect(page).toContain('<option value="light">Light</option>');
+		expect(page).toContain('<option value="dark">Dark</option>');
+		expect(page).not.toContain('THEME_KEYS');
+		expect(page).not.toContain('ThemeExplorer');
+		expect(page).toContain('theme.select(event.currentTarget.value)');
+	});
+
+	it('keeps the same theme state connected from the journal root', () => {
+		const journal = readFileSync('src/lib/components/journal/JournalPage.svelte', 'utf8');
+		const root = readFileSync('src/lib/components/journal/ThemeRoot.svelte', 'utf8');
+		expect(journal).toContain('const theme = createThemeState()');
+		expect(journal).toContain('<ThemeRoot {theme}');
+		expect(journal).toContain('<PageNavigation entries={navigation.entries} activeHref={navigation.activeHref} {theme} />');
+		expect(journal).toContain('<MobileDrawer entries={navigation?.entries} activeHref={navigation?.activeHref} {theme} />');
+		expect(root).toContain('theme?: ThemeState');
+		expect(root).toContain('theme?.effectiveKey');
+	});
 });
