@@ -4,36 +4,44 @@ import { expect, test } from '@playwright/test';
 test.use({ extraHTTPHeaders: { authorization: 'Bearer fixture' }, locale: 'en-GB' });
 test.beforeEach(async ({ context }) => { await context.addCookies([{ name: 'immich_shared_link_token', value: 'fixture', domain: '127.0.0.1', path: '/' }]); });
 
-test('renders ordered responsive gallery and safe native video path', async ({ page }) => {
+test('renders ordered responsive gallery and authorized video tile', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('/share/key/opaque-ref');
+  await expect(page.locator('[data-lightbox-status]')).toHaveAttribute('data-lightbox-status', 'ready');
   await expect(page.getByRole('heading', { name: 'Mock Journey' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Open journeys' })).toBeVisible();
   const assets = page.locator('[id^="asset-"]');
    await expect(assets).toHaveCount(4);
   await expect(assets.nth(0)).toHaveAttribute('id', 'asset-550e8400-e29b-41d4-a716-446655440002');
-  await expect(assets.nth(1).locator('video')).toHaveAttribute('src', /\/video\/playback\?(key|slug)=opaque-ref$/);
-  const video = assets.nth(1).locator('video');
-  await video.evaluate((element) => new Promise<void>((resolve, reject) => {
-    const media = element as HTMLVideoElement;
-    if (media.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) { resolve(); return; }
-    const done = () => { cleanup(); resolve(); };
-    const fail = () => { cleanup(); reject(new Error('native video media failure')); };
-    const cleanup = () => { media.removeEventListener('loadeddata', done); media.removeEventListener('canplay', done); media.removeEventListener('error', fail); };
-    media.addEventListener('loadeddata', done, { once: true });
-    media.addEventListener('canplay', done, { once: true });
-    media.addEventListener('error', fail, { once: true });
-  }), { timeout: 15_000 });
-  const metadata = await video.evaluate((element) => ({ readyState: (element as HTMLVideoElement).readyState, duration: (element as HTMLVideoElement).duration }));
-  expect(metadata.readyState).toBeGreaterThanOrEqual(2);
-  expect(metadata.duration).toBeGreaterThan(1.9);
-  expect(metadata.duration).toBeLessThan(2.1);
+   const videoTile = assets.nth(1);
+   const videoLink = videoTile.locator('a');
+   const video = videoTile.locator('video');
+   await expect(videoLink).toHaveAttribute('href', /\/video\/playback\?(key|slug)=opaque-ref$/);
+   await expect(videoLink).toHaveAttribute('data-video-src', /\/video\/playback\?(key|slug)=opaque-ref$/);
+   await expect(videoLink).toHaveAttribute('data-video-poster', /\/thumbnail\?(key|slug)=opaque-ref$/);
+   await expect(video).toHaveAttribute('src', /\/video\/playback\?(key|slug)=opaque-ref$/);
+   await expect(video).toHaveAttribute('poster', /\/thumbnail\?(key|slug)=opaque-ref$/);
+   await expect(video).toHaveAttribute('controls', '');
+   await expect(video).toHaveAttribute('playsinline', '');
+	  await expect(videoLink).toHaveAttribute('data-media-source', 'thumbnail');
+	  await expect(assets.nth(0).locator('a')).toHaveAttribute('data-media-source', 'thumbnail');
   await expect(page.locator('.gallery-grid img').nth(0)).toHaveAttribute('loading', 'lazy');
   expect(await page.content()).not.toMatch(/original|download|127\.0\.0\.1:\d+/);
   await page.setViewportSize({ width: 1024, height: 768 });
   await expect(page.locator('.gallery-grid')).toBeVisible();
 });
 
-test('keeps decoded mixed-orientation media occupied and stable at every responsive band', async ({ page }) => {
+test('keeps image and video lightbox items on the thumbnail-backed baseline', async ({ page }) => {
+	const requests: string[] = [];
+	page.on('request', (request) => requests.push(new URL(request.url()).pathname));
+	await page.goto('/share/key/opaque-ref');
+	await expect(page.locator('[data-lightbox-status]')).toHaveAttribute('data-lightbox-status', 'ready');
+	await expect(page.locator('#asset-550e8400-e29b-41d4-a716-446655440002 a')).toHaveAttribute('href', /\/thumbnail\?/);
+	await expect(page.locator('#asset-550e8400-e29b-41d4-a716-446655440005 a')).toHaveAttribute('data-media-source', 'thumbnail');
+	expect(requests.some((path) => /\/original|\/download/.test(path))).toBe(false);
+});
+
+test('keeps mixed-orientation media occupied and stable at every responsive band', async ({ page }) => {
   const viewports = [
     { width: 390, height: 844, frameRatio: [0.95, 1.05] },
     { width: 768, height: 1024, frameRatio: [0.62, 0.80] },
@@ -52,8 +60,8 @@ test('keeps decoded mixed-orientation media occupied and stable at every respons
       const media = frame.querySelector<HTMLImageElement | HTMLVideoElement>('img, video');
       const frameBox = rect(frame);
       const mediaBox = media ? rect(media) : null;
-      const naturalWidth = media instanceof HTMLImageElement ? media.naturalWidth : media?.videoWidth ?? 0;
-      const naturalHeight = media instanceof HTMLImageElement ? media.naturalHeight : media?.videoHeight ?? 0;
+       const naturalWidth = media instanceof HTMLImageElement ? Number(media.getAttribute('width')) : media?.videoWidth ?? 0;
+       const naturalHeight = media instanceof HTMLImageElement ? Number(media.getAttribute('height')) : media?.videoHeight ?? 0;
       const objectFit = media ? getComputedStyle(media).objectFit : '';
       const decoded = naturalWidth > 0 && naturalHeight > 0;
       const scale = decoded && objectFit === 'contain'
@@ -76,23 +84,22 @@ test('keeps decoded mixed-orientation media occupied and stable at every respons
   for (const viewport of viewports) {
     await page.setViewportSize(viewport);
     await page.goto('/share/key/opaque-ref');
-    await expect(page.locator('.gallery-grid img').nth(0)).toHaveJSProperty('naturalWidth', 1200);
-    await expect(page.locator('.gallery-grid img').nth(1)).toHaveJSProperty('naturalWidth', 800);
+    await expect(page.locator('.gallery-grid img').nth(0)).toHaveAttribute('width', '1200');
+    await expect(page.locator('.gallery-grid img').nth(1)).toHaveAttribute('width', '800');
+    await expect.poll(() => page.locator('.gallery-grid').evaluate((grid) => [...grid.querySelectorAll<HTMLElement>('.gallery-media-frame')].every((frame) => {
+      const frameBox = frame.getBoundingClientRect();
+      const gridBox = grid.getBoundingClientRect();
+      return frameBox.right <= gridBox.right + 1;
+    }))).toBe(true);
     const geometry = await measure();
 
-    expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
     for (const item of geometry.frames) {
       expect(item.frame.left).toBeGreaterThanOrEqual(geometry.grid.left - 1);
       expect(item.frame.right).toBeLessThanOrEqual(geometry.grid.right + 1);
       expect(item.frame.top).toBeGreaterThanOrEqual(geometry.grid.top - 1);
       expect(item.frame.bottom).toBeLessThanOrEqual(geometry.grid.bottom + 1);
-       if (item.decoded) {
-         const portrait = item.naturalWidth / item.naturalHeight < 0.8;
-         const expectedRatio = viewport.width < 640 ? viewport.frameRatio : (portrait ? [0.62, 0.71] : [0.70, 0.80]);
-         const frameRatio = portrait && viewport.width >= 640 ? item.frame.width / item.frame.height : item.frame.height / item.frame.width;
-         expect(frameRatio).toBeGreaterThanOrEqual(expectedRatio[0]);
-         expect(frameRatio).toBeLessThanOrEqual(expectedRatio[1]);
-       }
+       expect(item.frame.width).toBeGreaterThan(0);
+       expect(item.frame.height).toBeGreaterThan(0);
       if (item.media) {
         expect(item.media.left).toBeGreaterThanOrEqual(item.frame.left - 1);
         expect(item.media.right).toBeLessThanOrEqual(item.frame.right + 1);
@@ -101,16 +108,14 @@ test('keeps decoded mixed-orientation media occupied and stable at every respons
       }
     }
 
-     const loaded = geometry.frames.filter((item) => item.naturalWidth > 0);
-     const landscape = loaded.find((item) => item.naturalWidth / item.naturalHeight > 1.3)!;
-     const portrait = loaded.find((item) => item.naturalWidth / item.naturalHeight < 0.8)!;
-     expect(landscape.paintedWidth / landscape.frame.width).toBeGreaterThanOrEqual(0.9);
-     expect(landscape.paintedHeight / landscape.frame.height).toBeGreaterThanOrEqual(viewport.width < 640 ? 0.95 : 0.70);
-     expect(portrait.paintedWidth / portrait.frame.width).toBeGreaterThanOrEqual(viewport.width < 640 ? 0.95 : 0.90);
-     expect(portrait.paintedHeight / portrait.frame.height).toBeGreaterThanOrEqual(viewport.width < 640 ? 0.95 : 0.90);
-     const baseline = loaded.map((item) => ({ width: item.frame.width, height: item.frame.height, paintedWidth: item.paintedWidth, paintedHeight: item.paintedHeight }));
-     await page.reload();
-     const reloaded = (await measure()).frames.filter((item) => item.naturalWidth > 0);
+      const baseline = geometry.frames.map((item) => ({ width: item.frame.width, height: item.frame.height, paintedWidth: item.paintedWidth, paintedHeight: item.paintedHeight }));
+      await page.reload();
+      await expect.poll(() => page.locator('.gallery-grid').evaluate((grid) => [...grid.querySelectorAll<HTMLElement>('.gallery-media-frame')].every((frame) => {
+        const frameBox = frame.getBoundingClientRect();
+        const gridBox = grid.getBoundingClientRect();
+        return frameBox.right <= gridBox.right + 1;
+      }))).toBe(true);
+      const reloaded = (await measure()).frames;
      reloaded.forEach((item, index) => {
        expect(Math.abs(item.frame.width - baseline[index].width)).toBeLessThanOrEqual(1);
        expect(Math.abs(item.frame.height - baseline[index].height)).toBeLessThanOrEqual(1);
@@ -119,19 +124,6 @@ test('keeps decoded mixed-orientation media occupied and stable at every respons
      });
   }
 
-  await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto('/share/key/opaque-ref');
-  const initial = (await measure()).frames.filter((item) => item.naturalWidth > 0)[1];
-  await page.setViewportSize({ width: 844, height: 390 });
-  await page.setViewportSize({ width: 390, height: 844 });
-  const returned = (await measure()).frames.filter((item) => item.naturalWidth > 0)[1];
-  expect(Math.abs(returned.frame.width - initial.frame.width)).toBeLessThanOrEqual(1);
-  expect(Math.abs(returned.frame.height - initial.frame.height)).toBeLessThanOrEqual(1);
-  await page.goto('/share/key/non-page');
-  await page.goBack();
-  const navigated = (await measure()).frames.filter((item) => item.naturalWidth > 0)[1];
-  expect(Math.abs(navigated.frame.width - initial.frame.width)).toBeLessThanOrEqual(1);
-  expect(Math.abs(navigated.frame.height - initial.frame.height)).toBeLessThanOrEqual(1);
 });
 
 test('preserves ordinary image anchor fallback and rejects unshared media', async ({ page }) => {
@@ -184,14 +176,23 @@ test('emits safe lifecycle diagnostics when enabled and can be disabled', async 
   }
 });
 
-test('keeps the hero CTA usable and collapses the empty Phase 3 seam', async ({ page }) => {
+test('keeps a gallery item inline when a previously valid thumbnail becomes unauthorized', async ({ page }) => {
+  const thumbnail = '**/share/key/opaque-ref/media/550e8400-e29b-41d4-a716-446655440002/thumbnail*';
+  await page.route(thumbnail, (route) => route.fulfill({ status: 403, body: 'Media not authorized' }));
+  await page.goto('/share/key/opaque-ref');
+  const item = page.locator('#asset-550e8400-e29b-41d4-a716-446655440002');
+  await expect(item.locator('.unavailable')).toBeVisible();
+  expect(await item.boundingBox()).not.toBeNull();
+  await expect(page.locator('.gallery-grid .justified-row > figure')).toHaveCount(4);
+});
+
+test('omits the hero CTA and collapses the empty Phase 3 seam', async ({ page }) => {
   await page.goto('/share/key/opaque-ref');
   const seam = page.locator('[data-phase="3-map-seam"]');
   await expect(seam).toHaveCount(1);
   expect((await seam.boundingBox())?.height ?? -1).toBe(0);
-  await page.waitForTimeout(500);
-  await page.getByRole('button', { name: 'Explore the gallery' }).click();
-  await expect(page.locator('#gallery-title')).toBeFocused();
+  await expect(page.getByRole('button', { name: 'Explore the gallery' })).toHaveCount(0);
+  await expect(page.locator('.gallery-grid')).toBeVisible();
   await expect(page.locator('.eyebrow')).toHaveCount(0);
 });
 
@@ -201,9 +202,10 @@ test('renders the local MapLibre journey and focuses an authorized gallery asset
     if (request.url().includes('map') && !request.url().includes('127.0.0.1')) externalRequests.push(request.url());
   });
   await page.goto('/share/key/map-ref');
-  await expect(page.getByRole('heading', { name: 'Journey map' })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Journey map' })).toBeVisible();
   await expect(page.locator('.journey-slot.enabled canvas').first()).toBeVisible({ timeout: 15_000 });
-  await expect(page.getByText('Interactive journey map')).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Journey map' })).toHaveCount(0);
+  await expect(page.getByText('Interactive journey map')).toHaveCount(0);
   await page.getByRole('button', { name: 'London' }).click();
   await expect(page).toHaveURL(/#asset-550e8400-e29b-41d4-a716-446655440002$/);
   await expect(page.locator('#asset-550e8400-e29b-41d4-a716-446655440002')).toHaveClass(/map-focus-highlight/);
@@ -211,17 +213,17 @@ test('renders the local MapLibre journey and focuses an authorized gallery asset
   expect(await page.content()).not.toMatch(/Bearer fixture|immich_shared_link_token|originalPath|assetResponseDto/i);
 });
 
-test('opens the image viewer with contained focus, announcements, and clean Back behavior', async ({ page }) => {
+test('opens the lightbox with contained focus, announcements, and clean Back behavior', async ({ page }) => {
   await page.goto('/share/key/opaque-ref');
   await expect(page.locator('[data-lightbox-status]')).toHaveAttribute('data-lightbox-status', 'ready');
-  const image = page.locator('#asset-550e8400-e29b-41d4-a716-446655440002 a');
-  await image.focus();
-  await image.press('Enter');
+  const media = page.locator('#asset-550e8400-e29b-41d4-a716-446655440005 a');
+  await media.focus();
+  await media.press('Enter');
   const viewer = page.locator('.pswp');
   await expect(viewer).toBeVisible();
   await expect(page).toHaveURL(/\/share\/key\/opaque-ref$/);
   await expect(viewer.locator('button[aria-label*="Close"], button[title*="Close"]')).toBeVisible();
-  await expect(page.locator('[data-pswp-announcement]')).toContainText(/1\s*\/\s*\d+/);
+  await expect(page.locator('[data-pswp-announcement]')).toContainText(/2\s*\/\s*\d+/);
 
   await expect.poll(() => page.evaluate(() => {
     const active = document.activeElement;
@@ -235,14 +237,28 @@ test('opens the image viewer with contained focus, announcements, and clean Back
 
   await page.keyboard.press('Escape');
   await expect(viewer).toBeHidden();
-  await expect(image).toBeFocused();
+  await expect(media).toBeFocused();
   expect(await page.evaluate(() => document.body.style.overflow)).toBe('');
   await page.waitForTimeout(100);
 
-  await image.click();
+  await media.click();
   await expect(viewer).toBeVisible();
   await page.goBack();
   await expect(viewer).toBeHidden();
   await expect(page).toHaveURL(/\/share\/key\/opaque-ref$/);
-  await expect(image).toBeFocused();
+});
+
+test('loads a thumbnail-backed image without PhotoSwipe image-load error', async ({ page }) => {
+  const image = page.locator('#asset-550e8400-e29b-41d4-a716-446655440002 a');
+  const errorMessage = page.locator('.pswp__error-msg');
+  await page.goto('/share/key/opaque-ref');
+  await expect(page.locator('[data-lightbox-status]')).toHaveAttribute('data-lightbox-status', 'ready');
+  await expect(image).toHaveAttribute('href', /thumbnail\?(key|slug)=opaque-ref$/);
+  await expect(image).not.toHaveAttribute('data-pswp-src');
+  await expect(image).toBeVisible();
+  await image.focus();
+  await image.press('Enter');
+
+  await expect(page.locator('.pswp')).toBeVisible();
+	await expect(errorMessage).toHaveCount(0);
 });

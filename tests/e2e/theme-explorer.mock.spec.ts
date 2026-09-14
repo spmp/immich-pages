@@ -3,6 +3,16 @@ import { expect, test } from '@playwright/test';
 const shareHref = '/share/key/opaque-ref';
 
 test.describe('production gradient boundary', () => {
+	test('exposes exactly the production theme choices on desktop and mobile', async ({ page, context }) => {
+		await context.addCookies([{ name: 'immich_shared_link_token', value: 'fixture', domain: '127.0.0.1', path: '/' }]);
+		await page.setViewportSize({ width: 1280, height: 800 });
+		await page.goto(shareHref);
+		await expect(page.locator('#desktop-theme-choice option')).toHaveText(['Default', 'Light', 'Dark']);
+		await expect(page.locator('#desktop-theme-choice')).toHaveAttribute('aria-describedby', 'desktop-theme-description');
+
+		await expect(page.locator('#desktop-theme-choice option')).toHaveCount(3);
+	});
+
 	test('hydrates OS theme, keeps wrapped content responsive, and changes no auth or media boundary', async ({ page, context }) => {
 		await context.addCookies([{ name: 'immich_shared_link_token', value: 'fixture', domain: '127.0.0.1', path: '/' }]);
 		await page.emulateMedia({ colorScheme: 'light', reducedMotion: 'reduce' });
@@ -21,11 +31,16 @@ test.describe('production gradient boundary', () => {
 		await page.getByRole('button', { name: 'Open journeys' }).click();
 		await expect(page.getByRole('dialog', { name: 'Journeys' })).toBeVisible();
 		const themeSelect = page.locator('#mobile-theme-choice');
+		await expect(themeSelect).toHaveValue('default');
+		await expect(themeSelect.locator('option')).toHaveCount(3);
+		await expect(themeSelect).toHaveAttribute('aria-describedby', 'mobile-theme-description');
 		await themeSelect.selectOption('dark');
 		await expect(root).toHaveAttribute('data-theme', 'dark');
 		await themeSelect.selectOption('light');
 		await expect(root).toHaveAttribute('data-theme', 'light');
 		expect(requests.slice(baseline).some((path) => /\/login|\/users\/me|\/albums(?:\/|$)|\/media\//.test(path))).toBe(false);
+		await page.keyboard.press('Escape');
+		await expect(page.getByRole('button', { name: 'Open journeys' })).toBeFocused();
 	});
 
 	test('renders the themed journal without adding authorization or remote image inputs', async ({ page, context }) => {

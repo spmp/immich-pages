@@ -61,13 +61,13 @@
 	{#if failed}<div class="unavailable" role="status">Media unavailable</div>
 	{:else if isVideo}
 		<div class="gallery-media-frame">
-			<a href={resolve((asset.videoHref ?? asset.thumbnail) as any)} aria-label={label} data-pswp-type="video" data-video-src={asset.videoHref} data-video-poster={asset.thumbnail} data-pswp-width={lightboxWidth} data-pswp-height={lightboxHeight}>
+			<a href={resolve((asset.videoHref ?? asset.thumbnail) as any)} aria-label={label} data-media-source="thumbnail" data-pswp-type="video" data-video-src={asset.videoHref} data-video-poster={asset.thumbnail} data-pswp-width={lightboxWidth} data-pswp-height={lightboxHeight}>
 				<video src={asset.videoHref} poster={asset.thumbnail} controls playsinline preload="metadata" aria-label={label} onloadstart={handleMediaLoad} onerror={handleMediaError}><track kind="captions" /></video>
 			</a>
 		</div>
 	{:else}
 		<div class="gallery-media-frame">
-			<a href={resolve(asset.thumbnail as any)} aria-label={label} data-pswp-width={lightboxWidth} data-pswp-height={lightboxHeight}>
+			<a href={resolve(asset.thumbnail as any)} aria-label={label} data-media-source="thumbnail" data-pswp-width={lightboxWidth} data-pswp-height={lightboxHeight}>
 				<img src={asset.thumbnail} alt={label} loading="lazy" width={lightboxWidth} height={lightboxHeight} bind:naturalWidth bind:naturalHeight onload={handleMediaLoad} onerror={handleMediaError} />
 			</a>
 		</div>
