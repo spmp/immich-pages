@@ -1,16 +1,16 @@
 :root {
-	--theme-bg: #f6f3ee;
-	--theme-surface: #fffdf9;
-	--theme-text: #202522;
-	--theme-muted: #66706b;
-	--theme-accent: #bd4d2e;
-	--theme-rule: #d9d4ca;
-	--theme-radius: 0.25rem;
-	--theme-content-width: 80rem;
-	--theme-space-section: clamp(3rem, 8vw, 7rem);
+	--theme-bg: #161616;
+	--theme-surface: #222222;
+	--theme-text: #f1eee7;
+	--theme-muted: #aaa59b;
+	--theme-accent: #d89a4a;
+	--theme-rule: #46433e;
+	--theme-radius: 0rem;
+	--theme-content-width: 68rem;
+	--theme-space-section: clamp(4rem, 12vw, 10rem);
 	--theme-space-gap: 1rem;
-	--theme-font-heading: ui-sans-serif, system-ui, sans-serif;
-	--theme-font-body: ui-sans-serif, system-ui, sans-serif;
+	--theme-font-heading: ui-serif, Georgia, serif;
+	--theme-font-body: ui-serif, Georgia, serif;
 	--theme-font-caption: ui-sans-serif, system-ui, sans-serif;
 	--theme-hero-text: #fffdf8;
 	--theme-gradient-direction: to bottom;
@@ -34,21 +34,12 @@
 	font-family: var(--theme-font-body);
 }
 
-.theme-root[data-theme='studio-modern'] { --theme-bg: #f8f6f1; --theme-gradient-direction: 135deg; --theme-gradient-top: #f8f6f1; --theme-gradient-bottom: #ece9e2; }
-.theme-root[data-theme='studio'] { --theme-bg: #e9e2d7; --theme-gradient-direction: to bottom; --theme-gradient-top: #e9e2d7; --theme-gradient-bottom: #e9e2d7; --theme-surface: #faf7f0; --theme-text: #302b25; --theme-muted: #756b5f; --theme-accent: #8d4f38; --theme-rule: #cfc2b1; --theme-radius: 0.5rem; --theme-content-width: 78rem; --theme-space-section: clamp(3.5rem, 9vw, 8rem); --theme-font-heading: ui-serif, Georgia, serif; }
-.theme-root[data-theme='minimal'] { --theme-bg: #fff; --theme-gradient-direction: to bottom; --theme-gradient-top: #fff; --theme-gradient-bottom: #fff; --theme-surface: #fff; --theme-text: #111; --theme-muted: #555; --theme-accent: #111; --theme-rule: #ddd; --theme-radius: 0; --theme-content-width: 90rem; --theme-space-section: clamp(2rem, 5vw, 5rem); --theme-space-gap: 0.5rem; }
-.theme-root[data-theme='editorial'] { --theme-bg: #f1eadf; --theme-gradient-direction: to bottom; --theme-gradient-top: #f1eadf; --theme-gradient-bottom: #f1eadf; --theme-surface: #fbf7f0; --theme-text: #332b26; --theme-muted: #77695f; --theme-accent: #a24b36; --theme-rule: #d8c9b9; --theme-radius: 0.125rem; --theme-content-width: 74rem; --theme-space-section: clamp(4rem, 10vw, 9rem); --theme-font-heading: ui-serif, Georgia, serif; --theme-font-body: ui-serif, Georgia, serif; }
-.theme-root[data-theme='classic'] { --theme-bg: #f4f0e7; --theme-gradient-direction: to bottom; --theme-gradient-top: #f4f0e7; --theme-gradient-bottom: #f4f0e7; --theme-surface: #fffdf7; --theme-text: #302d27; --theme-muted: #746c5d; --theme-accent: #a37a36; --theme-rule: #d8cdb8; --theme-radius: 0.75rem; --theme-content-width: 76rem; --theme-font-heading: ui-serif, Georgia, serif; --theme-font-body: ui-serif, Georgia, serif; }
-.theme-root[data-theme='noir'] { --theme-bg: #161616; --theme-gradient-direction: to bottom; --theme-gradient-top: #161616; --theme-gradient-bottom: #161616; --theme-surface: #222; --theme-text: #f1eee7; --theme-muted: #aaa59b; --theme-accent: #d89a4a; --theme-rule: #46433e; --theme-radius: 0.125rem; --theme-font-heading: ui-sans-serif, system-ui, sans-serif; }
-.theme-root[data-theme='monograph'] { --theme-bg: #fafafa; --theme-gradient-direction: to bottom; --theme-gradient-top: #fafafa; --theme-gradient-bottom: #fafafa; --theme-surface: #fff; --theme-text: #1b1b1b; --theme-muted: #676767; --theme-accent: #8b3027; --theme-rule: #cfcfcf; --theme-radius: 0; --theme-content-width: 68rem; --theme-space-section: clamp(4rem, 12vw, 10rem); --theme-font-heading: ui-serif, Georgia, serif; --theme-font-body: ui-serif, Georgia, serif; }
+.theme-root[data-theme='default'], .theme-root[data-theme='dark'] { --theme-bg: #161616; --theme-gradient-direction: to bottom; --theme-gradient-top: #161616; --theme-gradient-bottom: #161616; }
+.theme-root[data-theme='light'] { --theme-bg: #fafafa; --theme-gradient-direction: to bottom; --theme-gradient-top: #fafafa; --theme-gradient-bottom: #fafafa; --theme-surface: #fff; --theme-text: #1b1b1b; --theme-muted: #676767; --theme-accent: #8b3027; --theme-rule: #cfcfcf; }
 
 /* Keep the overscroll canvas in the same fixed, allowlisted palette as the page. */
-html:has(.theme-root[data-theme='noir']), html:has(.theme-root[data-theme='noir']) body { background: #161616; }
-html:has(.theme-root[data-theme='studio-modern']), html:has(.theme-root[data-theme='studio-modern']) body { background: #f8f6f1; }
-html:has(.theme-root[data-theme='minimal']), html:has(.theme-root[data-theme='minimal']) body { background: #fff; }
-html:has(.theme-root[data-theme='editorial']), html:has(.theme-root[data-theme='editorial']) body { background: #f1eadf; }
-html:has(.theme-root[data-theme='classic']), html:has(.theme-root[data-theme='classic']) body { background: #f4f0e7; }
-html:has(.theme-root[data-theme='studio']), html:has(.theme-root[data-theme='studio']) body { background: #e9e2d7; }
-html:has(.theme-root[data-theme='monograph']), html:has(.theme-root[data-theme='monograph']) body { background: #fafafa; }
+html:has(.theme-root[data-theme='default']), html:has(.theme-root[data-theme='default']) body,
+html:has(.theme-root[data-theme='dark']), html:has(.theme-root[data-theme='dark']) body { background: #161616; }
+html:has(.theme-root[data-theme='light']), html:has(.theme-root[data-theme='light']) body { background: #fafafa; }
 
 .theme-root h1, .theme-root h2, .theme-root h3 { font-family: var(--theme-font-heading); }
