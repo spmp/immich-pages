@@ -28,6 +28,14 @@ describe('shared theme surface contract', () => {
 		}
 	});
 
+	it('keeps interactive surface focus and fallback styling on shared tokens', () => {
+		const hero = read('src/lib/components/journal/JournalHero.svelte');
+		const narrative = read('src/lib/components/journal/JournalNarrative.svelte');
+		expect(hero).toContain('background: var(--theme-gradient)');
+		expect(narrative).toContain(':global(a):focus-visible');
+		expect(narrative).toContain('var(--theme-focus)');
+	});
+
 	it('wraps the library route in ThemeRoot and styles library-specific surfaces', () => {
 		const library = read('src/routes/library/+page.svelte');
 		expect(library).toContain("import ThemeRoot from '$lib/components/journal/ThemeRoot.svelte'");
