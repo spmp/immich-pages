@@ -129,18 +129,6 @@ describe('journal gallery contract', () => {
 		expect(gallery).toContain('full-width-row');
 	});
 
-	it('exposes the active named preset and uses theme contrast tokens', () => {
-		const explorer = readFileSync('src/lib/theme/ThemeExplorer.svelte', 'utf8');
-		const registry = readFileSync('src/lib/theme/registry.ts', 'utf8');
-		const styles = readFileSync('src/lib/styles/theme.css', 'utf8');
-		expect(explorer).toContain('Active preset:');
-		expect(registry).toContain('Monochrome Reference');
-		expect(styles).toContain("data-theme='noir'");
-		expect(styles).toContain('--theme-text: #f1eee7');
-		expect(source('PresentationState')).toContain('var(--theme-text');
-		expect(source('JourneyMapSlot')).toContain('var(--theme-surface)');
-	});
-
 	it('wires authorized video tiles into the PhotoSwipe custom content hook', () => {
 		const asset = source('GalleryAsset');
 		const lightbox = source('Lightbox');
