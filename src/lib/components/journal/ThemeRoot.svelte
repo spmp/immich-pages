@@ -4,9 +4,10 @@
 	import { normalizeThemeKey, type ThemeKey } from '$lib/theme/registry';
 	import { normalizeGradient, sampleHeroGradient } from '$lib/theme/gradient';
 	import type { NormalizedGradient } from '$server/presentation/model';
+	import type { ThemeState } from '$lib/theme/state.svelte';
 
-	let { themeKey, gradient, heroSource, children }: { themeKey: ThemeKey; gradient?: NormalizedGradient; heroSource?: string | null; children: Snippet } = $props();
-	const normalizedKey = $derived(normalizeThemeKey(themeKey));
+	let { theme, themeKey, gradient, heroSource, children }: { theme?: ThemeState; themeKey?: ThemeKey; gradient?: NormalizedGradient; heroSource?: string | null; children: Snippet } = $props();
+	const normalizedKey = $derived(normalizeThemeKey(theme?.effectiveKey ?? themeKey));
 	let automaticGradient = $state<NormalizedGradient | null>(null);
 	const explicitGradient = $derived(normalizeGradient(gradient));
 	const appliedGradient = $derived(explicitGradient ?? automaticGradient);

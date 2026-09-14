@@ -1,7 +1,6 @@
 <script lang="ts">
 	import type { NavigationEntry } from '$server/library/model';
 	import { resolve } from '$app/paths';
-	import ThemeExplorer from '$lib/theme/ThemeExplorer.svelte';
 	import type { ThemeState } from '$lib/theme/state.svelte';
 
 	let { entries = [], activeHref, theme }: { entries?: NavigationEntry[]; activeHref?: string; theme?: ThemeState } = $props();
@@ -41,7 +40,17 @@
 				{/each}
 			</ul>
 		</nav>
-		{#if theme}<ThemeExplorer {theme} selectId="desktop-theme-choice" />{/if}
+		{#if theme}
+			<div class="theme-control">
+				<label for="desktop-theme-choice">Theme</label>
+				<select id="desktop-theme-choice" value={theme.selectedKey} aria-describedby="desktop-theme-description" onchange={(event) => theme.select(event.currentTarget.value)}>
+					<option value="default">Default</option>
+					<option value="light">Light</option>
+					<option value="dark">Dark</option>
+				</select>
+				<span id="desktop-theme-description" class="sr-only">Default follows the system light or dark preference.</span>
+			</div>
+		{/if}
 	{/if}
 </aside>
 
@@ -61,6 +70,10 @@
 	strong, small { overflow-wrap: anywhere; }
 	strong { font: 600 14px/1.25 ui-sans-serif, system-ui, sans-serif; }
 	small { color: var(--theme-muted, #626860); font-size: 12px; }
+	.theme-control { display: grid; gap: 8px; margin-top: 20px; font: 600 14px/1.3 ui-sans-serif, system-ui, sans-serif; }
+	.theme-control select { min-height: 44px; padding: 8px; border: 1px solid var(--theme-rule, #b7b0a5); color: inherit; background: var(--theme-control-bg); font: inherit; }
+	.theme-control select:focus-visible { outline: 3px solid var(--theme-accent, #c96b4b); outline-offset: 3px; }
+	.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
 	@media (max-width: 959px) { .page-navigation { display: none; } }
 	@media (prefers-reduced-motion: reduce) { .page-navigation { transition: none; } }
 </style>

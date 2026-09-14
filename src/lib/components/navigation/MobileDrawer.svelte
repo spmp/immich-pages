@@ -2,7 +2,6 @@
 	import { tick } from 'svelte';
 	import { resolve } from '$app/paths';
 	import type { NavigationEntry } from '$server/library/model';
-	import ThemeExplorer from '$lib/theme/ThemeExplorer.svelte';
 	import type { ThemeState } from '$lib/theme/state.svelte';
 
 	let { entries = [], activeHref, theme }: { entries?: NavigationEntry[]; activeHref?: string; theme?: ThemeState } = $props();
@@ -45,7 +44,17 @@
 		<dialog open class="drawer" bind:this={dialog} aria-modal="true" aria-labelledby="mobile-navigation-title" tabindex="-1" onkeydown={trap}>
 			<header><h2 id="mobile-navigation-title">Journeys</h2><button type="button" class="close" aria-label="Close journey navigation" onclick={closeDrawer}>×</button></header>
 			<nav aria-label="Journey pages"><ul>{#each entries as entry (entry.href)}<li><a href={resolve(safeHref(entry.href) as any)} aria-current={safeHref(entry.href) === activeHref ? 'page' : undefined} onclick={closeDrawer}>{#if safeThumbnail(entry.thumbnail)}<img src={safeThumbnail(entry.thumbnail)} alt="" loading="lazy" />{/if}<span><strong>{entry.title}</strong>{#if dateLabel(entry.date)}<small>{dateLabel(entry.date)}</small>{/if}</span></a></li>{/each}</ul></nav>
-			{#if theme}<ThemeExplorer {theme} selectId="mobile-theme-choice" />{/if}
+			{#if theme}
+				<div class="theme-control">
+					<label for="mobile-theme-choice">Theme</label>
+					<select id="mobile-theme-choice" value={theme.selectedKey} aria-describedby="mobile-theme-description" onchange={(event) => theme.select(event.currentTarget.value)}>
+						<option value="default">Default</option>
+						<option value="light">Light</option>
+						<option value="dark">Dark</option>
+					</select>
+					<span id="mobile-theme-description" class="sr-only">Default follows the system light or dark preference.</span>
+				</div>
+			{/if}
 		</dialog>
 	</div>
 {/if}
@@ -67,6 +76,10 @@
 	a[aria-current='page'] { background: var(--theme-surface, #ebe6dd); }
 	img { width: 48px; height: 48px; object-fit: cover; background: var(--theme-rule, #d5cec2); }
 	a span { display: grid; gap: 3px; min-width: 0; } strong, small { overflow-wrap: anywhere; } small { color: var(--theme-muted, #626860); font-size: 12px; }
+	.theme-control { display: grid; gap: 8px; margin-top: 24px; font: 600 14px/1.3 ui-sans-serif, system-ui, sans-serif; }
+	.theme-control select { min-height: 44px; padding: 8px; border: 1px solid var(--theme-rule); color: inherit; background: var(--theme-control-bg); font: inherit; }
+	.theme-control select:focus-visible { outline: 3px solid var(--theme-accent); outline-offset: 3px; }
+	.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
 	@media (min-width: 960px) { .drawer-layer, .open-drawer { display: none; } }
 	@media (max-width: 959px) { .open-drawer { display: block; } }
 	@media (prefers-reduced-motion: reduce) { .drawer { transition: none; } }
