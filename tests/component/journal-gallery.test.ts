@@ -136,6 +136,16 @@ describe('journal gallery contract', () => {
 		expect(gallery).toContain('full-width-row');
 	});
 
+	it('keeps promotion behind measured-slot policy and preserves the thumbnail anchor', () => {
+		const asset = source('GalleryAsset');
+		const gallery = source('JournalGallery');
+		expect(asset).toContain('data-resolution-policy={layoutMeasured ? \'measured-slot\' : \'thumbnail-baseline\'}');
+		expect(asset).toContain('chooseResolution(layoutWidth ?? 1, asset.width ?? naturalWidth, dpr)');
+		expect(asset).toContain('promotedFailed = true');
+		expect(gallery).toContain('{layoutMeasured}');
+		expect(asset).toContain('href={resolve(asset.thumbnail as any)}');
+	});
+
 	it('wires authorized video tiles into the PhotoSwipe custom content hook', () => {
 		const asset = source('GalleryAsset');
 		const lightbox = source('Lightbox');
