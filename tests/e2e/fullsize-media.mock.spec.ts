@@ -23,3 +23,13 @@ test('retains thumbnail fallback semantics when promotion is unavailable', async
 	await expect(image.locator('img')).toHaveAttribute('loading', 'lazy');
 	await expect(image.locator('a')).toHaveAttribute('href', /\/thumbnail\?/);
 });
+
+test('keeps promotion request context scoped to the share and never broadens media access', async ({ page }) => {
+	const requests: string[] = [];
+	page.on('request', (request) => requests.push(request.url()));
+	await page.goto('/share/slug/opaque-ref');
+	await expect(page.locator('#asset-550e8400-e29b-41d4-a716-446655440002 img')).toBeVisible();
+	const fullsize = requests.find((url) => url.includes('/image/fullsize'));
+	if (fullsize) expect(fullsize).toMatch(/\?(key|slug)=opaque-ref$/);
+	expect(requests.some((url) => /\/original|\/download|immich-host/.test(url))).toBe(false);
+});
