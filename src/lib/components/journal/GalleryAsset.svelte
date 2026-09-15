@@ -1,11 +1,16 @@
 	<script lang="ts">
 	import { resolve } from '$app/paths';
 	import type { NormalizedAsset } from '$server/presentation/model';
+	import { onMount } from 'svelte';
+	import { chooseResolution } from '$lib/media/resolution';
 	import { reportJournalDebug } from './journal-debug';
 	let { asset, layoutWidth, layoutHeight }: { asset: NormalizedAsset & { width?: number | null; height?: number | null; videoHref?: string; fullWidth?: boolean }; layoutWidth?: number; layoutHeight?: number } = $props();
 	let failed = $state(false);
 	let naturalWidth = $state(0);
 	let naturalHeight = $state(0);
+	let measured = $state(false);
+	let dpr = $state(1);
+	let promotedFailed = $state(false);
 	const isVideo = $derived(asset.type === 'VIDEO');
 	const label = $derived(asset.caption ?? (isVideo ? 'Journey video' : 'Journey photograph'));
 	const width = $derived(getPreferredDimension(asset.width, naturalWidth));
@@ -14,6 +19,8 @@
 	const dimensions = $derived(getLightboxDimensions(width, height));
 	const lightboxWidth = $derived(dimensions.width);
 	const lightboxHeight = $derived(dimensions.height);
+	const resolution = $derived(measured && !promotedFailed && asset.fullsize ? chooseResolution(layoutWidth ?? 1, asset.width ?? naturalWidth, dpr) : 'thumbnail');
+	const mediaSource = $derived(resolution === 'fullsize' && asset.fullsize ? asset.fullsize : asset.thumbnail);
 
 	function getLightboxDimensions(width: number | null | undefined, height: number | null | undefined) {
 		const validWidth = Number.isFinite(width) && (width as number) > 0 ? Math.round(width as number) : null;
@@ -49,12 +56,20 @@
 		return 'landscape';
 	}
 	function handleMediaError() {
+		if (resolution === 'fullsize') {
+			promotedFailed = true;
+			return;
+		}
 		failed = true;
 		reportJournalDebug('media-failure', { category: isVideo ? 'video' : 'image', status: 'unavailable', errorContext: isVideo ? 'video-load' : 'image-load' });
 	}
 	function handleMediaLoad() {
 		reportJournalDebug('media-load', { category: isVideo ? 'video' : 'image', status: 'success' });
 	}
+	onMount(() => {
+		dpr = typeof window.devicePixelRatio === 'number' && window.devicePixelRatio > 0 ? window.devicePixelRatio : 1;
+		measured = true;
+	});
 </script>
 
 	<figure id={'asset-' + asset.id} tabindex="-1" style={layoutWidth && layoutHeight ? `width: ${layoutWidth}px; height: ${layoutHeight}px` : undefined} class:failed class:full-width={asset.fullWidth} class:portrait={orientation === 'portrait'} class:landscape={orientation === 'landscape'}>
@@ -68,7 +83,7 @@
 	{:else}
 		<div class="gallery-media-frame">
 			<a href={resolve(asset.thumbnail as any)} aria-label={label} data-media-source="thumbnail" data-lightbox-fallback="native-anchor" data-pswp-width={lightboxWidth} data-pswp-height={lightboxHeight}>
-				<img src={asset.thumbnail} alt={label} loading="lazy" width={lightboxWidth} height={lightboxHeight} bind:naturalWidth bind:naturalHeight onload={handleMediaLoad} onerror={handleMediaError} />
+				<img src={mediaSource} alt={label} loading="lazy" width={lightboxWidth} height={lightboxHeight} data-media-source={resolution} bind:naturalWidth bind:naturalHeight onload={handleMediaLoad} onerror={handleMediaError} />
 			</a>
 		</div>
 	{/if}
