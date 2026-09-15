@@ -28,7 +28,7 @@ describe('progressive media capability hints', () => {
 
 	it('has a physical-evidence record that keeps the HDR claim gated', () => {
 		const evidence = readFileSync('docs/phase-8-gate-c-hdr-evidence.md', 'utf8');
-		expect(evidence).toContain('overall_status: PENDING');
+		expect(evidence).toContain('`overall_status`: PENDING');
 		expect(evidence).toContain('physical HDR-capable device');
 		expect(evidence).toContain('emulation');
 		expect(evidence).toContain('SDR fallback');
