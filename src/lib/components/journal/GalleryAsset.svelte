@@ -72,7 +72,7 @@
 	});
 </script>
 
-	<figure id={'asset-' + asset.id} tabindex="-1" style={layoutWidth && layoutHeight ? `width: ${layoutWidth}px; height: ${layoutHeight}px` : undefined} class:failed class:full-width={asset.fullWidth} class:portrait={orientation === 'portrait'} class:landscape={orientation === 'landscape'}>
+	<figure id={'asset-' + asset.id} tabindex="-1" data-resolution-policy={layoutMeasured ? 'measured-slot' : 'thumbnail-baseline'} style={layoutWidth && layoutHeight ? `width: ${layoutWidth}px; height: ${layoutHeight}px` : undefined} class:failed class:full-width={asset.fullWidth} class:portrait={orientation === 'portrait'} class:landscape={orientation === 'landscape'}>
 	{#if failed}<div class="unavailable" role="status">Media unavailable</div>
 	{:else if isVideo}
 		<div class="gallery-media-frame">
