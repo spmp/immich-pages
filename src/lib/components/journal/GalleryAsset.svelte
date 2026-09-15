@@ -2,15 +2,20 @@
 	import { resolve } from '$app/paths';
 	import type { NormalizedAsset } from '$server/presentation/model';
 	import { onMount } from 'svelte';
-	import { chooseResolution } from '$lib/media/resolution';
-	import { reportJournalDebug } from './journal-debug';
+	import { chooseResolution, requiredWidth } from '$lib/media/resolution';
+	import { probeImageDecode, supportsHdrDisplay, supportsWideColorGamut } from '$lib/media/capabilities';
+	import { journalDebugEnabled, reportJournalDebug } from './journal-debug';
 	let { asset, layoutWidth, layoutHeight, layoutMeasured = false }: { asset: NormalizedAsset & { width?: number | null; height?: number | null; videoHref?: string; fullWidth?: boolean }; layoutWidth?: number; layoutHeight?: number; layoutMeasured?: boolean } = $props();
 	let failed = $state(false);
 	let naturalWidth = $state(0);
 	let naturalHeight = $state(0);
+	let thumbnailIntrinsicWidth = $state<number | null>(null);
 	let measured = $state(false);
+	let renderedSlotWidth = $state(0);
+	let figureElement = $state<HTMLElement | undefined>(undefined);
 	let dpr = $state(1);
 	let promotedFailed = $state(false);
+	let hdrProbeStatus = $state<'not-requested' | 'unsupported' | 'verified' | 'failed'>('not-requested');
 	const isVideo = $derived(asset.type === 'VIDEO');
 	const label = $derived(asset.caption ?? (isVideo ? 'Journey video' : 'Journey photograph'));
 	const width = $derived(getPreferredDimension(asset.width, naturalWidth));
@@ -19,8 +24,16 @@
 	const dimensions = $derived(getLightboxDimensions(width, height));
 	const lightboxWidth = $derived(dimensions.width);
 	const lightboxHeight = $derived(dimensions.height);
-	const resolution = $derived(layoutMeasured && measured && !promotedFailed && asset.fullsize ? chooseResolution(layoutWidth ?? 1, asset.width ?? naturalWidth, dpr) : 'thumbnail');
+	const policyIntrinsicWidth = $derived(thumbnailIntrinsicWidth);
+	const policyCssWidth = $derived(layoutWidth ?? 1);
+	const policyRequiredWidth = $derived(requiredWidth(policyCssWidth, dpr));
+	const resolution = $derived(layoutMeasured && measured && !promotedFailed && asset.fullsize ? chooseResolution(policyCssWidth, policyIntrinsicWidth, dpr) : 'thumbnail');
 	const mediaSource = $derived(resolution === 'fullsize' && asset.fullsize ? asset.fullsize : asset.thumbnail);
+	const resolvedThumbnailSource = $derived(resolve(asset.thumbnail as any));
+	const resolvedFullsizeSource = $derived(asset.fullsize ? resolve(asset.fullsize as any) : null);
+	const fullsizeAvailable = $derived(Boolean(asset.fullsize));
+	const fallbackActive = $derived(resolution === 'thumbnail' && promotedFailed);
+	let lastResolutionDiagnostic = '';
 
 	function getLightboxDimensions(width: number | null | undefined, height: number | null | undefined) {
 		const validWidth = Number.isFinite(width) && (width as number) > 0 ? Math.round(width as number) : null;
@@ -55,24 +68,99 @@
 		}
 		return 'landscape';
 	}
-	function handleMediaError() {
-		if (resolution === 'fullsize') {
+	function sourceMatches(actual: string, expected: string | null) {
+		if (!actual || !expected) return false;
+		if (actual === expected) return true;
+		if (typeof document === 'undefined') return false;
+		return new URL(actual, document.baseURI).href === new URL(expected, document.baseURI).href;
+	}
+	function getImageSource(image: HTMLImageElement) {
+		const currentSource = image.currentSrc || image.src;
+		if (sourceMatches(currentSource, resolvedFullsizeSource)) return 'fullsize';
+		if (sourceMatches(currentSource, resolvedThumbnailSource)) return 'thumbnail';
+		return null;
+	}
+	function handleMediaError(event: Event) {
+		if (!isVideo) {
+			const source = getImageSource(event.currentTarget as HTMLImageElement);
+			if (!source) return;
+			if (source === 'fullsize') {
 			promotedFailed = true;
+				reportJournalDebug('media-failure', { category: 'image', status: 'unavailable', errorContext: 'image-load' });
+				return;
+			}
+			failed = true;
+			reportJournalDebug('media-failure', { category: 'image', status: 'unavailable', errorContext: 'image-load' });
 			return;
 		}
 		failed = true;
 		reportJournalDebug('media-failure', { category: isVideo ? 'video' : 'image', status: 'unavailable', errorContext: isVideo ? 'video-load' : 'image-load' });
 	}
-	function handleMediaLoad() {
+	function handleMediaLoad(event: Event) {
+		if (!isVideo) {
+			const image = event.currentTarget as HTMLImageElement;
+			const source = getImageSource(image);
+			if (!source) return;
+			if (source === 'fullsize') promotedFailed = false;
+			if (source !== 'thumbnail') {
+				reportJournalDebug('media-load', { category: 'image', status: 'success' });
+				return;
+			}
+			const intrinsicWidth = image.naturalWidth;
+			if (Number.isFinite(intrinsicWidth) && intrinsicWidth > 0) thumbnailIntrinsicWidth = intrinsicWidth;
+		}
 		reportJournalDebug('media-load', { category: isVideo ? 'video' : 'image', status: 'success' });
 	}
+	$effect(() => {
+		if (!figureElement) return;
+		const updateSlotWidth = () => {
+			renderedSlotWidth = Math.max(0, Math.round(figureElement?.getBoundingClientRect().width ?? 0));
+		};
+		updateSlotWidth();
+		if (typeof ResizeObserver === 'undefined') return;
+		const observer = new ResizeObserver(updateSlotWidth);
+		observer.observe(figureElement);
+		return () => observer.disconnect();
+	});
+	$effect(() => {
+		const diagnosticKey = [resolution, renderedSlotWidth, policyIntrinsicWidth ?? 'none', dpr, policyRequiredWidth, layoutMeasured, measured, fullsizeAvailable, promotedFailed, fallbackActive].join('|');
+		if (!journalDebugEnabled || diagnosticKey === lastResolutionDiagnostic) return;
+		lastResolutionDiagnostic = diagnosticKey;
+		reportJournalDebug('media-resolution', {
+			category: 'image',
+			decision: resolution,
+			slotWidth: renderedSlotWidth,
+			intrinsicWidth: policyIntrinsicWidth,
+			dpr,
+			requiredWidth: policyRequiredWidth,
+			layoutMeasured,
+			measuringCompleted: measured,
+			fullsizeAvailable,
+			promotionFailed: promotedFailed,
+			fallbackActive
+		});
+	});
 	onMount(() => {
 		dpr = typeof window.devicePixelRatio === 'number' && window.devicePixelRatio > 0 ? window.devicePixelRatio : 1;
 		measured = true;
 	});
+	let probedFullsizeSource = '';
+	$effect(() => {
+		const source = resolution === 'fullsize' ? resolvedFullsizeSource : null;
+		if (!source || probedFullsizeSource === source) return;
+		probedFullsizeSource = source;
+		if (!supportsHdrDisplay() && !supportsWideColorGamut()) {
+			hdrProbeStatus = 'unsupported';
+			return;
+		}
+		hdrProbeStatus = 'not-requested';
+		void probeImageDecode(source).then((decoded) => {
+			if (probedFullsizeSource === source) hdrProbeStatus = decoded ? 'verified' : 'failed';
+		});
+	});
 </script>
 
-	<figure id={'asset-' + asset.id} tabindex="-1" data-resolution-policy={layoutMeasured ? 'measured-slot' : 'thumbnail-baseline'} style={layoutWidth && layoutHeight ? `width: ${layoutWidth}px; height: ${layoutHeight}px` : undefined} class:failed class:full-width={asset.fullWidth} class:portrait={orientation === 'portrait'} class:landscape={orientation === 'landscape'}>
+	<figure bind:this={figureElement} id={'asset-' + asset.id} tabindex="-1" data-resolution-policy={layoutMeasured ? 'measured-slot' : 'thumbnail-baseline'} data-media-resolution={journalDebugEnabled ? resolution : undefined} data-media-hdr-status={journalDebugEnabled ? hdrProbeStatus : undefined} data-media-slot-width={journalDebugEnabled ? renderedSlotWidth : undefined} data-media-intrinsic-width={journalDebugEnabled ? policyIntrinsicWidth : undefined} data-media-dpr={journalDebugEnabled ? dpr : undefined} data-media-required-width={journalDebugEnabled ? policyRequiredWidth : undefined} data-media-layout-measured={journalDebugEnabled ? layoutMeasured : undefined} data-media-measuring-completed={journalDebugEnabled ? measured : undefined} data-media-fullsize-available={journalDebugEnabled ? fullsizeAvailable : undefined} data-media-promotion-failed={journalDebugEnabled ? promotedFailed : undefined} data-media-fallback-active={journalDebugEnabled ? fallbackActive : undefined} style={layoutWidth && layoutHeight ? `width: ${layoutWidth}px; height: ${layoutHeight}px` : undefined} class:failed class:full-width={asset.fullWidth} class:portrait={orientation === 'portrait'} class:landscape={orientation === 'landscape'}>
 	{#if failed}<div class="unavailable" role="status">Media unavailable</div>
 	{:else if isVideo}
 		<div class="gallery-media-frame">
@@ -82,7 +170,7 @@
 		</div>
 	{:else}
 		<div class="gallery-media-frame">
-			<a href={resolve(asset.thumbnail as any)} aria-label={label} data-media-source="thumbnail" data-lightbox-fallback="native-anchor" data-pswp-width={lightboxWidth} data-pswp-height={lightboxHeight}>
+			<a href={resolve(asset.thumbnail as any)} aria-label={label} data-media-source="thumbnail" data-lightbox-fallback="native-anchor" data-pswp-src={resolution === 'fullsize' ? resolvedFullsizeSource : undefined} data-pswp-width={lightboxWidth} data-pswp-height={lightboxHeight}>
 				<img src={mediaSource} alt={label} loading="lazy" width={lightboxWidth} height={lightboxHeight} data-media-source={resolution} bind:naturalWidth bind:naturalHeight onload={handleMediaLoad} onerror={handleMediaError} />
 			</a>
 		</div>
