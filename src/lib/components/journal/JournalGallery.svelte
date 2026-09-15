@@ -12,10 +12,11 @@
 	}));
 	let galleryElement = $state<HTMLElement | undefined>(undefined);
 	let availableWidth = $state(960);
+	let layoutMeasured = $state(false);
 	const rows = $derived(calculateJustifiedRows(enriched, availableWidth));
 	$effect(() => {
 		if (!galleryElement) return;
-		const update = () => { availableWidth = Math.max(1, galleryElement?.clientWidth ?? 960); };
+		const update = () => { availableWidth = Math.max(1, galleryElement?.clientWidth ?? 960); layoutMeasured = true; };
 		update();
 		if (typeof ResizeObserver === 'undefined') return;
 		const observer = new ResizeObserver(update);
@@ -25,8 +26,8 @@
 	onMount(() => reportJournalDebug('gallery-state', { category: 'gallery', status: enriched.length === 0 ? 'empty' : 'success', assetCount: enriched.length, imageCount: enriched.filter((asset) => asset.type !== 'VIDEO').length, videoCount: enriched.filter((asset) => asset.type === 'VIDEO').length, ...(enriched.length === 0 ? { errorContext: 'gallery-load' as const } : {}) }));
 </script>
 
-<section class="gallery" aria-label="Gallery">
-	{#if enriched.length === 0}<p>No photographs to show yet</p>{:else}<Lightbox galleryId="journal-gallery" /><div id="journal-gallery" class="gallery-grid" bind:this={galleryElement}>{#each rows as row, rowIndex (rowIndex)}<div class:full-width-row={row.fullWidth} class="justified-row" style={`height: ${row.height}px`}>{#each row.items as asset (asset.id)}<GalleryAsset {asset} layoutWidth={asset.layoutWidth} layoutHeight={asset.layoutHeight} />{/each}</div>{/each}</div>{/if}
+	<section class="gallery" aria-label="Gallery">
+	{#if enriched.length === 0}<p>No photographs to show yet</p>{:else}<Lightbox galleryId="journal-gallery" /><div id="journal-gallery" class="gallery-grid" bind:this={galleryElement}>{#each rows as row, rowIndex (rowIndex)}<div class:full-width-row={row.fullWidth} class="justified-row" style={`height: ${row.height}px`}>{#each row.items as asset (asset.id)}<GalleryAsset {asset} layoutWidth={asset.layoutWidth} layoutHeight={asset.layoutHeight} {layoutMeasured} />{/each}</div>{/each}</div>{/if}
 </section>
 
 <style>

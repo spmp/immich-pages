@@ -4,7 +4,7 @@
 	import { onMount } from 'svelte';
 	import { chooseResolution } from '$lib/media/resolution';
 	import { reportJournalDebug } from './journal-debug';
-	let { asset, layoutWidth, layoutHeight }: { asset: NormalizedAsset & { width?: number | null; height?: number | null; videoHref?: string; fullWidth?: boolean }; layoutWidth?: number; layoutHeight?: number } = $props();
+	let { asset, layoutWidth, layoutHeight, layoutMeasured = false }: { asset: NormalizedAsset & { width?: number | null; height?: number | null; videoHref?: string; fullWidth?: boolean }; layoutWidth?: number; layoutHeight?: number; layoutMeasured?: boolean } = $props();
 	let failed = $state(false);
 	let naturalWidth = $state(0);
 	let naturalHeight = $state(0);
@@ -19,7 +19,7 @@
 	const dimensions = $derived(getLightboxDimensions(width, height));
 	const lightboxWidth = $derived(dimensions.width);
 	const lightboxHeight = $derived(dimensions.height);
-	const resolution = $derived(measured && !promotedFailed && asset.fullsize ? chooseResolution(layoutWidth ?? 1, asset.width ?? naturalWidth, dpr) : 'thumbnail');
+	const resolution = $derived(layoutMeasured && measured && !promotedFailed && asset.fullsize ? chooseResolution(layoutWidth ?? 1, asset.width ?? naturalWidth, dpr) : 'thumbnail');
 	const mediaSource = $derived(resolution === 'fullsize' && asset.fullsize ? asset.fullsize : asset.thumbnail);
 
 	function getLightboxDimensions(width: number | null | undefined, height: number | null | undefined) {
