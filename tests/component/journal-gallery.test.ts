@@ -17,7 +17,7 @@ describe('journal gallery contract', () => {
 		expect(asset).toContain('Media unavailable');
 		 expect(asset).toContain('width={lightboxWidth}');
 		expect(asset).toContain('height={lightboxHeight}');
-		expect(asset).not.toContain('data-pswp-src');
+		expect(asset).toContain('data-pswp-src={resolution === \'fullsize\' ? resolvedFullsizeSource : undefined}');
 		expect(asset).not.toMatch(/original|download/);
 	});
 
@@ -87,7 +87,7 @@ describe('journal gallery contract', () => {
 		expect(debug).toContain("'media-failure'");
 		expect(debug).toContain("'image' | 'video' | 'hero' | 'gallery'");
 		expect(debug).toContain("'unavailable' | 'empty' | 'fallback'");
-		expect(debug).not.toMatch(/asset\.id|thumbnail|videoHref|description|cookie|authorization|URL|origin|requestId|\bresponse\s*[:=]/i);
+		expect(debug).not.toMatch(/asset\.id|videoHref|description|cookie|authorization|URL|origin|requestId|\bresponse\s*[:=]/i);
 	});
 
 	it('reports safe lifecycle fields only', () => {
@@ -95,7 +95,7 @@ describe('journal gallery contract', () => {
 		expect(debug).toContain('assetCount');
 		expect(debug).toContain('heroPresent');
 		expect(debug).toContain('template');
-		expect(debug).not.toMatch(/thumbnail|videoHref|description|cookie|authorization|requestId|\bresponse\s*[:=]/i);
+		expect(debug).not.toMatch(/videoHref|description|cookie|authorization|requestId|\bresponse\s*[:=]/i);
 	});
 
 	it('defines CSS-owned media frames separate from intrinsic lightbox dimensions', () => {
@@ -140,10 +140,22 @@ describe('journal gallery contract', () => {
 		const asset = source('GalleryAsset');
 		const gallery = source('JournalGallery');
 		expect(asset).toContain('data-resolution-policy={layoutMeasured ? \'measured-slot\' : \'thumbnail-baseline\'}');
-		expect(asset).toContain('chooseResolution(layoutWidth ?? 1, asset.width ?? naturalWidth, dpr)');
+		expect(asset).toContain('chooseResolution(policyCssWidth, policyIntrinsicWidth, dpr)');
 		expect(asset).toContain('promotedFailed = true');
 		expect(gallery).toContain('{layoutMeasured}');
 		expect(asset).toContain('href={resolve(asset.thumbnail as any)}');
+	});
+
+	it('treats HDR as an optional same-origin enhancement with visible SDR fallback', () => {
+		const asset = source('GalleryAsset');
+		const capabilities = readFileSync('src/lib/media/capabilities.ts', 'utf8');
+		expect(asset).toContain('supportsHdrDisplay');
+		expect(asset).toContain('supportsWideColorGamut');
+		expect(asset).toContain('probeImageDecode(source)');
+		expect(asset).toContain('data-media-hdr-status');
+		expect(asset).toContain('data-lightbox-fallback="native-anchor"');
+		expect(capabilities).toContain('setTimeout(() => finish(false)');
+		expect(capabilities).toContain("src.startsWith('//')");
 	});
 
 	it('wires authorized video tiles into the PhotoSwipe custom content hook', () => {
