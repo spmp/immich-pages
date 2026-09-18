@@ -6,9 +6,11 @@ import { resolve } from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 const exec = promisify(execFile); const args = process.argv.slice(2);
-const manifestPath = value('--fixture-manifest'); const referencePath = value('--reference'); const outputDir = resolve(value('--output-dir') ?? '/tmp/immich-pages-hdr-smoke');
-if (!manifestPath || !referencePath) fail('usage: verify-hdr-container.mjs --fixture-manifest ... --reference tests/resources/hdr/4.mp4 --output-dir ...');
-let manifest; try { manifest = JSON.parse(await readFile(resolve(manifestPath), 'utf8')); } catch { fail(`local fixture manifest missing: ${manifestPath}`); }
+const manifestPath = value('--fixture-manifest'); const fixtureArg = value('--fixture'); const referencePath = value('--reference'); const outputDir = resolve(value('--output-dir') ?? '/tmp/immich-pages-hdr-smoke');
+if ((!manifestPath && !fixtureArg) || !referencePath) fail('usage: verify-hdr-container.mjs --fixture-manifest ... --reference tests/resources/hdr/4.mp4 --output-dir ...');
+let manifest;
+if (manifestPath) { try { manifest = JSON.parse(await readFile(resolve(manifestPath), 'utf8')); } catch { fail(`local fixture manifest missing: ${manifestPath}`); } }
+else { const source = resolve(fixtureArg); let bytes; try { bytes = await readFile(source); } catch { fail(`local fixture missing: ${source}`); } manifest = { fixtures: [{ id: 'single-fixture', path: source.startsWith(`${resolve('tests/resources/hdr')}/`) ? source.slice(resolve('tests/resources/hdr').length + 1) : source, sha256: sha(bytes), bytes: bytes.length, width: 0, height: 0, role: 'reference' }] }; }
 try { await exec('docker', ['info'], { maxBuffer: 128 * 1024 }); } catch { fail('Docker daemon unavailable; real production-container smoke was not run'); }
 const image = `immich-pages:hdr-smoke-${process.pid}`; await mkdir(outputDir, { recursive: true });
 try {
