@@ -43,7 +43,11 @@ test('opens the authorized original when inspecting an image', async ({ page }) 
 
 	const fullsizeResponse = page.waitForResponse((response) => response.url().includes('/image/fullsize'), { timeout: 2_000 });
 	await image.locator('a').click();
-	expect((await fullsizeResponse).status()).toBe(200);
+	const response = await fullsizeResponse;
+	expect(response.status()).toBe(200);
+	expect(response.url()).toMatch(/^https?:\/\/[^/]+\/share\/key\/opaque-ref\/media\/[^/]+\/image\/fullsize\?/);
+	expect(response.headers()['set-cookie']).toBeUndefined();
+	expect(response.url()).not.toContain('immich-host');
 });
 
 test('falls back to the thumbnail when the promoted original is an undecodable HEIF', async ({ page }) => {

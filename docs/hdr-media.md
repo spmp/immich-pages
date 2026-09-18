@@ -97,6 +97,12 @@ inspects the runtime image and generated build context; fixture paths and media
 extensions must be absent. Docker or missing local fixtures are blocking operator
 prerequisites, not passes.
 
+The real Traefik-backed browser command is `npm run test:e2e`; it exercises the
+Pages host, forwarded share context, private media responses, and same-origin
+fallback assertions. If Docker is unavailable, its result is unavailable evidence,
+not a proxy pass. The deterministic mock command is
+`npm run test:e2e:mock -- fullsize-media.mock.spec.ts`.
+
 No fixture bytes, provenance secrets, or generated evidence belong in git. The
 manifest and outputs are local-only and ignored. Container metadata and decoded
 pixel evidence do not establish physical HDR correctness: physical viewing on an
