@@ -156,12 +156,25 @@ describe('journal gallery contract', () => {
 		expect(asset).toContain('data-lightbox-fallback="native-anchor"');
 		expect(asset).toContain('supportsHdrDisplay()');
 		expect(asset).toContain('resolvedHdrSource');
+		expect(asset).toContain('data-hdr-prewarm={resolvedHdrSource ?? undefined}');
 		expect(asset).toContain('const hdrPosterSource = $derived(hdrCandidate && !promotedFailed ? (resolvedFullsizeSource ?? resolvedThumbnailSource) : resolvedThumbnailSource)');
 		expect(asset).toContain('data-video-poster={hdrCandidate ? hdrPosterSource : undefined}');
         expect(asset).toContain('data-video-fallback-src={hdrCandidate ?');
         expect(asset).toContain('promotedFailed ? resolvedThumbnailSource');
 		expect(capabilities).toContain('setTimeout(() => finish(false)');
 		expect(capabilities).toContain("src.startsWith('//')");
+	});
+
+	it('exposes bounded source-resolution facts for optional HDR work', () => {
+		const asset = source('GalleryAsset');
+		const gallery = source('JournalGallery');
+		expect(asset).toContain('selectTargetResolution');
+		expect(asset).toContain('data-hdr-target-width');
+		expect(asset).toContain('data-hdr-target-height');
+		expect(asset).toContain('data-hdr-bounded');
+		expect(gallery).toContain('maxRequests = 24');
+		expect(gallery).toContain('maxConcurrent = 2');
+		expect(gallery).toContain("document.visibilityState === 'visible'");
 	});
 
 	it('wires authorized video tiles into the PhotoSwipe custom content hook', () => {

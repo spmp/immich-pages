@@ -2,7 +2,7 @@
 	import { resolve } from '$app/paths';
 	import type { NormalizedAsset } from '$server/presentation/model';
 	import { onMount } from 'svelte';
-	import { chooseResolution, requiredWidth } from '$lib/media/resolution';
+	import { chooseResolution, requiredWidth, selectTargetResolution } from '$lib/media/resolution';
 	import { probeImageDecode, supportsHdrDisplay, supportsWideColorGamut } from '$lib/media/capabilities';
 	import { journalDebugEnabled, reportJournalDebug } from './journal-debug';
 	let { asset, layoutWidth, layoutHeight, layoutMeasured = false }: { asset: NormalizedAsset & { width?: number | null; height?: number | null; videoHref?: string; fullWidth?: boolean }; layoutWidth?: number; layoutHeight?: number; layoutMeasured?: boolean } = $props();
@@ -28,16 +28,26 @@
 	const policyIntrinsicWidth = $derived(thumbnailIntrinsicWidth);
 	const policyCssWidth = $derived(layoutWidth ?? 1);
 	const policyRequiredWidth = $derived(requiredWidth(policyCssWidth, dpr));
+	const hdrTarget = $derived(selectTargetResolution(asset.sourceWidth ?? width, asset.sourceHeight ?? height));
 	const resolution = $derived(layoutMeasured && measured && !promotedFailed && asset.fullsize ? chooseResolution(policyCssWidth, policyIntrinsicWidth, dpr) : 'thumbnail');
 	const mediaSource = $derived(resolution === 'fullsize' && asset.fullsize ? asset.fullsize : asset.thumbnail);
 	const resolvedThumbnailSource = $derived(resolve(asset.thumbnail as any));
 	const resolvedFullsizeSource = $derived(asset.fullsize ? resolve(asset.fullsize as any) : null);
-	const resolvedHdrSource = $derived(asset.hdrHref ? resolve(asset.hdrHref as any) : null);
+	const resolvedHdrSource = $derived(asset.hdrHref ? addResolutionQuery(resolve(asset.hdrHref as any), hdrTarget) : null);
 	const fullsizeAvailable = $derived(Boolean(asset.fullsize));
 	const hdrCandidate = $derived(Boolean(resolvedHdrSource && hdrDisplay && hdrProbeStatus === 'verified'));
 	const hdrPosterSource = $derived(hdrCandidate && !promotedFailed ? (resolvedFullsizeSource ?? resolvedThumbnailSource) : resolvedThumbnailSource);
 	const fallbackActive = $derived(resolution === 'thumbnail' && promotedFailed);
 	let lastResolutionDiagnostic = '';
+	function addResolutionQuery(source: string, target: { width: number; height: number } | null) {
+		if (!target || typeof URL === 'undefined') return source;
+		try {
+			const url = new URL(source, typeof document === 'undefined' ? 'https://pages.invalid' : document.baseURI);
+			url.searchParams.set('width', String(target.width));
+			url.searchParams.set('height', String(target.height));
+			return url.pathname + url.search;
+		} catch { return source; }
+	}
 
 	function getLightboxDimensions(width: number | null | undefined, height: number | null | undefined) {
 		const validWidth = Number.isFinite(width) && (width as number) > 0 ? Math.round(width as number) : null;
@@ -179,7 +189,7 @@
 	});
 </script>
 
-	<figure bind:this={figureElement} id={'asset-' + asset.id} tabindex="-1" data-hdr-prewarm={resolvedHdrSource ?? undefined} data-resolution-policy={layoutMeasured ? 'measured-slot' : 'thumbnail-baseline'} data-media-resolution={journalDebugEnabled ? resolution : undefined} data-media-hdr-status={journalDebugEnabled ? hdrProbeStatus : undefined} data-media-slot-width={journalDebugEnabled ? renderedSlotWidth : undefined} data-media-intrinsic-width={journalDebugEnabled ? policyIntrinsicWidth : undefined} data-media-dpr={journalDebugEnabled ? dpr : undefined} data-media-required-width={journalDebugEnabled ? policyRequiredWidth : undefined} data-media-layout-measured={journalDebugEnabled ? layoutMeasured : undefined} data-media-measuring-completed={journalDebugEnabled ? measured : undefined} data-media-fullsize-available={journalDebugEnabled ? fullsizeAvailable : undefined} data-media-promotion-failed={journalDebugEnabled ? promotedFailed : undefined} data-media-fallback-active={journalDebugEnabled ? fallbackActive : undefined} style={layoutWidth && layoutHeight ? `width: ${layoutWidth}px; height: ${layoutHeight}px` : undefined} class:failed class:full-width={asset.fullWidth} class:portrait={orientation === 'portrait'} class:landscape={orientation === 'landscape'}>
+	<figure bind:this={figureElement} id={'asset-' + asset.id} tabindex="-1" data-hdr-prewarm={resolvedHdrSource ?? undefined} data-hdr-target-width={hdrTarget?.width} data-hdr-target-height={hdrTarget?.height} data-hdr-bounded={hdrTarget?.bounded} data-resolution-policy={layoutMeasured ? 'measured-slot' : 'thumbnail-baseline'} data-media-resolution={journalDebugEnabled ? resolution : undefined} data-media-hdr-status={journalDebugEnabled ? hdrProbeStatus : undefined} data-media-slot-width={journalDebugEnabled ? renderedSlotWidth : undefined} data-media-intrinsic-width={journalDebugEnabled ? policyIntrinsicWidth : undefined} data-media-dpr={journalDebugEnabled ? dpr : undefined} data-media-required-width={journalDebugEnabled ? policyRequiredWidth : undefined} data-media-layout-measured={journalDebugEnabled ? layoutMeasured : undefined} data-media-measuring-completed={journalDebugEnabled ? measured : undefined} data-media-fullsize-available={journalDebugEnabled ? fullsizeAvailable : undefined} data-media-promotion-failed={journalDebugEnabled ? promotedFailed : undefined} data-media-fallback-active={journalDebugEnabled ? fallbackActive : undefined} style={layoutWidth && layoutHeight ? `width: ${layoutWidth}px; height: ${layoutHeight}px` : undefined} class:failed class:full-width={asset.fullWidth} class:portrait={orientation === 'portrait'} class:landscape={orientation === 'landscape'}>
 	{#if failed}<div class="unavailable" role="status">Media unavailable</div>
 	{:else if isVideo}
 		<div class="gallery-media-frame">

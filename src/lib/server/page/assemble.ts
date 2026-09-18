@@ -8,6 +8,7 @@ import { logMapRouteResult, logMetadataParse, logModelOutput, logShareHeroSelect
 import { projectMapMarkers } from '$server/map/markers';
 import { PathSourceRegistry } from '$server/map/path-adapters';
 import { resolveMapStyle } from '$server/map/style-registry';
+import { normalizeGradient } from '$lib/theme/gradient';
 
 export async function assembleDirectShare(provider: ImmichProvider, context: ShareAuthContext, requestId: string): Promise<DirectShareOutcome> {
 	let result: Awaited<ReturnType<ImmichProvider['getSharedLink']>>;
@@ -37,16 +38,25 @@ async function assemblePageModel(provider: ImmichProvider, context: AuthContext,
 	const template = normalizeTemplate(document.config);
 	const displayDate = deriveDisplayDate(document.config, share);
 	const { auth: _auth, gradient, ...presentationSafeConfig } = document.config;
+	const normalizedGradient = normalizeGradient(gradient);
 	const { url: _brouterUrl, ...browserMap } = document.config.map;
 	const assets = share.assets.map((asset) => {
+		const sourceMimeType = asset.originalMimeType?.toLowerCase();
+		const mayContainHdr = asset.type === 'IMAGE' && (sourceMimeType === 'image/heic' || sourceMimeType === 'image/heif');
+		const sourceWidth = boundedDimension(asset.width);
+		const sourceHeight = boundedDimension(asset.height);
+		const shareQuery = 'shareRef' in context ? `?${context.shareRef.kind}=${encodeURIComponent(context.shareRef.value)}` : '';
 		const normalized = {
 			id: asset.id, type: asset.type,
-			thumbnail: `${mediaPath(asset.id)}/thumbnail${'shareRef' in context ? `?${context.shareRef.kind}=${encodeURIComponent(context.shareRef.value)}` : ''}`
-			, ...(asset.type !== 'VIDEO' ? { fullsize: `${mediaPath(asset.id)}/image/fullsize${'shareRef' in context ? `?${context.shareRef.kind}=${encodeURIComponent(context.shareRef.value)}` : ''}` } : {})
+			thumbnail: `${mediaPath(asset.id)}/thumbnail${shareQuery}`
+			, ...(asset.type !== 'VIDEO' ? { fullsize: `${mediaPath(asset.id)}/image/fullsize${shareQuery}` } : {})
+			, ...(mayContainHdr ? { hdrHref: `${mediaPath(asset.id)}/image/hdr${shareQuery}` } : {})
 			, ...(asset.originalMimeType?.startsWith('image/') ? { sourceMimeType: asset.originalMimeType } : {})
 		};
 		return {
 			...normalized,
+			...(sourceWidth !== undefined ? { sourceWidth } : {}),
+			...(sourceHeight !== undefined ? { sourceHeight } : {}),
 			...(share.showMetadata && asset.width !== undefined ? { width: asset.width } : {}),
 			...(share.showMetadata && asset.height !== undefined ? { height: asset.height } : {}),
 			...(asset.type === 'VIDEO' && 'shareRef' in context ? { videoHref: `${mediaPath(asset.id)}/video/playback?${context.shareRef.kind}=${encodeURIComponent(context.shareRef.value)}` } : {})
@@ -61,7 +71,7 @@ async function assemblePageModel(provider: ImmichProvider, context: AuthContext,
 	const safeMap = share.showMetadata ? browserMap : { ...metadataSafeMap, enabled: false };
 	const normalized: NormalizedPageModel = {
 		album,
-		presentation: { ...presentationSafeConfig, ...(gradient ? { gradient } : {}), map: safeMap, template: template.template },
+		presentation: { ...presentationSafeConfig, ...(normalizedGradient ? { gradient: normalizedGradient } : {}), map: safeMap, template: template.template },
 		narrativeHtml: narrative.html,
 		assets: assets.map((asset) => ({
 			...asset,
@@ -92,4 +102,8 @@ async function assemblePageModel(provider: ImmichProvider, context: AuthContext,
 	if (share.showMetadata && displayDate) normalized.album = { ...normalized.album, startDate: displayDate.start, endDate: displayDate.end };
 	logModelOutput({ assetCount: assets.length, imageCount: assets.filter((asset) => asset.type !== 'VIDEO').length, videoCount: assets.filter((asset) => asset.type === 'VIDEO').length, heroPresent: Boolean(normalized.hero), markerCount: normalized.markers.length, routeReady: normalized.routeData !== null });
 	return { kind: 'page', page: normalized };
+}
+
+function boundedDimension(value: number | null | undefined): number | undefined {
+	return typeof value === 'number' && Number.isSafeInteger(value) && value > 0 && value <= 8192 ? value : undefined;
 }
