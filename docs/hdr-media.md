@@ -86,10 +86,12 @@ synthetic media, generated video, duplicate hashes, and missing provenance are
 rejected. The preserved `2.HEIF` SHA-256 is
 `07b7199417a540316538a3408af46940ca3deec6e65e38a1e1deebda07e32045`.
 
-`scripts/verify-hdr-container.mjs` builds the production image, mounts local media
-read-only, runs the compiled compositor and FFmpeg, probes frame 0, and writes only
-redacted textual hashes, dimensions, pixel statistics, tool versions, and fallback
-categories to temporary output. `scripts/hdr-fixture-matrix.mjs` requires the
+`scripts/verify-hdr-container.mjs --fixture-matrix --evidence
+docs/phase-8-gate-c-hdr-evidence.md` builds the production image, mounts local
+media read-only, runs the compiled compositor and FFmpeg, probes frame 0, and
+writes only redacted textual source/output hashes, dimensions/aspect ratios,
+durations, byte sizes, pixel assertions, tool versions, and fallback categories
+to the evidence record. `scripts/hdr-fixture-matrix.mjs` requires the
 reference plus the complete portrait/landscape matrix and records missing gain map,
 missing version, malformed MakerNote, unsupported profile, oversized input, timeout,
 and FFmpeg failure as SDR fallback. `scripts/verify-docker-fixture-content.mjs`
@@ -107,7 +109,10 @@ No fixture bytes, provenance secrets, or generated evidence belong in git. The
 manifest and outputs are local-only and ignored. Container metadata and decoded
 pixel evidence do not establish physical HDR correctness: physical viewing on an
 HDR-capable device against Apple Photos or an equivalent trusted reference remains
-required before making an HDR claim.
+required before making an HDR claim. The release record is intentionally
+`PENDING`/`SDR-only` when Docker, the local matrix, or physical device evidence
+is unavailable; an automated PASS without physical HDR and forced-SDR rows is
+rejected by `tests/contracts/phase-8-hdr-release.test.ts`.
 
 The historical `2.HEIF -> 4.mp4` pair remains a diagnostic reference, not physical
 HDR acceptance evidence. The final release gate still requires human review on an

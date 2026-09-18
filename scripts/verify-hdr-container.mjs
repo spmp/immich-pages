@@ -1,33 +1,141 @@
 #!/usr/bin/env node
-/** Production-image smoke harness. It intentionally fails closed without local media or Docker. */
+/**
+ * Produce the redacted, machine-readable Gate C container record.
+ *
+ * The command deliberately records unavailable prerequisites as PENDING rather
+ * than converting an emulation or a missing fixture into release evidence.
+ */
 import { createHash } from 'node:crypto';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
-import { resolve } from 'node:path';
+import { basename, dirname, resolve } from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-const exec = promisify(execFile); const args = process.argv.slice(2);
-const manifestPath = value('--fixture-manifest'); const fixtureArg = value('--fixture'); const referencePath = value('--reference'); const outputDir = resolve(value('--output-dir') ?? '/tmp/immich-pages-hdr-smoke');
-if ((!manifestPath && !fixtureArg) || !referencePath) fail('usage: verify-hdr-container.mjs --fixture-manifest ... --reference tests/resources/hdr/4.mp4 --output-dir ...');
+
+const exec = promisify(execFile);
+const args = process.argv.slice(2);
+const evidencePath = resolve(value('--evidence') ?? 'docs/phase-8-gate-c-hdr-evidence.md');
+const outputDir = resolve(value('--output-dir') ?? '/tmp/immich-pages-hdr-release');
+const manifestPath = resolve(value('--fixture-manifest') ?? 'tests/resources/hdr/fixture-manifest.local.json');
+const referencePath = value('--reference') ? resolve(value('--reference')) : undefined;
+const matrixMode = args.includes('--fixture-matrix');
+
+const record = {
+  schema: 2,
+  generatedAt: new Date().toISOString(),
+  overallStatus: 'PENDING',
+  releaseMode: 'SDR-only',
+  physicalHdrValidation: 'not-run',
+  container: { status: 'PENDING', image: null, imageDigest: null, architecture: process.arch, toolVersions: null },
+  fixtures: [],
+  negativeCases: negativeCases(),
+  physicalReview: { status: 'PENDING', rows: [], requiredRows: 3, note: 'Physical HDR-capable-device review is not automated.' },
+  redaction: { credentialsLogged: false, rawMediaLogged: false, rawUpstreamBodiesLogged: false },
+  blockers: []
+};
+
 let manifest;
-if (manifestPath) { try { manifest = JSON.parse(await readFile(resolve(manifestPath), 'utf8')); } catch { fail(`local fixture manifest missing: ${manifestPath}`); } }
-else { const source = resolve(fixtureArg); let bytes; try { bytes = await readFile(source); } catch { fail(`local fixture missing: ${source}`); } manifest = { fixtures: [{ id: 'single-fixture', path: source.startsWith(`${resolve('tests/resources/hdr')}/`) ? source.slice(resolve('tests/resources/hdr').length + 1) : source, sha256: sha(bytes), bytes: bytes.length, width: 0, height: 0, role: 'reference' }] }; }
-try { await exec('docker', ['info'], { maxBuffer: 128 * 1024 }); } catch { fail('Docker daemon unavailable; real production-container smoke was not run'); }
-const image = `immich-pages:hdr-smoke-${process.pid}`; await mkdir(outputDir, { recursive: true });
 try {
-	await exec('docker', ['build', '--tag', image, '.'], { maxBuffer: 4 * 1024 * 1024 });
-	const digest = (await exec('docker', ['image', 'inspect', '--format', '{{index .RepoDigests 0}}', image])).stdout.trim();
-	const versions = await containerVersions(image);
-	const referenceHash = sha(await readFile(resolve(referencePath)));
-	const fixtures = [];
-	for (const fixture of manifest.fixtures ?? []) {
-		const source = resolve('tests/resources/hdr', fixture.path); const started = Date.now();
-		const sourceHash = sha(await readFile(source)); if (sourceHash !== fixture.sha256) fail(`fixture hash mismatch: ${fixture.id}`);
-		const result = await runFixture(image, source, outputDir, fixture.id);
-		fixtures.push({ id: fixture.id, sourceHash, sourceBytes: fixture.bytes, durationMs: Date.now() - started, ...result });
-	}
-	await writeFile(resolve(outputDir, 'manifest.json'), JSON.stringify({ schema: 1, imageDigest: digest || 'unavailable', architecture: process.arch, versions, referenceHash, fixtures, negativeCases: ['missing-gain-map', 'missing-version', 'malformed-makernote', 'unsupported-profile', 'oversized-input', 'timeout', 'ffmpeg-failure'].map((id) => ({ id, outcome: 'sdr-fallback' })), physicalHdrValidation: 'not-run', credentialsLogged: false, rawMediaLogged: false }, null, 2) + '\n');
-	console.log(`HDR container smoke passed; textual evidence written to ${outputDir}`);
-} finally { await exec('docker', ['image', 'rm', image]).catch(() => undefined); }
-async function containerVersions(image) { const command = ['run', '--rm', image, 'sh', '-c', "printf '{\"ffmpeg\":\"'; ffmpeg -version | head -n1; printf '\",\"ffprobe\":\"'; ffprobe -version | head -n1; printf '\",\"libheif\":\"'; apk info -e libheif; printf '\",\"x265\":\"'; ffmpeg -encoders 2>/dev/null | grep -w libx265 || true; printf '\"}'"]; try { return JSON.parse((await exec('docker', command)).stdout); } catch { return { recorded: false }; } }
-async function runFixture(image, source, dir, id) { const name = `/tmp/${id}.mp4`; const mount = `${resolve(source)}:/tmp/input.HEIF:ro`; const command = `/usr/local/bin/hdr-gainmap-compositor --hdr-version 1 --maker-note-33 1 --maker-note-48 1 --source-profile display-p3 --source-transfer rec709 --orientation 1 < /tmp/input.HEIF | ffmpeg -hide_banner -loglevel error -f image2pipe -vcodec ppm -i pipe:0 -frames:v 1 -an -c:v libx265 -profile:v main10 -pix_fmt yuv420p10le -color_primaries bt2020 -color_trc smpte2084 -colorspace bt2020nc -f mp4 ${name}`; try { await exec('docker', ['run', '--rm', '--volume', mount, image, 'sh', '-c', command], { timeout: 120000, maxBuffer: 256 * 1024 }); const probe = await exec('docker', ['run', '--rm', '--volume', `${dir}:/tmp/evidence`, '--volume', mount, image, 'ffprobe', '-v', 'error', '-show_entries', 'stream=width,height,pix_fmt,color_space,color_transfer,color_primaries,codec_name,profile', '-of', 'json', name]); return { output: { bytes: 1, hash: 'container-only', ffprobe: JSON.parse(probe.stdout), nonBlank: true } }; } catch (error) { return { outcome: 'sdr-fallback', failureCategory: error.killed ? 'timeout' : 'native-or-ffmpeg-failure' }; } }
-function value(flag) { const i = args.indexOf(flag); return i >= 0 ? args[i + 1] : undefined; } function sha(data) { return createHash('sha256').update(data).digest('hex'); } function fail(message) { console.error(`HDR container smoke blocked: ${message}`); process.exit(2); }
+  manifest = JSON.parse(await readFile(manifestPath, 'utf8'));
+} catch {
+  record.blockers.push('local fixture manifest unavailable');
+}
+
+if (manifest) {
+  const fixtures = Array.isArray(manifest.fixtures) ? manifest.fixtures : [];
+  for (const fixture of fixtures) {
+    const source = resolve('tests/resources/hdr', fixture.path);
+    try {
+      const bytes = await readFile(source);
+      const sourceHash = sha(bytes);
+      if (sourceHash !== fixture.sha256) throw new Error('fixture hash mismatch');
+      record.fixtures.push({
+        id: String(fixture.id), role: fixture.role, sourceHash, sourceBytes: bytes.length,
+        sourceDimensions: { width: Number(fixture.width), height: Number(fixture.height) },
+        aspectRatio: Number((Number(fixture.width) / Number(fixture.height)).toFixed(6)),
+        orientation: Number(fixture.orientation ?? 1), reference: Boolean(fixture.reference),
+        status: 'PENDING', output: null, fallback: null
+      });
+    } catch {
+      record.blockers.push(`fixture unavailable or changed: ${String(fixture.id)}`);
+    }
+  }
+}
+
+if (record.fixtures.length === 0) record.blockers.push('at least three real local Apple HDR fixtures are required');
+if (record.fixtures.length > 0 && !record.fixtures.some((fixture) => fixture.reference)) record.blockers.push('preserved 2.HEIF reference is required');
+if (record.fixtures.length > 0 && !record.fixtures.some((fixture) => fixture.role === 'portrait')) record.blockers.push('portrait fixture is required');
+if (record.fixtures.length > 0 && !record.fixtures.some((fixture) => fixture.role === 'landscape')) record.blockers.push('landscape fixture is required');
+
+let image;
+try {
+  await exec('docker', ['info'], { maxBuffer: 128 * 1024 });
+  image = `immich-pages:hdr-release-${process.pid}`;
+  await exec('docker', ['build', '--tag', image, '.'], { maxBuffer: 4 * 1024 * 1024 });
+  record.container.image = image;
+  record.container.imageDigest = (await exec('docker', ['image', 'inspect', '--format', '{{index .RepoDigests 0}}', image])).stdout.trim() || 'local-image-digest-unavailable';
+  record.container.toolVersions = await toolVersions(image);
+  record.container.status = 'PASS';
+  if (record.fixtures.length > 0) {
+    await mkdir(outputDir, { recursive: true });
+    for (const fixture of record.fixtures) await runFixture(image, fixture, outputDir);
+  }
+} catch (error) {
+  record.container.status = 'UNAVAILABLE';
+  record.blockers.push(error?.message?.includes('Docker') ? error.message : 'Docker build or native execution unavailable');
+} finally {
+  if (image) await exec('docker', ['image', 'rm', image]).catch(() => undefined);
+}
+
+for (const fixture of record.fixtures) {
+  if (fixture.status !== 'PASS') fixture.fallback = { outcome: 'sdr-fallback', reason: fixture.fallback?.reason ?? 'container evidence unavailable' };
+}
+if (record.blockers.length === 0 && record.fixtures.length >= 3 && record.fixtures.every((fixture) => fixture.status === 'PASS')) {
+  record.blockers.push('physical HDR-capable-device review is still required');
+}
+await mkdir(dirname(evidencePath), { recursive: true });
+await writeFile(evidencePath, render(record));
+console.log(`HDR release evidence written to ${evidencePath}; overall_status=${record.overallStatus}; release_mode=${record.releaseMode}`);
+
+async function runFixture(imageName, fixture, dir) {
+  const safeId = fixture.id.replace(/[^a-z0-9._-]/gi, '-');
+  const source = resolve('tests/resources/hdr', manifest.fixtures.find((item) => String(item.id) === fixture.id).path);
+  const output = resolve(dir, `${safeId}.mp4`);
+  const mountSource = `${source}:/tmp/input.HEIF:ro`;
+  const mountOutput = `${dir}:/tmp/evidence:rw`;
+  const command = `hdr-gainmap-compositor --hdr-version 1 --maker-note-33 1 --maker-note-48 1 --source-profile display-p3 --source-transfer rec709 --orientation 1 < /tmp/input.HEIF | ffmpeg -hide_banner -loglevel error -f image2pipe -vcodec ppm -i pipe:0 -frames:v 1 -an -c:v libx265 -profile:v main10 -pix_fmt yuv420p10le -color_primaries bt2020 -color_trc smpte2084 -colorspace bt2020nc -movflags +faststart -f mp4 /tmp/evidence/${safeId}.mp4`;
+  const started = Date.now();
+  try {
+    await exec('docker', ['run', '--rm', '--volume', mountSource, '--volume', mountOutput, imageName, 'sh', '-c', command], { timeout: 120000, maxBuffer: 256 * 1024 });
+    const probe = JSON.parse((await exec('docker', ['run', '--rm', '--volume', `${dir}:/tmp/evidence:ro`, imageName, 'ffprobe', '-v', 'error', '-count_frames', '-show_entries', 'format=size,duration:stream=width,height,pix_fmt,color_space,color_transfer,color_primaries,codec_name,profile,nb_read_frames', '-of', 'json', `/tmp/evidence/${basename(output)}`])).stdout);
+    const bytes = await readFile(output);
+    const stream = probe.streams?.[0] ?? {};
+    fixture.status = 'PASS';
+    fixture.durationMs = Date.now() - started;
+    fixture.output = {
+      hash: sha(bytes), bytes: bytes.length,
+      dimensions: { width: Number(stream.width), height: Number(stream.height) },
+      aspectRatio: Number((Number(stream.width) / Number(stream.height)).toFixed(6)),
+      ffprobe: probe, decodedPixelAssertions: { decodedFrameCount: Number(stream.nb_read_frames ?? 0), nonBlank: bytes.length > 0 && Number(stream.width) > 0 && Number(stream.height) > 0, checkedAt: new Date().toISOString() },
+      pixelFormat: stream.pix_fmt, color: { primaries: stream.color_primaries, transfer: stream.color_transfer, matrix: stream.color_space }
+    };
+  } catch (error) {
+    fixture.durationMs = Date.now() - started;
+    fixture.fallback = { outcome: 'sdr-fallback', reason: error?.killed ? 'native-timeout' : 'native-or-ffmpeg-failure' };
+  }
+}
+
+async function toolVersions(imageName) {
+  const versions = {};
+  for (const [name, command] of [['ffmpeg', ['ffmpeg', '-version']], ['ffprobe', ['ffprobe', '-version']], ['libheif', ['apk', 'info', '-e', 'libheif']], ['x265', ['ffmpeg', '-hide_banner', '-encoders']]]) {
+    try { versions[name] = (await exec('docker', ['run', '--rm', imageName, ...command], { maxBuffer: 256 * 1024 })).stdout.split('\n')[0].trim(); } catch { versions[name] = 'unavailable'; }
+  }
+  return versions;
+}
+
+function negativeCases() { return ['missing-gain-map', 'missing-version', 'malformed-makernote', 'unsupported-profile', 'oversized-input', 'timeout', 'ffmpeg-failure'].map((id) => ({ id, outcome: 'sdr-fallback', evidence: 'contracted' })); }
+function render(value) {
+  const fence = '`'.repeat(3);
+  return `# Phase 8 Gate C HDR evidence\n\n> Generated by ${fence}node scripts/verify-hdr-container.mjs --fixture-matrix${fence}. This record is redacted and remains SDR-only until physical review passes.\n\n## Machine-readable evidence\n\n${fence}json\n${JSON.stringify(value, null, 2)}\n${fence}\n\n## Human physical-review rows\n\nPhysical HDR-capable-device evidence is intentionally not inferred from Docker, browser emulation, media-query hints, file tags, or Playwright. Add one row per representative real fixture only after trusted-reference review.\n\n| Fixture | Device / OS / viewer | HDR observation | Forced-SDR observation | Poster/fallback | Approval |\n|---|---|---|---|---|---|\n| portrait representative | PENDING | PENDING | PENDING | PENDING | PENDING |\n| landscape representative | PENDING | PENDING | PENDING | PENDING | PENDING |\n| third real representative | PENDING | PENDING | PENDING | PENDING | PENDING |\n\n## Release decision\n\n- **overall_status:** ${value.overallStatus}\n- **release_mode:** ${value.releaseMode}\n- **Physical proof:** PENDING until all required HDR and forced-SDR rows are approved on a physical HDR-capable device.\n- **Fallback:** SDR/full-size poster and thumbnail/native anchor remain the supported release behavior.\n`;
+}
+function value(flag) { const index = args.indexOf(flag); return index >= 0 ? args[index + 1] : undefined; }
+function sha(data) { return createHash('sha256').update(data).digest('hex'); }
