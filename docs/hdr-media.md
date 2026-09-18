@@ -56,11 +56,31 @@ production HDR claim.
 ## Local/container evidence
 
 `tests/resources/hdr/` is ignored and must contain operator-supplied local fixtures
-only. `scripts/verify-hdr-native.mjs --docker` builds the production image, mounts
-the source fixture read-only, runs the compiled compositor and FFmpeg entrypoint,
-probes the output, and writes redacted hashes/tool versions to a temporary evidence
-directory. Missing fixtures fail closed. No fixture bytes are copied into the image
-or tracked in git.
+only. Acquire them with `scripts/acquire-hdr-fixtures.mjs`, supplying
+`--source-dir "$HDR_FIXTURE_SOURCE_DIR"`, the preserved `2.HEIF` reference, and
+`--manifest tests/resources/hdr/fixture-manifest.local.json --require-portrait
+--require-landscape --min-real-inputs 3`. Each input needs a provenance sidecar
+containing `device`, `export`, and a `portrait`/`landscape` role. Screenshots,
+synthetic media, generated video, duplicate hashes, and missing provenance are
+rejected. The preserved `2.HEIF` SHA-256 is
+`07b7199417a540316538a3408af46940ca3deec6e65e38a1e1deebda07e32045`.
+
+`scripts/verify-hdr-container.mjs` builds the production image, mounts local media
+read-only, runs the compiled compositor and FFmpeg, probes frame 0, and writes only
+redacted textual hashes, dimensions, pixel statistics, tool versions, and fallback
+categories to temporary output. `scripts/hdr-fixture-matrix.mjs` requires the
+reference plus the complete portrait/landscape matrix and records missing gain map,
+missing version, malformed MakerNote, unsupported profile, oversized input, timeout,
+and FFmpeg failure as SDR fallback. `scripts/verify-docker-fixture-content.mjs`
+inspects the runtime image and generated build context; fixture paths and media
+extensions must be absent. Docker or missing local fixtures are blocking operator
+prerequisites, not passes.
+
+No fixture bytes, provenance secrets, or generated evidence belong in git. The
+manifest and outputs are local-only and ignored. Container metadata and decoded
+pixel evidence do not establish physical HDR correctness: physical viewing on an
+HDR-capable device against Apple Photos or an equivalent trusted reference remains
+required before making an HDR claim.
 
 The historical `2.HEIF -> 4.mp4` pair remains a diagnostic reference, not physical
 HDR acceptance evidence. The final release gate still requires human review on an
