@@ -57,6 +57,10 @@ export function logImmichRequest({ endpoint, status, failureCategory }: { endpoi
 	console.info(JSON.stringify({ event: 'direct-share.immich-request', endpoint, status, ...(failureCategory ? { failureCategory } : {}) }));
 }
 
+export function logImmichRedirect({ endpoint, classification }: { endpoint: 'thumbnail' | 'video'; classification: 'same-origin-allowed' | 'external' | 'original-or-download' | 'other' | 'missing' }) {
+	console.info(JSON.stringify({ event: 'direct-share.immich-redirect', endpoint, classification }));
+}
+
 export function logMapMarkersResponse({ normalizedCount }: { normalizedCount: number }) {
 	console.info(JSON.stringify({ event: 'direct-share.map-markers-response', normalizedCount }));
 }
@@ -115,10 +119,18 @@ export function logShareAssetProjection({ requestId, type, topLevelAssetCount, n
 	console.info(JSON.stringify({ event: 'direct-share.asset-projection', ...(requestId ? { requestId } : {}), type, topLevelAssetCount, nestedAlbumAssetCount, normalizedAssetCount, ...(heroSelection ? { heroSelection } : {}) }));
 }
 
-export function logShareMediaStatus({ media, status, failureCategory }: { media: 'thumbnail' | 'video'; status: 'success' | 'failure'; failureCategory?: 'unauthorized' | 'not-found' | 'upstream' | 'oversized' | 'invalid-range' }) {
-	console.info(JSON.stringify({ event: `direct-share.${media}`, status, ...(failureCategory ? { failureCategory } : {}) }));
+export function logShareMediaStatus({ media, status, statusCode, contentType, byteLength, failureCategory, failureReason, failureDetail }: { media: 'thumbnail' | 'video' | 'fullsize'; status: 'success' | 'failure'; statusCode?: number; contentType?: string; byteLength?: number; failureCategory?: 'unauthorized' | 'not-found' | 'upstream' | 'conversion' | 'oversized' | 'invalid-range'; failureReason?: 'read' | 'primary-decode' | 'gain-map-missing' | 'gain-map-decode' | 'metadata-invalid' | 'png-encode' | 'ffmpeg' | 'compositor-timeout' | 'ffmpeg-timeout' | 'compositor-spawn' | 'ffmpeg-spawn' | 'compositor-exit' | 'ffmpeg-exit' | 'unknown'; failureDetail?: string }) {
+  console.info(JSON.stringify({ event: `direct-share.${media}`, status, ...(statusCode === undefined ? {} : { statusCode: Math.max(0, Math.min(999, Math.trunc(statusCode))) }), ...(contentType ? { contentType: contentType.split(';', 1)[0]?.trim().slice(0, 64) } : {}), ...(byteLength === undefined ? {} : { byteLength: Math.max(0, Math.min(10 * 1024 * 1024, Math.trunc(byteLength))) }), ...(failureCategory ? { failureCategory } : {}), ...(failureReason ? { failureReason } : {}), ...(failureDetail ? { failureDetail: failureDetail.slice(0, 160) } : {}) }));
 }
 
 export function logShareHeroSelection({ selection }: { selection: 'configured-filename' | 'configured-asset-id' | 'album-cover' | 'first-asset' | 'none' }) {
 	console.info(JSON.stringify({ event: 'direct-share.hero-selection', selection }));
+}
+
+export function logVisitedShareRegistry({ phase, result, entryCount }: {
+	phase: 'register' | 'decode';
+	result: 'success' | 'unavailable' | 'empty';
+	entryCount?: number;
+}) {
+	console.info(JSON.stringify({ event: 'direct-share.visited-share-registry', phase, result, ...(entryCount === undefined ? {} : { entryCount }) }));
 }
