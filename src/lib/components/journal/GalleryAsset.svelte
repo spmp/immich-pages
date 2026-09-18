@@ -15,6 +15,7 @@
 	let figureElement = $state<HTMLElement | undefined>(undefined);
 	let dpr = $state(1);
 	let promotedFailed = $state(false);
+	let hdrDisplay = $state(false);
 	let hdrProbeStatus = $state<'not-requested' | 'unsupported' | 'verified' | 'failed'>('not-requested');
 	const isVideo = $derived(asset.type === 'VIDEO');
 	const label = $derived(asset.caption ?? (isVideo ? 'Journey video' : 'Journey photograph'));
@@ -31,7 +32,10 @@
 	const mediaSource = $derived(resolution === 'fullsize' && asset.fullsize ? asset.fullsize : asset.thumbnail);
 	const resolvedThumbnailSource = $derived(resolve(asset.thumbnail as any));
 	const resolvedFullsizeSource = $derived(asset.fullsize ? resolve(asset.fullsize as any) : null);
+	const resolvedHdrSource = $derived(asset.hdrHref ? resolve(asset.hdrHref as any) : null);
 	const fullsizeAvailable = $derived(Boolean(asset.fullsize));
+	const hdrCandidate = $derived(Boolean(resolvedHdrSource && hdrDisplay && hdrProbeStatus === 'verified'));
+	const hdrPosterSource = $derived(hdrCandidate && !promotedFailed ? (resolvedFullsizeSource ?? resolvedThumbnailSource) : resolvedThumbnailSource);
 	const fallbackActive = $derived(resolution === 'thumbnail' && promotedFailed);
 	let lastResolutionDiagnostic = '';
 
@@ -75,14 +79,15 @@
 		return new URL(actual, document.baseURI).href === new URL(expected, document.baseURI).href;
 	}
 	function getImageSource(image: HTMLImageElement) {
-		const currentSource = image.currentSrc || image.src;
+		const currentSource = image.getAttribute('src') || image.currentSrc || image.src;
 		if (sourceMatches(currentSource, resolvedFullsizeSource)) return 'fullsize';
 		if (sourceMatches(currentSource, resolvedThumbnailSource)) return 'thumbnail';
 		return null;
 	}
 	function handleMediaError(event: Event) {
 		if (!isVideo) {
-			const source = getImageSource(event.currentTarget as HTMLImageElement);
+			const image = event.currentTarget as HTMLImageElement;
+			const source = getImageSource(image) ?? (image.dataset.mediaSource === 'fullsize' ? 'fullsize' : null);
 			if (!source) return;
 			if (source === 'fullsize') {
 			promotedFailed = true;
@@ -142,6 +147,7 @@
 	});
 	onMount(() => {
 		dpr = typeof window.devicePixelRatio === 'number' && window.devicePixelRatio > 0 ? window.devicePixelRatio : 1;
+		hdrDisplay = supportsHdrDisplay();
 		measured = true;
 	});
 	let probedFullsizeSource = '';
@@ -158,9 +164,22 @@
 			if (probedFullsizeSource === source) hdrProbeStatus = decoded ? 'verified' : 'failed';
 		});
 	});
+	let probedHdrSource = '';
+	$effect(() => {
+		const source = hdrDisplay ? resolvedHdrSource : null;
+		if (!source || probedHdrSource === source) return;
+		probedHdrSource = source;
+		hdrProbeStatus = 'not-requested';
+		const controller = new AbortController();
+		void fetch(source, { credentials: 'same-origin', signal: controller.signal, headers: { accept: 'video/mp4' } })
+			.then(async (response) => { if (!response.ok) return false; await response.arrayBuffer(); return true; })
+			.then((verified) => { if (probedHdrSource === source) hdrProbeStatus = verified ? 'verified' : 'failed'; })
+			.catch(() => { if (probedHdrSource === source) hdrProbeStatus = 'failed'; });
+		return () => controller.abort();
+	});
 </script>
 
-	<figure bind:this={figureElement} id={'asset-' + asset.id} tabindex="-1" data-resolution-policy={layoutMeasured ? 'measured-slot' : 'thumbnail-baseline'} data-media-resolution={journalDebugEnabled ? resolution : undefined} data-media-hdr-status={journalDebugEnabled ? hdrProbeStatus : undefined} data-media-slot-width={journalDebugEnabled ? renderedSlotWidth : undefined} data-media-intrinsic-width={journalDebugEnabled ? policyIntrinsicWidth : undefined} data-media-dpr={journalDebugEnabled ? dpr : undefined} data-media-required-width={journalDebugEnabled ? policyRequiredWidth : undefined} data-media-layout-measured={journalDebugEnabled ? layoutMeasured : undefined} data-media-measuring-completed={journalDebugEnabled ? measured : undefined} data-media-fullsize-available={journalDebugEnabled ? fullsizeAvailable : undefined} data-media-promotion-failed={journalDebugEnabled ? promotedFailed : undefined} data-media-fallback-active={journalDebugEnabled ? fallbackActive : undefined} style={layoutWidth && layoutHeight ? `width: ${layoutWidth}px; height: ${layoutHeight}px` : undefined} class:failed class:full-width={asset.fullWidth} class:portrait={orientation === 'portrait'} class:landscape={orientation === 'landscape'}>
+	<figure bind:this={figureElement} id={'asset-' + asset.id} tabindex="-1" data-hdr-prewarm={resolvedHdrSource ?? undefined} data-resolution-policy={layoutMeasured ? 'measured-slot' : 'thumbnail-baseline'} data-media-resolution={journalDebugEnabled ? resolution : undefined} data-media-hdr-status={journalDebugEnabled ? hdrProbeStatus : undefined} data-media-slot-width={journalDebugEnabled ? renderedSlotWidth : undefined} data-media-intrinsic-width={journalDebugEnabled ? policyIntrinsicWidth : undefined} data-media-dpr={journalDebugEnabled ? dpr : undefined} data-media-required-width={journalDebugEnabled ? policyRequiredWidth : undefined} data-media-layout-measured={journalDebugEnabled ? layoutMeasured : undefined} data-media-measuring-completed={journalDebugEnabled ? measured : undefined} data-media-fullsize-available={journalDebugEnabled ? fullsizeAvailable : undefined} data-media-promotion-failed={journalDebugEnabled ? promotedFailed : undefined} data-media-fallback-active={journalDebugEnabled ? fallbackActive : undefined} style={layoutWidth && layoutHeight ? `width: ${layoutWidth}px; height: ${layoutHeight}px` : undefined} class:failed class:full-width={asset.fullWidth} class:portrait={orientation === 'portrait'} class:landscape={orientation === 'landscape'}>
 	{#if failed}<div class="unavailable" role="status">Media unavailable</div>
 	{:else if isVideo}
 		<div class="gallery-media-frame">
@@ -170,7 +189,7 @@
 		</div>
 	{:else}
 		<div class="gallery-media-frame">
-			<a href={resolve(asset.thumbnail as any)} aria-label={label} data-media-source="thumbnail" data-lightbox-fallback="native-anchor" data-pswp-src={resolution === 'fullsize' ? resolvedFullsizeSource : undefined} data-pswp-width={lightboxWidth} data-pswp-height={lightboxHeight}>
+			<a href={resolve(asset.thumbnail as any)} aria-label={label} data-media-source="thumbnail" data-lightbox-fallback="native-anchor" data-pswp-type={hdrCandidate ? 'video' : undefined} data-video-src={hdrCandidate ? resolvedHdrSource : undefined} data-video-poster={hdrCandidate ? hdrPosterSource : undefined} data-video-controls={hdrCandidate ? 'false' : undefined} data-video-fallback-src={hdrCandidate ? (promotedFailed ? resolvedThumbnailSource : (resolvedFullsizeSource ?? resolvedThumbnailSource)) : undefined} data-pswp-src={!hdrCandidate && fullsizeAvailable && !promotedFailed ? resolvedFullsizeSource : undefined} data-pswp-width={lightboxWidth} data-pswp-height={lightboxHeight}>
 				<img src={mediaSource} alt={label} loading="lazy" width={lightboxWidth} height={lightboxHeight} data-media-source={resolution} bind:naturalWidth bind:naturalHeight onload={handleMediaLoad} onerror={handleMediaError} />
 			</a>
 		</div>

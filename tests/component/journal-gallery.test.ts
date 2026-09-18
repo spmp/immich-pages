@@ -17,7 +17,7 @@ describe('journal gallery contract', () => {
 		expect(asset).toContain('Media unavailable');
 		 expect(asset).toContain('width={lightboxWidth}');
 		expect(asset).toContain('height={lightboxHeight}');
-		expect(asset).toContain('data-pswp-src={resolution === \'fullsize\' ? resolvedFullsizeSource : undefined}');
+		expect(asset).toContain('data-pswp-src={!hdrCandidate && fullsizeAvailable && !promotedFailed ? resolvedFullsizeSource : undefined}');
 		expect(asset).not.toMatch(/original|download/);
 	});
 
@@ -154,6 +154,12 @@ describe('journal gallery contract', () => {
 		expect(asset).toContain('probeImageDecode(source)');
 		expect(asset).toContain('data-media-hdr-status');
 		expect(asset).toContain('data-lightbox-fallback="native-anchor"');
+		expect(asset).toContain('supportsHdrDisplay()');
+		expect(asset).toContain('resolvedHdrSource');
+		expect(asset).toContain('const hdrPosterSource = $derived(hdrCandidate && !promotedFailed ? (resolvedFullsizeSource ?? resolvedThumbnailSource) : resolvedThumbnailSource)');
+		expect(asset).toContain('data-video-poster={hdrCandidate ? hdrPosterSource : undefined}');
+        expect(asset).toContain('data-video-fallback-src={hdrCandidate ?');
+        expect(asset).toContain('promotedFailed ? resolvedThumbnailSource');
 		expect(capabilities).toContain('setTimeout(() => finish(false)');
 		expect(capabilities).toContain("src.startsWith('//')");
 	});
@@ -167,6 +173,12 @@ describe('journal gallery contract', () => {
 		expect(lightbox).toContain("instance.on('contentLoad'");
 		expect(lightbox).toContain('video.controls = true');
 		expect(lightbox).toContain('video.playsInline = true');
+		expect(lightbox).toContain('video.autoplay = true');
+		expect(lightbox).toContain('video.muted = true');
+		expect(lightbox).toContain('video.loop = true');
+		expect(lightbox).toContain('content.data.src = fallbackSrc');
+		expect(lightbox).toContain("instance.on('loadError'");
+		expect(lightbox).toContain('delete anchor.dataset.pswpSrc');
 	});
 
 	it('keeps marker handoff targets focusable and lightbox-compatible', () => {

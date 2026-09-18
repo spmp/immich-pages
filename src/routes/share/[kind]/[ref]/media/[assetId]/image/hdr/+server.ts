@@ -7,7 +7,7 @@ import { z } from 'zod';
 import { extractImmichShareToken, PAGES_SESSION_COOKIE, sessionForShare } from '$server/share/session';
 import { logShareMediaStatus } from '$server/share/diagnostics';
 import { composeHdr, encodeHdrMp4, nativeFailureDetail, nativeFailureReason } from '$server/media/hdr-compositor';
-import { getOrCreateHdr, withHdrConcurrency } from '$server/media/hdr-cache';
+import { buildHdrCacheKey, getOrCreateHdr, withHdrConcurrency } from '$server/media/hdr-cache';
 import { extractAppleHdrMetadata } from '$server/media/hdr-metadata';
 
 const noStore = { 'cache-control': 'private, no-store' };
@@ -28,6 +28,9 @@ export const GET: RequestHandler = async ({ params, request, cookies, fetch }) =
 	if (!source.response?.ok) return new Response('Immich is unavailable', { status: 502, headers: { 'cache-control': 'private, no-store' } });
 	try {
 		const input = await readBoundedBytes(source.response, IMMICH_MAX_ORIGINAL_BYTES);
+		const requestUrl = new URL(request.url);
+		const requestedWidth = boundedDimension(requestUrl.searchParams.get('width'));
+		const requestedHeight = boundedDimension(requestUrl.searchParams.get('height'));
 		const mime = inferSafeImageMime(input, source.response.headers.get('content-type'));
 		if (!mime || !['image/heic', 'image/heif'].includes(mime)) {
 			logShareMediaStatus({ media: 'fullsize', status: 'failure', statusCode: 404, contentType: mime ?? undefined, byteLength: input.byteLength, failureCategory: 'not-found' });
@@ -38,7 +41,17 @@ export const GET: RequestHandler = async ({ params, request, cookies, fetch }) =
 		if (!metadata) return unavailable();
 		let output;
 		try {
-			output = await getOrCreateHdr(`apple-gainmap-v2:${params.assetId}:${metadata.version}:${metadata.sourceProfile}:${metadata.sourceTransfer}`, async () => {
+			const sourceIdentity = [
+				source.response.headers.get('etag'),
+				source.response.headers.get('last-modified'),
+				source.response.headers.get('content-length'),
+				metadata.version,
+				metadata.sourceProfile,
+				metadata.sourceTransfer,
+				metadata.orientation
+			].filter(Boolean).join('|') || `bytes-${input.byteLength}`;
+			const cacheKey = buildHdrCacheKey({ assetId: params.assetId, sourceIdentity, width: requestedWidth, height: requestedHeight });
+			output = await getOrCreateHdr(cacheKey, async () => {
 				return withHdrConcurrency(async () => {
 					const compositorPpm = await composeHdr(input, metadata);
 					return { body: await encodeHdrMp4(compositorPpm), contentType: 'video/mp4' };
@@ -52,4 +65,10 @@ export const GET: RequestHandler = async ({ params, request, cookies, fetch }) =
 		logShareMediaStatus({ media: 'fullsize', status: 'success', contentType: output.contentType, byteLength: output.body.byteLength });
 		return new Response(output.body.buffer as ArrayBuffer, { headers: { 'content-type': output.contentType, 'content-length': String(output.body.byteLength), ...noStore } });
 	} catch { logShareMediaStatus({ media: 'fullsize', status: 'failure', failureCategory: 'upstream' }); return unavailable(); }
-};
+	};
+
+function boundedDimension(value: string | null): number | undefined {
+		if (!value || !/^\d+$/.test(value)) return undefined;
+		const parsed = Number(value);
+		return Number.isSafeInteger(parsed) && parsed >= 1 && parsed <= 8192 ? parsed : undefined;
+}
