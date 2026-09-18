@@ -53,6 +53,27 @@ Validate representative portrait and landscape files on a physical HDR-capable
 device against Apple Photos or an equivalent trusted reference before making a
 production HDR claim.
 
+## Browser state machine and failure evidence
+
+The browser path is monotonic: `thumbnail -> SDR poster -> HDR candidate` is the
+only promotion direction. The poster and same-origin thumbnail anchor are rendered
+before optional work starts. HDR is exposed to PhotoSwipe only for a client reporting
+both high dynamic range and a wide color gamut; a response, usable media decode, and
+playback start are required before the candidate is considered usable. A 4xx/5xx
+response, timeout, network error, unsupported metadata result, decode failure, or
+playback rejection removes the candidate and reloads the SDR poster/thumbnail image.
+Ordinary controlled videos do not use this state machine, and JavaScript-disabled
+visitors retain the thumbnail anchor.
+
+When `PUBLIC_PAGES_DEBUG=true`, browser diagnostics contain only bounded event names,
+allowlisted failure categories (`http`, `network`, `timeout`, `decode`, `playback`,
+`unsupported-metadata`), status codes, and durations. They never contain media bytes,
+credentials, URLs, upstream response bodies, or asset identifiers. The Chromium mock
+matrix covers no-hint gating, HDR hints, HTTP/decode/playback fallback, portrait and
+landscape dimensions, request context, and native-anchor behavior. WebKit/Safari
+equivalent execution is recorded as unavailable when the runtime cannot launch it;
+emulating the hint is not a physical HDR pass.
+
 ## Local/container evidence
 
 `tests/resources/hdr/` is ignored and must contain operator-supplied local fixtures

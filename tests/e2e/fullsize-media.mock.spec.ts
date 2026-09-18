@@ -1,5 +1,15 @@
 import { expect, test } from '@playwright/test';
 
+async function enableHdrHints(page: import('@playwright/test').Page) {
+	await page.addInitScript(() => {
+		const nativeMatchMedia = window.matchMedia.bind(window);
+		window.matchMedia = (query: string) => {
+			if (query === '(dynamic-range: high)' || query === '(color-gamut: p3)' || query === '(color-gamut: rec2020)') return { ...nativeMatchMedia(query), matches: true };
+			return nativeMatchMedia(query);
+		};
+	});
+}
+
 test.use({ extraHTTPHeaders: { authorization: 'Bearer fixture' } });
 test.beforeEach(async ({ context }) => {
 	await context.addCookies([{ name: 'immich_shared_link_token', value: 'fixture', domain: '127.0.0.1', path: '/' }]);
@@ -24,6 +34,32 @@ test('retains thumbnail fallback semantics when promotion is unavailable', async
 	await expect(image.locator('a')).toHaveAttribute('href', /\/thumbnail\?/);
 });
 
+test('opens the authorized original when inspecting an image', async ({ page }) => {
+	await page.goto('/share/key/opaque-ref');
+	await expect(page.locator('[data-lightbox-status]')).toHaveAttribute('data-lightbox-status', 'ready');
+	const image = page.locator('#asset-550e8400-e29b-41d4-a716-446655440002');
+	await expect(image.locator('img')).toHaveAttribute('data-media-source', 'thumbnail');
+	await expect(image.locator('a')).toHaveAttribute('data-pswp-src', /\/image\/fullsize\?/);
+
+	const fullsizeResponse = page.waitForResponse((response) => response.url().includes('/image/fullsize'), { timeout: 2_000 });
+	await image.locator('a').click();
+	expect((await fullsizeResponse).status()).toBe(200);
+});
+
+test('falls back to the thumbnail when the promoted original is an undecodable HEIF', async ({ page }) => {
+	await page.route('**/share/key/opaque-ref/media/550e8400-e29b-41d4-a716-446655440002/image/fullsize*', async (route) => {
+		await route.fulfill({ status: 200, contentType: 'image/heif', body: Buffer.from('not-a-decodable-heif') });
+	});
+	await page.goto('/share/key/opaque-ref');
+	await expect(page.locator('[data-lightbox-status]')).toHaveAttribute('data-lightbox-status', 'ready');
+	const anchor = page.locator('#asset-550e8400-e29b-41d4-a716-446655440002 a');
+	await anchor.click();
+	await expect(page.locator('.pswp')).toBeVisible();
+	await expect(page.locator('.pswp__error-msg')).toHaveCount(0);
+	await expect(page.locator('.pswp__img')).toHaveAttribute('src', /\/thumbnail\?/);
+	await expect(anchor).not.toHaveAttribute('data-pswp-src');
+});
+
 test('keeps promotion request context scoped to the share and never broadens media access', async ({ page }) => {
 	const requests: string[] = [];
 	page.on('request', (request) => requests.push(request.url()));
@@ -32,4 +68,49 @@ test('keeps promotion request context scoped to the share and never broadens med
 	const fullsize = requests.find((url) => url.includes('/image/fullsize'));
 	if (fullsize) expect(fullsize).toMatch(/\?(key|slug)=opaque-ref$/);
 	expect(requests.some((url) => /\/original|\/download|immich-host/.test(url))).toBe(false);
+});
+
+test('never requests HDR for an SDR or unknown-dynamic-range client', async ({ page }) => {
+	const hdrRequests: string[] = [];
+	page.on('request', (request) => { if (request.url().includes('/image/hdr')) hdrRequests.push(request.url()); });
+	await page.goto('/share/key/opaque-ref');
+	await expect(page.locator('#asset-550e8400-e29b-41d4-a716-446655440002 img')).toBeVisible();
+	await page.waitForTimeout(250);
+	expect(hdrRequests).toEqual([]);
+});
+
+test('HDR hints keep the poster first and promote only through PhotoSwipe media', async ({ page }) => {
+	await enableHdrHints(page);
+	const hdrRequests: string[] = [];
+	page.on('request', (request) => { if (request.url().includes('/image/hdr')) hdrRequests.push(request.url()); });
+	await page.goto('/share/key/opaque-ref');
+	const asset = page.locator('#asset-550e8400-e29b-41d4-a716-446655440002');
+	await expect(asset.locator('img')).toHaveAttribute('data-media-source', 'thumbnail');
+	await expect(asset.locator('a')).toHaveAttribute('data-video-controls', 'false');
+	await expect(asset.locator('a')).toHaveAttribute('data-video-poster', /\/image\/fullsize\?/);
+	await asset.locator('a').click();
+	await expect.poll(() => hdrRequests.length).toBeGreaterThan(0);
+	await expect(page.locator('.pswp')).toBeVisible();
+	expect(hdrRequests[0]).toMatch(/\?(key|slug)=opaque-ref&width=1200&height=800$/);
+});
+
+test('unsupported metadata and HTTP HDR failures restore a usable native fallback', async ({ page }) => {
+	await enableHdrHints(page);
+	await page.route('**/share/key/opaque-ref/media/550e8400-e29b-41d4-a716-446655440002/image/hdr*', async (route) => {
+		await route.fulfill({ status: 404, contentType: 'text/plain', body: 'HDR unavailable' });
+	});
+	await page.goto('/share/key/opaque-ref');
+	await expect(page.locator('[data-lightbox-status]')).toHaveAttribute('data-lightbox-status', 'ready');
+	const anchor = page.locator('#asset-550e8400-e29b-41d4-a716-446655440002 a');
+	await anchor.click();
+	await expect(page.locator('.pswp')).toBeVisible();
+	await expect(page.locator('.pswp__error-msg')).toHaveCount(0);
+	await expect(page.locator('.pswp__img')).toHaveAttribute('src', /\/thumbnail\?/);
+	await expect(anchor).toHaveAttribute('data-lightbox-fallback', 'native-anchor');
+});
+
+test('portrait and landscape assets retain bounded intrinsic viewer dimensions', async ({ page }) => {
+	await page.goto('/share/key/opaque-ref');
+	await expect(page.locator('#asset-550e8400-e29b-41d4-a716-446655440002 a')).toHaveAttribute('data-pswp-width', '1200');
+	await expect(page.locator('#asset-550e8400-e29b-41d4-a716-446655440007 a')).toHaveAttribute('data-pswp-height', '1200');
 });

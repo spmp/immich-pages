@@ -7,7 +7,7 @@ const landscapeFixture = readFileSync(fileURLToPath(new URL('../fixtures/images/
 const portraitFixture = readFileSync(fileURLToPath(new URL('../fixtures/images/portrait-800x1200.png', import.meta.url)));
 
 const assets = [{
-  id: '550e8400-e29b-41d4-a716-446655440002', type: 'IMAGE', originalFileName: 'mock-proof.jpg', width: 1200, height: 800
+  id: '550e8400-e29b-41d4-a716-446655440002', type: 'IMAGE', originalFileName: 'mock-proof.heic', originalMimeType: 'image/heic', width: 1200, height: 800
 }, {
   id: '550e8400-e29b-41d4-a716-446655440005', type: 'VIDEO', originalFileName: 'mock-clip.mp4', width: 640, height: 360, duration: 1000
 }, {
@@ -60,7 +60,7 @@ const page = {
     albumName: 'Mock Journey',
     startDate: '2026-01-01T00:00:00.000Z',
     endDate: '2026-01-01T00:00:00.000Z',
-    description: '---\nimmich-presentation:\n  type: journey\n  version: 1\n---\nMock browser proof'
+    description: '---\nimmich-presentation:\n  type: journey\n  version: 1\n  gradient:\n    auto: true\n---\nMock browser proof'
   },
   assets,
   showMetadata: true,
@@ -234,7 +234,7 @@ const server = http.createServer((request, response) => {
     return;
   }
 
-  if ((url.pathname === '/api/assets/550e8400-e29b-41d4-a716-446655440002/thumbnail' || url.pathname === '/api/assets/550e8400-e29b-41d4-a716-446655440007/thumbnail') && ['opaque-ref', 'revoke-ref', 'expire-ref'].includes(url.searchParams.get('key') ?? url.searchParams.get('slug'))) {
+  if ((url.pathname === '/api/assets/550e8400-e29b-41d4-a716-446655440002/thumbnail' || url.pathname === '/api/assets/550e8400-e29b-41d4-a716-446655440002/original' || url.pathname === '/api/assets/550e8400-e29b-41d4-a716-446655440007/thumbnail') && ['opaque-ref', 'revoke-ref', 'expire-ref'].includes(url.searchParams.get('key') ?? url.searchParams.get('slug'))) {
     if (request.headers.cookie !== 'immich_shared_link_token=fixture' || request.headers.authorization !== 'Bearer fixture') {
       response.writeHead(403, { 'content-type': 'application/json', 'set-cookie': 'secret=must-not-relay; Path=/' });
       response.end(JSON.stringify({ error: 'thumbnail request context rejected' }));
