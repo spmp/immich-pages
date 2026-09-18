@@ -1,6 +1,7 @@
 FROM node:24-alpine AS build
 
 RUN apk add --no-cache ffmpeg g++ make libheif-dev
+LABEL org.opencontainers.image.description="Immich Pages production runtime; HDR compositor compiled from source"
 
 WORKDIR /app
 COPY package.json package-lock.json ./
@@ -19,6 +20,8 @@ COPY package.json package-lock.json ./
 RUN npm ci --omit=dev && npm cache clean --force
 COPY --from=build /app/build ./build
 COPY --from=build /usr/local/bin/hdr-gainmap-compositor /usr/local/bin/hdr-gainmap-compositor
+
+# Do not copy tests/resources or any fixture/media file into the production image.
 
 USER node
 EXPOSE 3000
