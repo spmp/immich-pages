@@ -27,10 +27,11 @@ describe('direct-share tracer', () => {
 		expect(outcome.kind).toBe('page');
 		if (outcome.kind === 'page') {
 			expect(outcome.page.album).not.toHaveProperty('id');
-				expect(outcome.page.assets[0]).toEqual({
-					id: '22222222-2222-4222-8222-222222222222', type: 'IMAGE', fileName: 'one.jpg',
-					thumbnail: `/share/${kind}/opaque_ref/media/22222222-2222-4222-8222-222222222222/thumbnail?${kind}=opaque_ref`, width: 100, height: 100
-				});
+			expect(outcome.page.assets[0]).toEqual({
+			id: '22222222-2222-4222-8222-222222222222', type: 'IMAGE',
+			thumbnail: `/share/${kind}/opaque_ref/media/22222222-2222-4222-8222-222222222222/thumbnail?${kind}=opaque_ref`,
+			fullsize: `/share/${kind}/opaque_ref/media/22222222-2222-4222-8222-222222222222/image/fullsize?${kind}=opaque_ref`, width: 100, height: 100, sourceWidth: 100, sourceHeight: 100
+		});
 			expect(JSON.stringify(outcome)).not.toContain('visitor');
 		}
 	});
