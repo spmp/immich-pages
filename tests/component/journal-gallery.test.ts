@@ -148,6 +148,7 @@ describe('journal gallery contract', () => {
 
 	it('treats HDR as an optional same-origin enhancement with visible SDR fallback', () => {
 		const asset = source('GalleryAsset');
+		const lightbox = source('Lightbox');
 		const capabilities = readFileSync('src/lib/media/capabilities.ts', 'utf8');
 		expect(asset).toContain('supportsHdrDisplay');
 		expect(asset).toContain('supportsWideColorGamut');
@@ -156,11 +157,13 @@ describe('journal gallery contract', () => {
 		expect(asset).toContain('data-lightbox-fallback="native-anchor"');
 		expect(asset).toContain('supportsHdrDisplay()');
 		expect(asset).toContain('resolvedHdrSource');
-		expect(asset).toContain('data-hdr-prewarm={resolvedHdrSource ?? undefined}');
+		expect(asset).toContain('data-hdr-prewarm={hdrDisplay && hdrGamut ? (resolvedHdrSource ?? undefined) : undefined}');
+		expect(asset).toContain('const hdrCandidate = $derived(Boolean(resolvedHdrSource && hdrDisplay && hdrGamut && !promotedFailed))');
 		expect(asset).toContain('const hdrPosterSource = $derived(hdrCandidate && !promotedFailed ? (resolvedFullsizeSource ?? resolvedThumbnailSource) : resolvedThumbnailSource)');
 		expect(asset).toContain('data-video-poster={hdrCandidate ? hdrPosterSource : undefined}');
         expect(asset).toContain('data-video-fallback-src={hdrCandidate ?');
-        expect(asset).toContain('promotedFailed ? resolvedThumbnailSource');
+		expect(asset).toContain('promotedFailed ? resolvedThumbnailSource');
+		expect(lightbox).toContain('video.play().catch(() => restoreFallback');
 		expect(capabilities).toContain('setTimeout(() => finish(false)');
 		expect(capabilities).toContain("src.startsWith('//')");
 	});

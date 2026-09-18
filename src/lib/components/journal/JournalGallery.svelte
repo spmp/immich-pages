@@ -5,7 +5,7 @@
 	import { onMount } from 'svelte';
 	import { reportJournalDebug } from './journal-debug';
 	import { calculateJustifiedRows } from './justified-layout';
-	import { supportsHdrDisplay } from '$lib/media/capabilities';
+	import { supportsHdrDisplay, supportsWideColorGamut } from '$lib/media/capabilities';
 	let { assets, shareKind, shareRef, fullWidth = [] }: { assets: NormalizedAsset[]; shareKind?: string; shareRef?: string; fullWidth?: string[] } = $props();
 	const enriched = $derived(assets.map((asset) => {
 		const videoHref = asset.videoHref ?? (asset.type === 'VIDEO' && shareKind && shareRef ? `/share/${shareKind}/${encodeURIComponent(shareRef)}/media/${encodeURIComponent(asset.id)}/video/playback` : undefined);
@@ -26,7 +26,7 @@
 	});
 	onMount(() => reportJournalDebug('gallery-state', { category: 'gallery', status: enriched.length === 0 ? 'empty' : 'success', assetCount: enriched.length, imageCount: enriched.filter((asset) => asset.type !== 'VIDEO').length, videoCount: enriched.filter((asset) => asset.type === 'VIDEO').length, ...(enriched.length === 0 ? { errorContext: 'gallery-load' as const } : {}) }));
 	onMount(() => {
-		if (!supportsHdrDisplay()) return;
+		if (!supportsHdrDisplay() || !supportsWideColorGamut()) return;
 		const controllers = new Set<AbortController>();
 		const completed = new Set<string>();
 		let stopped = false;

@@ -12,6 +12,7 @@
 		let destroyed = false;
 		let modalHistory = false;
 		let closingFromPopstate = false;
+		let pendingHistoryTraversal = false;
 		let pendingAnchor: HTMLAnchorElement | null = null;
 		let activeViewer: any;
 		const previousOverflow = document.body.style.overflow;
@@ -32,10 +33,26 @@
 			if (!controls.length) return;
 			const first = controls[0];
 			const last = controls[controls.length - 1];
-			if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
-			else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+			if (event.shiftKey && (document.activeElement === first || document.activeElement === root)) { event.preventDefault(); last.focus(); }
+			else if (!event.shiftKey && (document.activeElement === last || document.activeElement === root)) { event.preventDefault(); first.focus(); }
 		};
 		const onPopstate = () => {
+			// Escape closes PhotoSwipe first and then traverses the history entry we
+			// added on open. A click can arrive in that small interval; hold it until
+			// the traversal has completed so this popstate cannot close a new viewer.
+			if (pendingHistoryTraversal) {
+				pendingHistoryTraversal = false;
+				modalHistory = false;
+				const queuedAnchor = pendingAnchor;
+				pendingAnchor = null;
+				setTimeout(() => {
+					if (destroyed || !ready || !lightbox || !queuedAnchor) return;
+					const gallery = getGallery();
+					const index = Array.from(gallery?.querySelectorAll('a') ?? []).indexOf(queuedAnchor);
+					if (index >= 0) lightbox.loadAndOpen(index);
+				}, 0);
+				return;
+			}
 			if (destroyed || !lightbox?.pswp) { modalHistory = false; return; }
 			closingFromPopstate = true;
 			modalHistory = false;
@@ -61,6 +78,10 @@
 			if (!anchor || !gallery.contains(anchor)) return;
 			if (ready && lightbox) {
 				event.preventDefault();
+				if (pendingHistoryTraversal) {
+					pendingAnchor = anchor;
+					return;
+				}
 				lightbox.loadAndOpen(Array.from(gallery.querySelectorAll('a')).indexOf(anchor));
 				return;
 			}
@@ -81,6 +102,8 @@
 					const element = itemData.element as HTMLAnchorElement | undefined;
 					return element?.dataset.pswpType === 'video'
 						? { ...itemData, type: 'video', src: element.dataset.videoSrc, poster: element.dataset.videoPoster }
+						: element?.dataset.pswpSrc
+							? { ...itemData, src: element.dataset.pswpSrc }
 						: itemData;
 				});
 				instance.on('contentLoad', (event: any) => {
@@ -88,17 +111,58 @@
 					if (content.type !== 'video') return;
 					event.preventDefault();
 					const video = document.createElement('video');
+					const controlsDisabled = content.data.element?.dataset.videoControls === 'false';
+					const fallbackSrc = content.data.element?.dataset.videoFallbackSrc;
 					video.src = content.data.src;
 					video.poster = content.data.poster;
 					video.controls = true;
+					if (controlsDisabled) video.controls = false;
 					video.playsInline = true;
-					video.preload = 'metadata';
+					video.preload = controlsDisabled ? 'auto' : 'metadata';
+					if (controlsDisabled) {
+						video.autoplay = true;
+						video.muted = true;
+						video.loop = true;
+					}
 					video.className = 'pswp__video';
 					video.setAttribute('aria-label', content.data.element?.getAttribute('aria-label') ?? 'Journey video');
+					let hdrTimeout: number | undefined;
+					const restoreFallback = (errorContext: 'video-load' | 'video-playback') => {
+						if (!fallbackSrc || content.type !== 'video') return;
+						if (hdrTimeout !== undefined) window.clearTimeout(hdrTimeout);
+						content.element?.remove();
+						content.element = undefined;
+						content.type = 'image';
+						content.data.type = 'image';
+						content.data.src = fallbackSrc;
+						content.load(false, true);
+						reportJournalDebug('media-failure', { category: 'video', status: 'unavailable', errorContext, failureCategory: errorContext === 'video-playback' ? 'playback' : 'decode' });
+					};
+					video.addEventListener('error', () => {
+						restoreFallback('video-load');
+					});
 					const track = document.createElement('track');
 					track.kind = 'captions';
 					video.appendChild(track);
 					content.element = video;
+					if (controlsDisabled) {
+						hdrTimeout = window.setTimeout(() => restoreFallback('video-load'), 5000);
+						video.addEventListener('loadeddata', () => {
+							if (hdrTimeout !== undefined) window.clearTimeout(hdrTimeout);
+							void video.play().catch(() => restoreFallback('video-playback'));
+						}, { once: true });
+					}
+				});
+				instance.on('loadError', (event: any) => {
+					const { content } = event;
+					const anchor = content.data.element as HTMLAnchorElement | undefined;
+					if (content.type !== 'image' || !anchor?.dataset.pswpSrc) return;
+					delete anchor.dataset.pswpSrc;
+					content.element?.remove();
+					content.element = undefined;
+					content.data.src = anchor.href;
+					content.load(false, true);
+					reportJournalDebug('media-failure', { category: 'image', status: 'unavailable', errorContext: 'image-load', failureCategory: 'decode' });
 				});
 				instance.on('beforeOpen', (event: any) => {
 					activeViewer = event.pswp;
@@ -107,6 +171,27 @@
 					if (!modalHistory) { history.pushState({ immichPagesLightbox: true }, '', location.href); modalHistory = true; }
 					reportJournalDebug('lightbox', { status: 'opened' });
 				});
+				instance.on('afterInit', () => {
+					const focusClose = () => {
+						const root = document.querySelector<HTMLElement>('.pswp');
+						const close = root?.querySelector<HTMLElement>('button[aria-label*="Close"], button[title*="Close"], .pswp__button');
+						if (close) {
+							close.focus();
+							if (document.activeElement === close) return true;
+							return false;
+						}
+						if (root) {
+							root.tabIndex = -1;
+							root.focus();
+						}
+						return Boolean(root);
+					};
+					focusClose();
+					setTimeout(() => {
+						if (!focusClose()) setTimeout(focusClose, 0);
+					}, 0);
+					setTimeout(focusClose, 50);
+				});
 				instance.on('openingAnimationEnd', () => {
 					const root = document.querySelector<HTMLElement>('.pswp');
 					root?.setAttribute('data-pswp-modal', 'true');
@@ -114,6 +199,7 @@
 						const openRoot = document.querySelector<HTMLElement>('.pswp--open');
 						(openRoot?.querySelector<HTMLElement>('button[aria-label*="Close"], button[title*="Close"], .pswp__button') ?? openRoot)?.focus();
 						announce();
+						setTimeout(() => openRoot?.querySelector<HTMLElement>('.pswp__button--close, button[aria-label*="Close"], button[title*="Close"]')?.focus(), 0);
 					}, 0);
 				});
 				instance.on('change', announce);
@@ -121,6 +207,7 @@
 					const shouldGoBack = modalHistory && !closingFromPopstate;
 					modalHistory = false;
 					closingFromPopstate = false;
+					pendingHistoryTraversal = shouldGoBack;
 					document.body.style.overflow = previousOverflow;
 					opener?.focus(); opener = null;
 					activeViewer = undefined;
@@ -160,6 +247,14 @@
 
 <style>
 	.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+	:global(.pswp) {
+		position: fixed;
+		inset: 0;
+		width: 100vw;
+		height: 100vh;
+		height: 100dvh;
+	}
+	:global(.pswp--open) { display: block; visibility: visible; }
 	:global(.pswp), :global(.pswp__bg) { --pswp-bg: var(--theme-overlay, #000); --pswp-bg-opacity: 1; background-color: var(--theme-overlay, #000); opacity: 1; }
 	:global(.pswp__video) { display: block; max-width: 100%; max-height: 100%; width: auto; height: auto; object-fit: contain; }
 </style>

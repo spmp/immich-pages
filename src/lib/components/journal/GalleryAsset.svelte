@@ -15,8 +15,10 @@
 	let figureElement = $state<HTMLElement | undefined>(undefined);
 	let dpr = $state(1);
 	let promotedFailed = $state(false);
+	type HdrStatus = 'not-requested' | 'unsupported' | 'checking' | 'verified' | 'failed';
 	let hdrDisplay = $state(false);
-	let hdrProbeStatus = $state<'not-requested' | 'unsupported' | 'verified' | 'failed'>('not-requested');
+	let hdrGamut = $state(false);
+	let hdrProbeStatus = $state<HdrStatus>('not-requested');
 	const isVideo = $derived(asset.type === 'VIDEO');
 	const label = $derived(asset.caption ?? (isVideo ? 'Journey video' : 'Journey photograph'));
 	const width = $derived(getPreferredDimension(asset.width, naturalWidth));
@@ -35,7 +37,7 @@
 	const resolvedFullsizeSource = $derived(asset.fullsize ? resolve(asset.fullsize as any) : null);
 	const resolvedHdrSource = $derived(asset.hdrHref ? addResolutionQuery(resolve(asset.hdrHref as any), hdrTarget) : null);
 	const fullsizeAvailable = $derived(Boolean(asset.fullsize));
-	const hdrCandidate = $derived(Boolean(resolvedHdrSource && hdrDisplay && hdrProbeStatus === 'verified'));
+	const hdrCandidate = $derived(Boolean(resolvedHdrSource && hdrDisplay && hdrGamut && !promotedFailed));
 	const hdrPosterSource = $derived(hdrCandidate && !promotedFailed ? (resolvedFullsizeSource ?? resolvedThumbnailSource) : resolvedThumbnailSource);
 	const fallbackActive = $derived(resolution === 'thumbnail' && promotedFailed);
 	let lastResolutionDiagnostic = '';
@@ -94,6 +96,9 @@
 		if (sourceMatches(currentSource, resolvedThumbnailSource)) return 'thumbnail';
 		return null;
 	}
+	function reportMediaFailure(category: 'http' | 'network' | 'timeout' | 'decode' | 'playback' | 'unsupported-metadata', errorContext: 'image-load' | 'video-load', statusCode?: number, durationMs?: number) {
+		reportJournalDebug('media-failure', { category: isVideo ? 'video' : 'image', status: 'unavailable', errorContext, failureCategory: category, ...(statusCode === undefined ? {} : { statusCode }), ...(durationMs === undefined ? {} : { durationMs }) });
+	}
 	function handleMediaError(event: Event) {
 		if (!isVideo) {
 			const image = event.currentTarget as HTMLImageElement;
@@ -101,15 +106,15 @@
 			if (!source) return;
 			if (source === 'fullsize') {
 			promotedFailed = true;
-				reportJournalDebug('media-failure', { category: 'image', status: 'unavailable', errorContext: 'image-load' });
+				reportMediaFailure('decode', 'image-load');
 				return;
 			}
 			failed = true;
-			reportJournalDebug('media-failure', { category: 'image', status: 'unavailable', errorContext: 'image-load' });
+			reportMediaFailure('decode', 'image-load');
 			return;
 		}
 		failed = true;
-		reportJournalDebug('media-failure', { category: isVideo ? 'video' : 'image', status: 'unavailable', errorContext: isVideo ? 'video-load' : 'image-load' });
+		reportMediaFailure('decode', isVideo ? 'video-load' : 'image-load');
 	}
 	function handleMediaLoad(event: Event) {
 		if (!isVideo) {
@@ -158,6 +163,7 @@
 	onMount(() => {
 		dpr = typeof window.devicePixelRatio === 'number' && window.devicePixelRatio > 0 ? window.devicePixelRatio : 1;
 		hdrDisplay = supportsHdrDisplay();
+		hdrGamut = supportsWideColorGamut();
 		measured = true;
 	});
 	let probedFullsizeSource = '';
@@ -165,7 +171,7 @@
 		const source = resolution === 'fullsize' ? resolvedFullsizeSource : null;
 		if (!source || probedFullsizeSource === source) return;
 		probedFullsizeSource = source;
-		if (!supportsHdrDisplay() && !supportsWideColorGamut()) {
+		if (!hdrDisplay || !hdrGamut) {
 			hdrProbeStatus = 'unsupported';
 			return;
 		}
@@ -174,22 +180,9 @@
 			if (probedFullsizeSource === source) hdrProbeStatus = decoded ? 'verified' : 'failed';
 		});
 	});
-	let probedHdrSource = '';
-	$effect(() => {
-		const source = hdrDisplay ? resolvedHdrSource : null;
-		if (!source || probedHdrSource === source) return;
-		probedHdrSource = source;
-		hdrProbeStatus = 'not-requested';
-		const controller = new AbortController();
-		void fetch(source, { credentials: 'same-origin', signal: controller.signal, headers: { accept: 'video/mp4' } })
-			.then(async (response) => { if (!response.ok) return false; await response.arrayBuffer(); return true; })
-			.then((verified) => { if (probedHdrSource === source) hdrProbeStatus = verified ? 'verified' : 'failed'; })
-			.catch(() => { if (probedHdrSource === source) hdrProbeStatus = 'failed'; });
-		return () => controller.abort();
-	});
 </script>
 
-	<figure bind:this={figureElement} id={'asset-' + asset.id} tabindex="-1" data-hdr-prewarm={resolvedHdrSource ?? undefined} data-hdr-target-width={hdrTarget?.width} data-hdr-target-height={hdrTarget?.height} data-hdr-bounded={hdrTarget?.bounded} data-resolution-policy={layoutMeasured ? 'measured-slot' : 'thumbnail-baseline'} data-media-resolution={journalDebugEnabled ? resolution : undefined} data-media-hdr-status={journalDebugEnabled ? hdrProbeStatus : undefined} data-media-slot-width={journalDebugEnabled ? renderedSlotWidth : undefined} data-media-intrinsic-width={journalDebugEnabled ? policyIntrinsicWidth : undefined} data-media-dpr={journalDebugEnabled ? dpr : undefined} data-media-required-width={journalDebugEnabled ? policyRequiredWidth : undefined} data-media-layout-measured={journalDebugEnabled ? layoutMeasured : undefined} data-media-measuring-completed={journalDebugEnabled ? measured : undefined} data-media-fullsize-available={journalDebugEnabled ? fullsizeAvailable : undefined} data-media-promotion-failed={journalDebugEnabled ? promotedFailed : undefined} data-media-fallback-active={journalDebugEnabled ? fallbackActive : undefined} style={layoutWidth && layoutHeight ? `width: ${layoutWidth}px; height: ${layoutHeight}px` : undefined} class:failed class:full-width={asset.fullWidth} class:portrait={orientation === 'portrait'} class:landscape={orientation === 'landscape'}>
+	<figure bind:this={figureElement} id={'asset-' + asset.id} tabindex="-1" data-hdr-prewarm={hdrDisplay && hdrGamut ? (resolvedHdrSource ?? undefined) : undefined} data-hdr-target-width={hdrTarget?.width} data-hdr-target-height={hdrTarget?.height} data-hdr-bounded={hdrTarget?.bounded} data-resolution-policy={layoutMeasured ? 'measured-slot' : 'thumbnail-baseline'} data-media-resolution={journalDebugEnabled ? resolution : undefined} data-media-hdr-status={journalDebugEnabled ? hdrProbeStatus : undefined} data-media-slot-width={journalDebugEnabled ? renderedSlotWidth : undefined} data-media-intrinsic-width={journalDebugEnabled ? policyIntrinsicWidth : undefined} data-media-dpr={journalDebugEnabled ? dpr : undefined} data-media-required-width={journalDebugEnabled ? policyRequiredWidth : undefined} data-media-layout-measured={journalDebugEnabled ? layoutMeasured : undefined} data-media-measuring-completed={journalDebugEnabled ? measured : undefined} data-media-fullsize-available={journalDebugEnabled ? fullsizeAvailable : undefined} data-media-promotion-failed={journalDebugEnabled ? promotedFailed : undefined} data-media-fallback-active={journalDebugEnabled ? fallbackActive : undefined} style={layoutWidth && layoutHeight ? `width: ${layoutWidth}px; height: ${layoutHeight}px` : undefined} class:failed class:full-width={asset.fullWidth} class:portrait={orientation === 'portrait'} class:landscape={orientation === 'landscape'}>
 	{#if failed}<div class="unavailable" role="status">Media unavailable</div>
 	{:else if isVideo}
 		<div class="gallery-media-frame">
