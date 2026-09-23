@@ -1,7 +1,10 @@
 import { expect, test } from '@playwright/test';
 import { readFileSync, unlinkSync } from 'node:fs';
 
-const order = [7, 1, 20, 3, 14, 9, 2, 18, 5, 11, 16, 4, 19, 8, 13, 6, 17, 10, 12, 15];
+const orders = {
+  'heic-reverse-ref': Array.from({ length: 20 }, (_, index) => 20 - index),
+  'heic-forward-ref': Array.from({ length: 20 }, (_, index) => index + 1)
+} as const;
 const assetId = (number: number) => `70000000-0000-4000-8000-${String(number).padStart(12, '0')}`;
 const fixtureRoot = new URL('../resources/heic-test-set/', import.meta.url);
 const bridgeLog = process.env.HDR_BRIDGE_LOG;
@@ -23,20 +26,22 @@ async function enableHdrHints(page: import('@playwright/test').Page) {
   });
 }
 
-test('renders all twenty assets in upstream album order and serves SDR fullsize JPEGs', async ({ page }) => {
-  await page.goto('/share/key/heic-ref');
-  await expect(page.locator('[data-lightbox-status]')).toHaveAttribute('data-lightbox-status', 'ready');
-  await expect.poll(async () => page.locator('[id^="asset-"]').evaluateAll((nodes) => nodes.map((node) => node.id.replace('asset-', '')))).toEqual(order.map(assetId));
+test('renders all twenty assets in each upstream album order and serves exact HEIC originals', async ({ page }) => {
+  for (const [ref, order] of Object.entries(orders)) {
+    await page.goto(`/share/key/${ref}`);
+    await expect(page.locator('[data-lightbox-status]')).toHaveAttribute('data-lightbox-status', 'ready');
+    await expect.poll(async () => page.locator('[id^="asset-"]').evaluateAll((nodes) => nodes.map((node) => node.id.replace('asset-', '')))).toEqual(order.map(assetId));
 
-  for (const number of [1, 20]) {
-    const id = assetId(number);
-    const responsePromise = page.waitForResponse((response) => response.url().includes(`/media/${id}/image/fullsize`));
-    await page.locator(`#asset-${id} a`).click();
-    const response = await responsePromise;
-    expect(response.status()).toBe(200);
-    expect(response.headers()['content-type']).toContain('image/jpeg');
-    expect(await response.body()).toEqual(readFileSync(new URL(`fullsize/${String(number).padStart(2, '0')}.jpg`, fixtureRoot)));
-    await page.keyboard.press('Escape');
+    for (const number of [order[0], order[order.length - 1]]) {
+      const id = assetId(number);
+      const responsePromise = page.waitForResponse((response) => response.url().includes(`/media/${id}/image/fullsize`));
+      await page.locator(`#asset-${id} a`).click();
+      const response = await responsePromise;
+      expect(response.status()).toBe(200);
+      expect(response.headers()['content-type']).toBe('image/heif');
+      expect(await response.body()).toEqual(readFileSync(new URL(`originals/${String(number).padStart(2, '0')}.HEIC`, fixtureRoot)));
+      await page.keyboard.press('Escape');
+    }
   }
 });
 
@@ -44,9 +49,12 @@ test('runs the HDR bridge for a real HEIC asset and returns the valid MP4 fixtur
   if (!bridgeLog) throw new Error('HDR_BRIDGE_LOG is required for executable bridge evidence');
   await enableHdrHints(page);
   const id = assetId(7);
-  await page.goto('/share/key/heic-ref');
+  await page.goto('/share/key/heic-forward-ref');
+  const candidate = page.locator(`#asset-${id} a`);
+  await expect(candidate).toHaveAttribute('data-pswp-type', 'video');
+  await expect(candidate).toHaveAttribute('data-video-src', /\/image\/hdr/);
   const responsePromise = page.waitForResponse((response) => response.url().includes(`/media/${id}/image/hdr`));
-  await page.locator(`#asset-${id} a`).click();
+  await candidate.click();
   const response = await responsePromise;
   expect(response.status()).toBe(200);
   expect(response.headers()['content-type']).toContain('video/mp4');

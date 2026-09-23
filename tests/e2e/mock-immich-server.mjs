@@ -6,14 +6,15 @@ const videoFixture = readFileSync(fileURLToPath(new URL('../fixtures/video/chrom
 const landscapeFixture = readFileSync(fileURLToPath(new URL('../fixtures/images/landscape-1200x800.png', import.meta.url)));
 const portraitFixture = readFileSync(fileURLToPath(new URL('../fixtures/images/portrait-800x1200.png', import.meta.url)));
 const heicFixtureRoot = fileURLToPath(new URL('../resources/heic-test-set/', import.meta.url));
-const heicOrder = [7, 1, 20, 3, 14, 9, 2, 18, 5, 11, 16, 4, 19, 8, 13, 6, 17, 10, 12, 15];
-const heicSdrNumbers = new Set([1, 2, 20]);
+const heicSearchOrder = [7, 1, 20, 3, 14, 9, 2, 18, 5, 11, 16, 4, 19, 8, 13, 6, 17, 10, 12, 15];
+const heicReverseOrder = Array.from({ length: 20 }, (_, index) => 20 - index);
+const heicForwardOrder = Array.from({ length: 20 }, (_, index) => index + 1);
 const heicAssetId = (number) => `70000000-0000-4000-8000-${String(number).padStart(12, '0')}`;
 const heicAssetsByNumber = new Map(Array.from({ length: 20 }, (_, index) => {
   const number = index + 1;
   return [number, { id: heicAssetId(number), type: 'IMAGE', originalFileName: `${String(number).padStart(2, '0')}.HEIC`, originalMimeType: 'image/heic', width: 1200, height: 800 }];
 }));
-const heicAssets = heicOrder.map((number) => heicAssetsByNumber.get(number));
+const heicAssetsForOrder = (order) => order.map((number) => heicAssetsByNumber.get(number));
 
 const assets = [{
   id: '550e8400-e29b-41d4-a716-446655440002', type: 'IMAGE', originalFileName: 'mock-proof.heic', originalMimeType: 'image/heic', width: 1200, height: 800
@@ -79,9 +80,14 @@ const page = {
 const heicPage = {
   ...page,
   key: 'heic-ref',
-  album: { ...page.album, albumName: 'HEIC Fixture Journey', assetCount: heicAssets.length, assets: heicAssets },
+  album: { ...page.album, albumName: 'HEIC Fixture Journey', assetCount: 20 },
   assets: []
 };
+
+function heicPageFor(ref) {
+  const order = ref === 'heic-reverse-ref' ? heicReverseOrder : heicForwardOrder;
+  return { ...heicPage, key: ref, album: { ...heicPage.album, assets: heicAssetsForOrder(order) } };
+}
 
 function shareForRef(ref) {
   if (ref === 'second-ref') return { ...page, slug: ref, album: { ...page.album, albumName: 'Second Journey', description: '---\nimmich-presentation:\n  type: journey\n  version: 1\n---\nMock browser proof two' } };
@@ -159,7 +165,7 @@ const server = http.createServer((request, response) => {
   if (url.pathname === '/api/shared-links/me' && (url.searchParams.has('key') || url.searchParams.has('slug'))) {
     const ref = url.searchParams.get('key') ?? url.searchParams.get('slug');
     const shareRef = url.searchParams.get('key') ?? url.searchParams.get('slug');
-    if (!['opaque-ref', 'second-ref', 'revoke-ref', 'expire-ref', 'password-share', 'unauthorized', 'error', 'non-page', 'map-ref', 'heic-ref', ...Object.keys(routeDescriptions)].includes(shareRef)) { response.writeHead(403); response.end(); return; }
+    if (!['opaque-ref', 'second-ref', 'revoke-ref', 'expire-ref', 'password-share', 'unauthorized', 'error', 'non-page', 'map-ref', 'heic-ref', 'heic-reverse-ref', 'heic-forward-ref', ...Object.keys(routeDescriptions)].includes(shareRef)) { response.writeHead(403); response.end(); return; }
     if (revokedShareRefs.has(ref) || expiredShareRefs.has(ref)) { response.writeHead(403); response.end(); return; }
     if (ref === 'password-share' && request.headers.cookie !== 'immich_shared_link_token=fixture') {
       response.writeHead(200, { 'content-type': 'application/json', 'set-cookie': 'secret=must-not-relay; Path=/' });
@@ -176,8 +182,8 @@ const server = http.createServer((request, response) => {
       response.end(JSON.stringify({ error: 'temporary failure' }));
       return;
     }
-    const body = ref === 'heic-ref'
-      ? heicPage
+    const body = ref === 'heic-ref' || ref === 'heic-reverse-ref' || ref === 'heic-forward-ref'
+      ? heicPageFor(ref)
       : routeDescriptions[ref]
       ? { ...shareForRef(ref), album: { ...shareForRef(ref).album, description: routeDescriptions[ref] } }
       : ref === 'non-page'
@@ -186,7 +192,7 @@ const server = http.createServer((request, response) => {
          ? { ...page, assets: assets.map((asset, index) => index === 0 ? { ...asset, localDateTime: '2026-01-01T00:00:00.000Z' } : index === 2 ? { ...asset, localDateTime: '2026-01-02T00:00:00.000Z' } : asset), album: { ...page.album, description: '---\nimmich-presentation:\n  type: journey\n  version: 1\n  map:\n    enabled: true\n    source: auto\n    showMarkerList: true\n    styleName: quiet-atlas\n---\nMap browser proof' } }
          : shareForRef(ref);
     response.writeHead(200, { 'content-type': 'application/json', 'set-cookie': 'secret=must-not-relay; Path=/' });
-    response.end(JSON.stringify(ref === 'heic-ref' ? body : { ...body, album: { ...body.album, assetCount: assets.length } }));
+    response.end(JSON.stringify(ref === 'heic-ref' || ref === 'heic-reverse-ref' || ref === 'heic-forward-ref' ? body : { ...body, album: { ...body.album, assetCount: assets.length } }));
     return;
   }
 
@@ -248,20 +254,19 @@ const server = http.createServer((request, response) => {
     request.on('end', () => {
       response.writeHead(200, { 'content-type': 'application/json' });
       const ref = url.searchParams.get('key') ?? url.searchParams.get('slug');
-      response.end(JSON.stringify({ albums: {}, assets: { items: ref === 'heic-ref' ? [...heicAssetsByNumber.values()].reverse() : assets } }));
+      response.end(JSON.stringify({ albums: {}, assets: { items: ref === 'heic-ref' || ref === 'heic-reverse-ref' || ref === 'heic-forward-ref' ? heicAssetsForOrder(heicSearchOrder) : assets } }));
     });
     return;
   }
 
   const heicMedia = url.pathname.match(/^\/api\/assets\/(70000000-0000-4000-8000-\d{12})\/(thumbnail|original)$/);
-  if (heicMedia && url.searchParams.get('key') === 'heic-ref') {
+  if (heicMedia && ['heic-ref', 'heic-reverse-ref', 'heic-forward-ref'].includes(url.searchParams.get('key'))) {
     if (request.headers.cookie !== 'immich_shared_link_token=fixture' || request.headers.authorization !== 'Bearer fixture') { response.writeHead(403); response.end(); return; }
     const number = Number(heicMedia[1].slice(-12));
-    const suffix = heicMedia[2] === 'thumbnail' ? 'thumbnails' : 'fullsize';
     const paddedNumber = String(number).padStart(2, '0');
-    const isJpeg = heicMedia[2] === 'thumbnail' || heicSdrNumbers.has(number);
-    const fixture = readFileSync(isJpeg ? `${heicFixtureRoot}${suffix}/${paddedNumber}.jpg` : `${heicFixtureRoot}${paddedNumber}.HEIC`);
-    response.writeHead(200, { 'content-type': isJpeg ? 'image/jpeg' : 'image/heic', 'content-length': fixture.length });
+    const isThumbnail = heicMedia[2] === 'thumbnail';
+    const fixture = readFileSync(`${heicFixtureRoot}${isThumbnail ? 'thumbnails-webp' : 'originals'}/${paddedNumber}.${isThumbnail ? 'webp' : 'HEIC'}`);
+    response.writeHead(200, { 'content-type': isThumbnail ? 'image/webp' : 'image/heic', 'content-length': fixture.length });
     response.end(fixture);
     return;
   }
