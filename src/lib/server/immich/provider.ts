@@ -7,6 +7,7 @@ export type ImmichProvider = {
 	loginSharedLink: (context: AuthContext, password: string) => Promise<{ status: number; token?: string }>;
 	getSharedLink: (context: AuthContext) => Promise<{ status: number; data?: SharedLinkResponse; error?: 'malformed' }>;
 	getThumbnail: (context: AuthContext, assetId: string) => Promise<{ status: number; response?: Response; error?: 'malformed' | 'asset-mismatch' }>;
+	getFullsizeImage: (context: AuthContext, assetId: string) => Promise<{ status: number; response?: Response; error?: 'malformed' | 'asset-mismatch' | 'not-image' }>;
 	getVideoPlayback: (context: AuthContext, assetId: string, range?: string) => Promise<{ status: number; response?: Response; error?: 'malformed' | 'asset-mismatch' | 'not-video' }>;
 	getMapMarkers: (context: AuthContext, albumId: string) => Promise<{ status: number; data?: unknown; error?: 'malformed' }>;
 	getVersion: () => Promise<{ status: number; version?: string }>;
@@ -31,9 +32,13 @@ export function createImmichProvider(fetchImpl: typeof fetch = fetch, baseUrl = 
 				if (!parsed.success) return { status: 422, error: 'malformed' };
 				let data = parsed.data;
 				if (data.type === 'ALBUM' && data.assets.length === 0 && data.album) {
-					const albumAssets = await fetchAlbumAssets(baseUrl, context, data.album.id, data.album.assetCount ?? 0, fetchImpl);
-					if (!albumAssets) return { status: 502 };
-					data = { ...data, assets: albumAssets };
+					if (data.album.assets?.length) {
+						data = { ...data, assets: data.album.assets };
+					} else {
+						const albumAssets = await fetchAlbumAssets(baseUrl, context, data.album.id, data.album.assetCount ?? 0, fetchImpl);
+						if (!albumAssets) return { status: 502 };
+						data = { ...data, assets: albumAssets };
+					}
 				}
 				logShareAssetProjection({ type: data.type, topLevelAssetCount: parsed.data.assets.length, nestedAlbumAssetCount: data.album?.assets?.length ?? 0, normalizedAssetCount: data.assets.length });
 				logSharedLinkResponse({ type: data.type, topLevelAssetCount: parsed.data.assets.length, nestedAlbumAssetCount: data.album?.assets?.length ?? 0, normalizedAssetCount: data.assets.length });
@@ -47,6 +52,15 @@ export function createImmichProvider(fetchImpl: typeof fetch = fetch, baseUrl = 
 			if (!share.data) return { status: share.status, error: share.error };
 			if (!share.data.assets.some((asset) => asset.id === assetId && AssetResponseSchema.safeParse(asset).success)) return { status: 404, error: 'asset-mismatch' };
 			const response = await requestImmich(baseUrl, `/api/assets/${encodeURIComponent(assetId)}/thumbnail?${shareQuery(context)}`, context, fetchImpl, { endpoint: 'thumbnail' });
+			return { status: response.status, response };
+		},
+		async getFullsizeImage(context, assetId) {
+			const share = await this.getSharedLink(context);
+			if (!share.data) return { status: share.status, error: share.error };
+			const asset = share.data.assets.find((candidate) => candidate.id === assetId);
+			if (!asset || !AssetResponseSchema.safeParse(asset).success) return { status: 404, error: 'asset-mismatch' };
+			if (asset.type === 'VIDEO') return { status: 404, error: 'not-image' };
+			const response = await requestImmich(baseUrl, `/api/assets/${encodeURIComponent(assetId)}/original?${shareQuery(context)}`, context, fetchImpl, { endpoint: 'thumbnail' });
 			return { status: response.status, response };
 		},
 		async getVideoPlayback(context, assetId, range) {
