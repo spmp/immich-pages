@@ -10,6 +10,8 @@
     "e2e": "playwright test",
     "test:e2e": "node tests/e2e/run-traefik.mjs",
     "test:e2e:mock": "node tests/e2e/run-mock-immich.mjs",
+    "test:e2e:heic:chromium": "HDR_METADATA_PATH=\"$PWD/tests/e2e/hdr-method-bridge.mjs\" HDR_COMPOSITOR_PATH=\"$PWD/tests/e2e/hdr-method-bridge.mjs\" HDR_FFMPEG_PATH=\"$PWD/tests/e2e/hdr-method-bridge.mjs\" HDR_BRIDGE_LOG=/tmp/immich-pages-hdr-bridge.log node tests/e2e/run-mock-immich.mjs tests/e2e/heic-sdr-hdr.mock.spec.ts",
+    "test:e2e:heic:webkit": "MOCK_PLAYWRIGHT_CONFIG=playwright.mock.webkit.config.ts HDR_METADATA_PATH=\"$PWD/tests/e2e/hdr-method-bridge.mjs\" HDR_COMPOSITOR_PATH=\"$PWD/tests/e2e/hdr-method-bridge.mjs\" HDR_FFMPEG_PATH=\"$PWD/tests/e2e/hdr-method-bridge.mjs\" HDR_BRIDGE_LOG=/tmp/immich-pages-hdr-bridge.log node tests/e2e/run-mock-immich.mjs tests/e2e/heic-sdr-hdr.mock.spec.ts",
     "verify:immich-release": "node scripts/verify-immich-release.mjs",
     "test:stateless-recreate": "node scripts/test-stateless-recreate.mjs"
   },

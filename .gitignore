@@ -6,3 +6,4 @@ build/
 !.env.example
 playwright-report/
 test-results/
+tests/resources/heic-test-set/
