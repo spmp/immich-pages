@@ -36,8 +36,13 @@ export const GET: RequestHandler = async ({ params, request, cookies, fetch }) =
 			logShareMediaStatus({ media: 'fullsize', status: 'failure', statusCode: 404, contentType: mime ?? undefined, byteLength: input.byteLength, failureCategory: 'not-found' });
 			return unavailable();
 		}
+		const bridgeEnabled = Boolean(process.env.HDR_METADATA_PATH || process.env.HDR_COMPOSITOR_PATH || process.env.HDR_FFMPEG_PATH);
 		let metadata;
-		try { metadata = await extractAppleHdrMetadata(input); } catch { return unavailable(); }
+		try {
+			metadata = bridgeEnabled
+				? await extractAppleHdrMetadata(input, { executable: process.env.HDR_METADATA_PATH, invocationId: params.assetId })
+				: await extractAppleHdrMetadata(input);
+		} catch { return unavailable(); }
 		if (!metadata) return unavailable();
 		let output;
 		try {
@@ -53,8 +58,13 @@ export const GET: RequestHandler = async ({ params, request, cookies, fetch }) =
 			const cacheKey = buildHdrCacheKey({ assetId: params.assetId, sourceIdentity, width: requestedWidth, height: requestedHeight });
 			output = await getOrCreateHdr(cacheKey, async () => {
 				return withHdrConcurrency(async () => {
-					const compositorPpm = await composeHdr(input, metadata);
-					return { body: await encodeHdrMp4(compositorPpm), contentType: 'video/mp4' };
+					const compositorPpm = bridgeEnabled
+						? await composeHdr(input, metadata, { executable: process.env.HDR_COMPOSITOR_PATH, invocationId: params.assetId })
+						: await composeHdr(input, metadata);
+					const body = bridgeEnabled
+						? await encodeHdrMp4(compositorPpm, { executable: process.env.HDR_FFMPEG_PATH, invocationId: params.assetId })
+						: await encodeHdrMp4(compositorPpm);
+					return { body, contentType: 'video/mp4' };
 				});
 			});
 		} catch (error) {

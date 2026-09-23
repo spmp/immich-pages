@@ -13,24 +13,24 @@ export const HDR_FFMPEG_TIMEOUT_MS = positiveEnv('HDR_FFMPEG_TIMEOUT_MS', 8_000,
 export const HDR_FFMPEG_MAX_OUTPUT_BYTES = 64 * 1024 * 1024;
 export type NativeFailureReason = 'read' | 'primary-decode' | 'gain-map-missing' | 'gain-map-decode' | 'metadata-invalid' | 'ffmpeg' | 'compositor-timeout' | 'ffmpeg-timeout' | 'compositor-spawn' | 'ffmpeg-spawn' | 'compositor-exit' | 'ffmpeg-exit' | 'unknown';
 
-export async function composeHdr(input: Uint8Array, metadata: AppleHdrMetadata, options: { executable?: string; timeoutMs?: number } = {}): Promise<Uint8Array> {
+export async function composeHdr(input: Uint8Array, metadata: AppleHdrMetadata, options: { executable?: string; timeoutMs?: number; invocationId?: string } = {}): Promise<Uint8Array> {
 	if (input.byteLength === 0 || input.byteLength > HDR_COMPOSITOR_MAX_INPUT_BYTES) throw new Error('hdr-input-limit');
 	if (!metadata || metadata.auxiliaryType !== 'urn:com:apple:photo:2020:aux:hdrgainmap' || !Number.isFinite(metadata.makerNote33) || !Number.isFinite(metadata.makerNote48)) throw new Error('hdr-metadata-invalid');
 	const executable = options.executable ?? process.env.HDR_COMPOSITOR_PATH ?? '/usr/local/bin/hdr-gainmap-compositor';
 	const args = ['--hdr-version', metadata.version, '--maker-note-33', String(metadata.makerNote33), '--maker-note-48', String(metadata.makerNote48), '--source-profile', metadata.sourceProfile, '--source-transfer', metadata.sourceTransfer, '--orientation', String(metadata.orientation)];
-	return runBoundedProcess(executable, args, input, HDR_COMPOSITOR_MAX_OUTPUT_BYTES, options.timeoutMs ?? HDR_COMPOSITOR_TIMEOUT_MS, 'hdr-compositor');
+	return runBoundedProcess(executable, args, input, HDR_COMPOSITOR_MAX_OUTPUT_BYTES, options.timeoutMs ?? HDR_COMPOSITOR_TIMEOUT_MS, 'hdr-compositor', options.invocationId);
 }
 
-export async function encodeHdrMp4(input: Uint8Array, options: { executable?: string; timeoutMs?: number } = {}): Promise<Uint8Array> {
+export async function encodeHdrMp4(input: Uint8Array, options: { executable?: string; timeoutMs?: number; invocationId?: string } = {}): Promise<Uint8Array> {
 	if (input.byteLength === 0 || input.byteLength > HDR_COMPOSITOR_MAX_OUTPUT_BYTES) throw new Error('hdr-input-limit');
 	const executable = options.executable ?? process.env.HDR_FFMPEG_PATH ?? '/usr/bin/ffmpeg';
 	const args = ['-hide_banner', '-loglevel', 'error', '-f', 'image2pipe', '-vcodec', 'ppm', '-i', 'pipe:0', '-frames:v', '1', '-an', '-c:v', 'libx265', '-preset', 'fast', '-profile:v', 'main10', '-pix_fmt', 'yuv420p10le', '-color_primaries', 'bt2020', '-color_trc', 'smpte2084', '-colorspace', 'bt2020nc', '-x265-params', 'colorprim=bt2020:transfer=smpte2084:colormatrix=bt2020nc', '-tag:v', 'hvc1', '-movflags', 'frag_keyframe+empty_moov+default_base_moof', '-f', 'mp4', 'pipe:1'];
-	return runBoundedProcess(executable, args, input, HDR_FFMPEG_MAX_OUTPUT_BYTES, options.timeoutMs ?? HDR_FFMPEG_TIMEOUT_MS, 'hdr-ffmpeg');
+	return runBoundedProcess(executable, args, input, HDR_FFMPEG_MAX_OUTPUT_BYTES, options.timeoutMs ?? HDR_FFMPEG_TIMEOUT_MS, 'hdr-ffmpeg', options.invocationId);
 }
 
-function runBoundedProcess(executable: string, args: string[], input: Uint8Array, maxOutputBytes: number, timeoutMs: number, failurePrefix: string): Promise<Uint8Array> {
+function runBoundedProcess(executable: string, args: string[], input: Uint8Array, maxOutputBytes: number, timeoutMs: number, failurePrefix: string, invocationId?: string): Promise<Uint8Array> {
 	return new Promise((resolve, reject) => {
-		const child = spawn(executable, args, { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true, shell: false });
+		const child = spawn(executable, args, { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true, shell: false, env: invocationId ? { ...process.env, HDR_BRIDGE_ASSET_ID: invocationId } : process.env });
 		const chunks: Buffer[] = [];
 		let bytes = 0;
 		let stderr = '';

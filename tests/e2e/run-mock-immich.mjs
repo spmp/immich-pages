@@ -63,6 +63,7 @@ async function stop(child) {
 }
 
 const playwrightArgs = process.argv.slice(2);
+const playwrightConfig = process.env.MOCK_PLAYWRIGHT_CONFIG ?? 'playwright.mock.config.ts';
 let failure;
 const mock = start(process.execPath, ['tests/e2e/mock-immich-server.mjs'], { env: { ...process.env, MOCK_IMMICH_PORT: '0' } });
 try {
@@ -82,7 +83,7 @@ try {
   });
   await waitForHttp('http://127.0.0.1:4173/health');
   await new Promise((resolve, reject) => {
-    const test = spawn(process.platform === 'win32' ? 'npx.cmd' : 'npx', ['playwright', 'test', '--config=playwright.mock.config.ts', ...playwrightArgs], {
+    const test = spawn(process.platform === 'win32' ? 'npx.cmd' : 'npx', ['playwright', 'test', `--config=${playwrightConfig}`, ...playwrightArgs], {
       stdio: 'inherit',
       env: { ...process.env, PLAYWRIGHT_BASE_URL: 'http://127.0.0.1:4173', MOCK_IMMICH_URL: `http://127.0.0.1:${match[1]}` }
     });

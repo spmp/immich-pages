@@ -20,10 +20,10 @@ type ExifToolRecord = Record<string, unknown>;
 
 export async function extractAppleHdrMetadata(
 	input: Uint8Array,
-	options: { executable?: string; timeoutMs?: number } = {}
+	options: { executable?: string; timeoutMs?: number; invocationId?: string } = {}
 ): Promise<AppleHdrMetadata | undefined> {
 	if (input.byteLength === 0) return undefined;
-	const output = await runExifTool(options.executable ?? '/usr/bin/exiftool', input, options.timeoutMs ?? HDR_METADATA_TIMEOUT_MS);
+	const output = await runExifTool(options.executable ?? process.env.HDR_METADATA_PATH ?? '/usr/bin/exiftool', input, options.timeoutMs ?? HDR_METADATA_TIMEOUT_MS, options.invocationId);
 	try {
 		const parsed: unknown = JSON.parse(output);
 		if (!Array.isArray(parsed) || parsed.length !== 1 || !parsed[0] || typeof parsed[0] !== 'object') return undefined;
@@ -96,9 +96,9 @@ function findValue(value: unknown, match: (key: string) => boolean): unknown {
 	return undefined;
 }
 
-function runExifTool(executable: string, input: Uint8Array, timeoutMs: number): Promise<string> {
+function runExifTool(executable: string, input: Uint8Array, timeoutMs: number, invocationId?: string): Promise<string> {
 	return new Promise((resolve, reject) => {
-		const child = spawn(executable, ['-json', '-G1', '-s', '-n', '-HDRGainMapVersion', '-MakerNotes', '-AuxiliaryImageType', '-ProfileName', '-ColorSpace', '-TransferFunction', '-Orientation', '-'], { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true, shell: false });
+		const child = spawn(executable, ['-json', '-G1', '-s', '-n', '-HDRGainMapVersion', '-MakerNotes', '-AuxiliaryImageType', '-ProfileName', '-ColorSpace', '-TransferFunction', '-Orientation', '-'], { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true, shell: false, env: invocationId ? { ...process.env, HDR_BRIDGE_ASSET_ID: invocationId } : process.env });
 		const chunks: Buffer[] = [];
 		let bytes = 0;
 		let settled = false;

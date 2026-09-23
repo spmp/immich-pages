@@ -5,6 +5,15 @@ import { fileURLToPath } from 'node:url';
 const videoFixture = readFileSync(fileURLToPath(new URL('../fixtures/video/chromium-2s-320x180-h264-aac.mp4', import.meta.url)));
 const landscapeFixture = readFileSync(fileURLToPath(new URL('../fixtures/images/landscape-1200x800.png', import.meta.url)));
 const portraitFixture = readFileSync(fileURLToPath(new URL('../fixtures/images/portrait-800x1200.png', import.meta.url)));
+const heicFixtureRoot = fileURLToPath(new URL('../resources/heic-test-set/', import.meta.url));
+const heicOrder = [7, 1, 20, 3, 14, 9, 2, 18, 5, 11, 16, 4, 19, 8, 13, 6, 17, 10, 12, 15];
+const heicSdrNumbers = new Set([1, 2, 20]);
+const heicAssetId = (number) => `70000000-0000-4000-8000-${String(number).padStart(12, '0')}`;
+const heicAssetsByNumber = new Map(Array.from({ length: 20 }, (_, index) => {
+  const number = index + 1;
+  return [number, { id: heicAssetId(number), type: 'IMAGE', originalFileName: `${String(number).padStart(2, '0')}.HEIC`, originalMimeType: 'image/heic', width: 1200, height: 800 }];
+}));
+const heicAssets = heicOrder.map((number) => heicAssetsByNumber.get(number));
 
 const assets = [{
   id: '550e8400-e29b-41d4-a716-446655440002', type: 'IMAGE', originalFileName: 'mock-proof.heic', originalMimeType: 'image/heic', width: 1200, height: 800
@@ -65,6 +74,13 @@ const page = {
   assets,
   showMetadata: true,
    allowDownload: false
+};
+
+const heicPage = {
+  ...page,
+  key: 'heic-ref',
+  album: { ...page.album, albumName: 'HEIC Fixture Journey', assetCount: heicAssets.length, assets: heicAssets },
+  assets: []
 };
 
 function shareForRef(ref) {
@@ -143,7 +159,7 @@ const server = http.createServer((request, response) => {
   if (url.pathname === '/api/shared-links/me' && (url.searchParams.has('key') || url.searchParams.has('slug'))) {
     const ref = url.searchParams.get('key') ?? url.searchParams.get('slug');
     const shareRef = url.searchParams.get('key') ?? url.searchParams.get('slug');
-    if (!['opaque-ref', 'second-ref', 'revoke-ref', 'expire-ref', 'password-share', 'unauthorized', 'error', 'non-page', 'map-ref', ...Object.keys(routeDescriptions)].includes(shareRef)) { response.writeHead(403); response.end(); return; }
+    if (!['opaque-ref', 'second-ref', 'revoke-ref', 'expire-ref', 'password-share', 'unauthorized', 'error', 'non-page', 'map-ref', 'heic-ref', ...Object.keys(routeDescriptions)].includes(shareRef)) { response.writeHead(403); response.end(); return; }
     if (revokedShareRefs.has(ref) || expiredShareRefs.has(ref)) { response.writeHead(403); response.end(); return; }
     if (ref === 'password-share' && request.headers.cookie !== 'immich_shared_link_token=fixture') {
       response.writeHead(200, { 'content-type': 'application/json', 'set-cookie': 'secret=must-not-relay; Path=/' });
@@ -160,7 +176,9 @@ const server = http.createServer((request, response) => {
       response.end(JSON.stringify({ error: 'temporary failure' }));
       return;
     }
-    const body = routeDescriptions[ref]
+    const body = ref === 'heic-ref'
+      ? heicPage
+      : routeDescriptions[ref]
       ? { ...shareForRef(ref), album: { ...shareForRef(ref).album, description: routeDescriptions[ref] } }
       : ref === 'non-page'
       ? { ...page, album: { ...page.album, description: 'An ordinary album' } }
@@ -168,7 +186,7 @@ const server = http.createServer((request, response) => {
          ? { ...page, assets: assets.map((asset, index) => index === 0 ? { ...asset, localDateTime: '2026-01-01T00:00:00.000Z' } : index === 2 ? { ...asset, localDateTime: '2026-01-02T00:00:00.000Z' } : asset), album: { ...page.album, description: '---\nimmich-presentation:\n  type: journey\n  version: 1\n  map:\n    enabled: true\n    source: auto\n    showMarkerList: true\n    styleName: quiet-atlas\n---\nMap browser proof' } }
          : shareForRef(ref);
     response.writeHead(200, { 'content-type': 'application/json', 'set-cookie': 'secret=must-not-relay; Path=/' });
-    response.end(JSON.stringify({ ...body, album: { ...body.album, assetCount: assets.length } }));
+    response.end(JSON.stringify(ref === 'heic-ref' ? body : { ...body, album: { ...body.album, assetCount: assets.length } }));
     return;
   }
 
@@ -229,8 +247,21 @@ const server = http.createServer((request, response) => {
     request.on('data', (chunk) => { body += chunk; });
     request.on('end', () => {
       response.writeHead(200, { 'content-type': 'application/json' });
-      response.end(JSON.stringify({ albums: {}, assets: { items: assets } }));
+      const ref = url.searchParams.get('key') ?? url.searchParams.get('slug');
+      response.end(JSON.stringify({ albums: {}, assets: { items: ref === 'heic-ref' ? [...heicAssetsByNumber.values()].reverse() : assets } }));
     });
+    return;
+  }
+
+  const heicMedia = url.pathname.match(/^\/api\/assets\/(70000000-0000-4000-8000-\d{12})\/(thumbnail|original)$/);
+  if (heicMedia && url.searchParams.get('key') === 'heic-ref') {
+    if (request.headers.cookie !== 'immich_shared_link_token=fixture' || request.headers.authorization !== 'Bearer fixture') { response.writeHead(403); response.end(); return; }
+    const number = Number(heicMedia[1].slice(-12));
+    const suffix = heicMedia[2] === 'thumbnail' ? 'thumbnails' : 'fullsize';
+    const extension = heicMedia[2] === 'thumbnail' || heicSdrNumbers.has(number) ? 'jpg' : 'HEIC';
+    const fixture = readFileSync(`${heicFixtureRoot}${suffix}/${String(number).padStart(2, '0')}.${extension}`);
+    response.writeHead(200, { 'content-type': heicMedia[2] === 'thumbnail' || heicSdrNumbers.has(number) ? 'image/jpeg' : 'image/heic', 'content-length': fixture.length });
+    response.end(fixture);
     return;
   }
 
