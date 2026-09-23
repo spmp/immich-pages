@@ -258,9 +258,10 @@ const server = http.createServer((request, response) => {
     if (request.headers.cookie !== 'immich_shared_link_token=fixture' || request.headers.authorization !== 'Bearer fixture') { response.writeHead(403); response.end(); return; }
     const number = Number(heicMedia[1].slice(-12));
     const suffix = heicMedia[2] === 'thumbnail' ? 'thumbnails' : 'fullsize';
-    const extension = heicMedia[2] === 'thumbnail' || heicSdrNumbers.has(number) ? 'jpg' : 'HEIC';
-    const fixture = readFileSync(`${heicFixtureRoot}${suffix}/${String(number).padStart(2, '0')}.${extension}`);
-    response.writeHead(200, { 'content-type': heicMedia[2] === 'thumbnail' || heicSdrNumbers.has(number) ? 'image/jpeg' : 'image/heic', 'content-length': fixture.length });
+    const paddedNumber = String(number).padStart(2, '0');
+    const isJpeg = heicMedia[2] === 'thumbnail' || heicSdrNumbers.has(number);
+    const fixture = readFileSync(isJpeg ? `${heicFixtureRoot}${suffix}/${paddedNumber}.jpg` : `${heicFixtureRoot}${paddedNumber}.HEIC`);
+    response.writeHead(200, { 'content-type': isJpeg ? 'image/jpeg' : 'image/heic', 'content-length': fixture.length });
     response.end(fixture);
     return;
   }
