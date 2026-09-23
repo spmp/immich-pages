@@ -60,6 +60,21 @@ describe('Immich v3 boundary contracts', () => {
 		expect(individualResult.data?.assets).toHaveLength(1);
 	});
 
+	it('preserves the ordered nested album assets before considering metadata search', async () => {
+		const first = { ...v3.assets[0], id: '22222222-2222-4222-8222-222222222222' };
+		const second = { ...v3.assets[0], id: '33333333-3333-4333-8333-333333333333' };
+		const nested = { ...v3, assets: [], album: { ...v3.album, assetCount: 2, assets: [second, first] } };
+		const fetchMock = vi.fn(async (input: URL | RequestInfo) => {
+			const pathname = new URL(input.toString()).pathname;
+			if (pathname === '/api/shared-links/me') return new Response(JSON.stringify(nested));
+			return new Response(JSON.stringify({ albums: {}, assets: { items: [first, second] } }));
+		});
+		const resolved = await createImmichProvider(fetchMock, 'https://immich.example').getSharedLink(context);
+
+		expect(resolved.data?.assets.map((asset) => asset.id)).toEqual([second.id, first.id]);
+		expect(fetchMock).toHaveBeenCalledTimes(1);
+	});
+
 	it('rejects missing album and non-UUID identifiers', async () => {
 		const missing = { ...v3, album: undefined };
 		const invalid = { ...v3, assets: [{ ...v3.assets[0], id: 'asset' }] };
