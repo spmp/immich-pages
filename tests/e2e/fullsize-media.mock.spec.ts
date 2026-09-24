@@ -109,7 +109,10 @@ test('unsupported metadata and HTTP HDR failures restore a usable native fallbac
 	await anchor.click();
 	await expect(page.locator('.pswp')).toBeVisible();
 	await expect(page.locator('.pswp__error-msg')).toHaveCount(0);
-	await expect(page.locator('.pswp__img')).toHaveAttribute('src', /\/thumbnail\?/);
+	// The lightbox never removes the already-working SDR poster (the same fullsize image already
+	// proven to load) while attempting an optional HDR upgrade, so an HDR failure leaves that
+	// poster in place rather than degrading further to the lower-resolution thumbnail.
+	await expect(page.locator('.pswp__img:not(.pswp__img--placeholder)')).toHaveAttribute('src', /\/image\/fullsize\?/);
 	await expect(anchor).toHaveAttribute('data-lightbox-fallback', 'native-anchor');
 });
 

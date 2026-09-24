@@ -77,6 +77,45 @@ test('runs the HDR bridge through the authenticated request context', async ({ p
   ]);
 });
 
+test('never blanks the lightbox slide while a slow HDR conversion is in flight, and promotes to the video once it completes', async ({ page }) => {
+  // Requires HDR_BRIDGE_ENCODE_DELAY_MS (set by the dedicated npm run test:e2e:heic:* scripts) to
+  // reproduce the real-world timing that caused this: a real first-time HDR conversion realistically
+  // takes several seconds server-side, and the lightbox used to remove the working SDR poster the
+  // moment the HDR <video> element was created, leaving a blank slide until the video (or a too-short
+  // client timeout) resolved -- observed in production as "loads fullsize, blanks, never recovers".
+  test.skip(!bridgeLog || !process.env.HDR_BRIDGE_ENCODE_DELAY_MS, 'HDR_BRIDGE_LOG and HDR_BRIDGE_ENCODE_DELAY_MS are required for this scenario');
+  await enableHdrHints(page);
+  // A distinct asset from the other tests in this file: the server-side HDR cache is a
+  // process-level singleton, and reusing an already-requested asset here would hit that warm
+  // cache and skip the artificial delay entirely, defeating the point of this test.
+  const id = assetId(15);
+  await page.goto('/share/key/heic-forward-ref');
+  const candidate = page.locator(`#asset-${id} a`);
+  await expect(candidate).toHaveAttribute('data-pswp-type', 'video');
+  await candidate.click();
+  await expect(page.locator('.pswp')).toBeVisible();
+
+  // Scoped to the currently active slide, excluding PhotoSwipe's own built-in low-res
+  // placeholder (a separate, unrelated mechanism it creates automatically): PhotoSwipe also
+  // preloads neighboring slides' images into the DOM, which is unrelated to this slide's own
+  // placeholder-then-video lifecycle.
+  const activeSlideMedia = page.locator('.pswp__item[aria-hidden="false"] img:not(.pswp__img--placeholder), .pswp__item[aria-hidden="false"] video');
+  await expect(activeSlideMedia).toBeVisible();
+  await expect(activeSlideMedia).toHaveJSProperty('tagName', 'IMG');
+
+  // Partway through the artificial server-side delay, the placeholder must still be the one
+  // visible thing -- at no point should the active slide have zero visible media.
+  await page.waitForTimeout(Number(process.env.HDR_BRIDGE_ENCODE_DELAY_MS) / 2);
+  await expect(activeSlideMedia).toBeVisible();
+  await expect(activeSlideMedia).toHaveJSProperty('tagName', 'IMG');
+
+  // Once the slow conversion completes, it must actually promote to the real video and stay there.
+  const activeVideo = page.locator('.pswp__item[aria-hidden="false"] video');
+  await expect(activeVideo).toBeVisible({ timeout: Number(process.env.HDR_BRIDGE_ENCODE_DELAY_MS) + 10_000 });
+  await page.waitForTimeout(500);
+  await expect(activeVideo).toBeVisible();
+});
+
 function readBridgeInvocations() {
   if (!bridgeLog) return [];
   try { return readFileSync(bridgeLog, 'utf8').trim().split('\n').filter(Boolean).map((line) => JSON.parse(line)); } catch { return []; }

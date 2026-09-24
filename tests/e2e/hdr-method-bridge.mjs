@@ -20,5 +20,7 @@ if (method === 'extractAppleHdrMetadata') {
   process.stdin.on('data', (chunk) => process.stdout.write(chunk));
 } else {
   process.stdin.resume();
+  const delayMs = Number(process.env.HDR_BRIDGE_ENCODE_DELAY_MS);
+  if (Number.isFinite(delayMs) && delayMs > 0) await new Promise((resolve) => setTimeout(resolve, delayMs));
   process.stdout.write(readFileSync(fileURLToPath(new URL('../fixtures/video/chromium-2s-320x180-h264-aac.mp4', import.meta.url))));
 }

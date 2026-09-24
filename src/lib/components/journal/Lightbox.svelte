@@ -110,48 +110,83 @@
 					const { content } = event;
 					if (content.type !== 'video') return;
 					event.preventDefault();
-					const video = document.createElement('video');
 					const controlsDisabled = content.data.element?.dataset.videoControls === 'false';
-					const fallbackSrc = content.data.element?.dataset.videoFallbackSrc;
+					const label = content.data.element?.getAttribute('aria-label') ?? 'Journey video';
+
+					if (!controlsDisabled) {
+						// An ordinary authored video (not an HDR candidate): unchanged behavior, native
+						// controls, no auto-play/auto-swap machinery.
+						const video = document.createElement('video');
+						video.src = content.data.src;
+						video.poster = content.data.poster;
+						video.controls = true;
+						video.playsInline = true;
+						video.preload = 'metadata';
+						video.className = 'pswp__video';
+						video.setAttribute('aria-label', label);
+						video.addEventListener('error', () => reportJournalDebug('media-failure', { category: 'video', status: 'unavailable', errorContext: 'video-load', failureCategory: 'decode' }));
+						const track = document.createElement('track');
+						track.kind = 'captions';
+						video.appendChild(track);
+						content.element = video;
+						return;
+					}
+
+					// HDR candidate: a real first-time HDR conversion can legitimately take several
+					// seconds server-side (native decode/composite/encode, uncached). Never remove the
+					// already-working SDR poster from the slide until the HDR video has proven it can
+					// actually decode and play -- this makes a slow, hung, or failing HDR source just
+					// never upgrade, instead of leaving the slide blank with nothing to recover to.
+					const placeholder = document.createElement('img');
+					if (content.data.poster) placeholder.src = content.data.poster;
+					placeholder.alt = label;
+					placeholder.className = 'pswp__img';
+					content.element = placeholder;
+
+					const video = document.createElement('video');
 					video.src = content.data.src;
 					video.poster = content.data.poster;
-					video.controls = true;
-					if (controlsDisabled) video.controls = false;
+					video.controls = false;
 					video.playsInline = true;
-					video.preload = controlsDisabled ? 'auto' : 'metadata';
-					if (controlsDisabled) {
-						video.autoplay = true;
-						video.muted = true;
-						video.loop = true;
-					}
+					video.preload = 'auto';
+					video.autoplay = true;
+					video.muted = true;
+					video.loop = true;
 					video.className = 'pswp__video';
-					video.setAttribute('aria-label', content.data.element?.getAttribute('aria-label') ?? 'Journey video');
-					let hdrTimeout: number | undefined;
-					const restoreFallback = (errorContext: 'video-load' | 'video-playback') => {
-						if (!fallbackSrc || content.type !== 'video') return;
-						if (hdrTimeout !== undefined) window.clearTimeout(hdrTimeout);
-						content.element?.remove();
-						content.element = undefined;
-						content.type = 'image';
-						content.data.type = 'image';
-						content.data.src = fallbackSrc;
-						content.load(false, true);
-						reportJournalDebug('media-failure', { category: 'video', status: 'unavailable', errorContext, failureCategory: errorContext === 'video-playback' ? 'playback' : 'decode' });
-					};
-					video.addEventListener('error', () => {
-						restoreFallback('video-load');
-					});
+					video.setAttribute('aria-label', label);
 					const track = document.createElement('track');
 					track.kind = 'captions';
 					video.appendChild(track);
-					content.element = video;
-					if (controlsDisabled) {
-						hdrTimeout = window.setTimeout(() => restoreFallback('video-load'), 5000);
-						video.addEventListener('loadeddata', () => {
-							if (hdrTimeout !== undefined) window.clearTimeout(hdrTimeout);
-							void video.play().catch(() => restoreFallback('video-playback'));
-						}, { once: true });
-					}
+
+					let settled = false;
+					let hdrTimeout: number | undefined;
+					const giveUp = (errorContext: 'video-load' | 'video-playback') => {
+						if (settled) return;
+						settled = true;
+						if (hdrTimeout !== undefined) window.clearTimeout(hdrTimeout);
+						video.pause();
+						video.removeAttribute('src');
+						video.load();
+						reportJournalDebug('media-failure', { category: 'video', status: 'unavailable', errorContext, failureCategory: errorContext === 'video-playback' ? 'playback' : 'decode' });
+						// The placeholder <img> is already the visible, correct content; nothing to swap.
+					};
+					const promote = () => {
+						if (settled || content.type !== 'video') return;
+						settled = true;
+						if (hdrTimeout !== undefined) window.clearTimeout(hdrTimeout);
+						// content.load()/content.append() are one-shot (guarded by content.isAttached,
+						// already set true when the placeholder was attached) and will not re-run content
+						// creation for an already-attached slide; PhotoSwipe's own Content.append() does
+						// exactly this direct DOM insertion for non-image content, so do the same here.
+						placeholder.remove();
+						content.element = video;
+						content.slide?.container.appendChild(video);
+					};
+					video.addEventListener('error', () => giveUp('video-load'));
+					hdrTimeout = window.setTimeout(() => giveUp('video-load'), 30_000);
+					video.addEventListener('loadeddata', () => {
+						void video.play().then(promote).catch(() => giveUp('video-playback'));
+					}, { once: true });
 				});
 				instance.on('loadError', (event: any) => {
 					const { content } = event;

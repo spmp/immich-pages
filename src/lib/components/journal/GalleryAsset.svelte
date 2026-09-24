@@ -192,7 +192,7 @@
 		</div>
 	{:else}
 		<div class="gallery-media-frame">
-			<a href={resolve(asset.thumbnail as any)} aria-label={label} data-media-source="thumbnail" data-lightbox-fallback="native-anchor" data-pswp-type={hdrCandidate ? 'video' : undefined} data-video-src={hdrCandidate ? resolvedHdrSource : undefined} data-video-poster={hdrCandidate ? hdrPosterSource : undefined} data-video-controls={hdrCandidate ? 'false' : undefined} data-video-fallback-src={hdrCandidate ? (promotedFailed ? resolvedThumbnailSource : (resolvedFullsizeSource ?? resolvedThumbnailSource)) : undefined} data-pswp-src={!hdrCandidate && fullsizeAvailable && !promotedFailed ? resolvedFullsizeSource : undefined} data-pswp-width={lightboxWidth} data-pswp-height={lightboxHeight}>
+			<a href={resolve(asset.thumbnail as any)} aria-label={label} data-media-source="thumbnail" data-lightbox-fallback="native-anchor" data-pswp-type={hdrCandidate ? 'video' : undefined} data-video-src={hdrCandidate ? resolvedHdrSource : undefined} data-video-poster={hdrCandidate ? hdrPosterSource : undefined} data-video-controls={hdrCandidate ? 'false' : undefined} data-pswp-src={!hdrCandidate && fullsizeAvailable && !promotedFailed ? resolvedFullsizeSource : undefined} data-pswp-width={lightboxWidth} data-pswp-height={lightboxHeight}>
 				<img src={mediaSource} alt={label} loading="lazy" width={lightboxWidth} height={lightboxHeight} data-media-source={resolution} bind:naturalWidth bind:naturalHeight onload={handleMediaLoad} onerror={handleMediaError} />
 			</a>
 		</div>

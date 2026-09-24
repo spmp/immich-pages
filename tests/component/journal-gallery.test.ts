@@ -162,9 +162,7 @@ describe('journal gallery contract', () => {
 		expect(asset).toContain('const hdrCandidate = $derived(Boolean(resolvedHdrSource && hdrDisplay && hdrGamut && !promotedFailed))');
 		expect(asset).toContain('const hdrPosterSource = $derived(hdrCandidate && !promotedFailed ? (resolvedFullsizeSource ?? resolvedThumbnailSource) : resolvedThumbnailSource)');
 		expect(asset).toContain('data-video-poster={hdrCandidate ? hdrPosterSource : undefined}');
-        expect(asset).toContain('data-video-fallback-src={hdrCandidate ?');
-		expect(asset).toContain('promotedFailed ? resolvedThumbnailSource');
-		expect(lightbox).toContain('video.play().catch(() => restoreFallback');
+		expect(lightbox).toContain('void video.play().then(promote).catch(() => giveUp(');
 		expect(capabilities).toContain('setTimeout(() => finish(false)');
 		expect(capabilities).toContain("src.startsWith('//')");
 	});
@@ -193,9 +191,19 @@ describe('journal gallery contract', () => {
 		expect(lightbox).toContain('video.autoplay = true');
 		expect(lightbox).toContain('video.muted = true');
 		expect(lightbox).toContain('video.loop = true');
-		expect(lightbox).toContain('content.data.src = fallbackSrc');
 		expect(lightbox).toContain("instance.on('loadError'");
 		expect(lightbox).toContain('delete anchor.dataset.pswpSrc');
+	});
+
+	it('never blanks the slide while an HDR candidate is loading: a known-good placeholder image is assigned before the video, and only a confirmed successful play promotes it', () => {
+		const lightbox = source('Lightbox');
+		const contentLoad = lightbox.slice(lightbox.indexOf("instance.on('contentLoad'"), lightbox.indexOf("instance.on('loadError'"));
+		expect(contentLoad.indexOf('content.element = placeholder')).toBeGreaterThanOrEqual(0);
+		expect(contentLoad.indexOf('content.element = placeholder')).toBeLessThan(contentLoad.indexOf("video.addEventListener('loadeddata'"));
+		expect(contentLoad).toContain('placeholder.remove()');
+		expect(contentLoad).toContain('content.element = video');
+		expect(contentLoad).toContain("video.addEventListener('error', () => giveUp('video-load'))");
+		expect(contentLoad).toContain('window.setTimeout(() => giveUp(');
 	});
 
 	it('keeps marker handoff targets focusable and lightbox-compatible', () => {
