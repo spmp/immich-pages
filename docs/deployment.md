@@ -60,6 +60,34 @@ docker compose config >/dev/null
 Recovery is a normal rebuild. `docker compose down --volumes` followed by
 `docker compose up -d --build` must reproduce pages from Immich alone.
 
+## External build watcher
+
+For deployments where the Docker build runs outside the development container,
+`scripts/watch-compose-rebuild.sh` can keep a Compose project updated from a
+simple trigger file. It prefers `inotifywait` and falls back to polling:
+
+```sh
+chmod +x scripts/watch-compose-rebuild.sh
+scripts/watch-compose-rebuild.sh \
+  --compose-file /srv/immich-pages/docker-compose.yml \
+  --service pages \
+  --watch-dir /srv/immich-pages/rebuild \
+  --trigger-file rebuild \
+  --status-file /srv/immich-pages/rebuild/status
+```
+
+Touch `/srv/immich-pages/rebuild/rebuild` to trigger a build and a forced
+recreation of only the selected service. `--no-deps` prevents Compose from
+starting or recreating its declared dependencies; existing dependencies remain
+running. The trigger remains present when a step fails and is removed only after
+the service starts successfully. The status file contains `waiting`,
+`building`, `starting`, `ready`, `failed`, or `stopped`; status
+writes are atomic so another process can read it safely. It also records the
+resolved `watch_dir` and `trigger_path`, which is useful when those paths are
+bind-mounted from another host. Keep the status file
+outside the watched directory when using a broad watch directory, or use the
+default trigger name so status changes are ignored.
+
 ## Proxy requirements
 
 Traefik must use an HTTPS router equivalent to

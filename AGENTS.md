@@ -189,4 +189,6 @@ Do not make direct repo edits outside a GSD workflow unless the user explicitly 
 - Treat album YAML/Markdown, route refs, headers, cookies, queries, and upstream DTOs as untrusted. Validate, sanitize, constrain, and return typed redacted outcomes; never log secrets or raw upstream bodies.
 - Production routing is Traefik `Host(`pages.example.xyz`)` over TLS to Pages, with an explicit `IMMICH_BASE_URL=https://immich.example.xyz`. Trust forwarded host/protocol headers only through that configured proxy.
 - Run `npm run check`, `npm run build`, and the real Traefik-backed E2E fixture when changing deployment or proxy behavior. Install Chromium explicitly with `npx playwright install --with-deps chromium`.
+- When a change needs external Docker deployment testing, create or refresh `rebuild/rebuild` after verification so the external watcher triggers the build; do not trigger it for documentation-only or internal-only changes.
+- For verification/UAT, present all remaining user-checkable questions as one numbered list so the user can answer them in a single reply; do not force one-question-at-a-time testing when a batch response is requested.
 - Svelte MCP and component tooling are development-only and must not be part of the runtime image or receive production secrets.

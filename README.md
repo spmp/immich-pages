@@ -16,10 +16,10 @@ https://pages.example.xyz/share/key/<opaque-ref>
 https://pages.example.xyz/share/slug/<opaque-ref>
 ```
 
-`key` and `slug` are explicit route kinds; Pages never guesses between them. The
-same `/share/` paths may also be routed from `immich.example.xyz` to Pages by
-Traefik. Viewers remain on Pages: upstream URLs, redirects, login pages, media
-URLs, cookies, and response details are never relayed. Only the visitor's
+`key` and `slug` are explicit route kinds; Pages never guesses between them.
+Traefik redirects `/share/` requests received on `immich.example.xyz` to the
+Pages host. Viewers remain on Pages: upstream URLs, login pages, media URLs,
+cookies, and response details are never relayed. Only the visitor's
 incoming `Cookie` and `Authorization` reach the configured `IMMICH_BASE_URL`;
 Pages never synthesizes an owner/API key credential.
 
@@ -28,26 +28,41 @@ host-scoped encrypted Pages session. Every page and media request revalidates
 the share. A valid ordinary album share is a branded non-page result, not an
 Immich redirect; ordinary Immich root paths remain outside the Pages router.
 
-## Deployment
+## Quick Start With Docker Compose
 
-Copy `.env.example` to `.env`, set the trusted explicit `IMMICH_BASE_URL`, and
-start the production service:
+This setup runs Pages alongside `immich-server`, Redis, and Postgres in one
+Compose project. It assumes Traefik already watches the external `images`
+network and has a `websecure` entrypoint with a `letsencrypt` certificate
+resolver.
+
+1. Copy this repository, or download [`docker-compose.yml`](docker-compose.yml)
+   and the `Dockerfile` into the same directory.
+2. Create the shared network and environment file:
 
 ```sh
-docker compose up -d --build
-curl http://127.0.0.1:3000/health
-curl http://127.0.0.1:3000/health/immich
+docker network create images 2>/dev/null || true
+cp .env.example .env
 ```
 
-`compose.yaml` contains one Pages service only: no database, media volume, or
-required application storage. The image runs `node build` as the non-root
-`node` user. Set `PAGES_SESSION_SECRET` (at least 32 random characters).
-Traefik routes `Host(`pages.example.xyz`)` and only `Host(`immich.example.xyz`)
-&& PathPrefix(`/share`)` to Pages over TLS; ordinary Immich paths are not
-captured. Pages calls the explicit origin `IMMICH_BASE_URL=https://immich.example.xyz`
-and adds `/api` exactly once. See
-[`docs/deployment.md`](docs/deployment.md) for headers, TLS, recovery, and
-reverse-proxy operations.
+3. Edit `.env` and set `IMMICH_HOST`, `PAGES_HOST`, `DB_PASSWORD`, and
+   `PAGES_SESSION_SECRET`. The two hostnames must resolve to this Traefik host.
+4. Start the stack:
+
+```sh
+docker compose -f docker-compose.yml up -d --build
+docker compose -f docker-compose.yml ps
+```
+
+Open `https://<pages-host>/share/key/<share-key>` for a Pages presentation. A
+native Immich share opened from `https://<immich-host>/share/<share-key>` is
+permanently redirected to `https://<pages-host>/share/key/<share-key>`, including
+its query string. Normal Immich URLs remain on Immich.
+
+The included [`docker-compose.yml`](docker-compose.yml) contains the complete
+minimal stack and the required Traefik labels. It excludes unrelated services,
+uses no owner/API key credential for Pages, and parameterizes hostnames, secrets,
+and storage paths. See [`docs/deployment.md`](docs/deployment.md) for TLS,
+reverse-proxy, recovery, and security details.
 
 ## Development and testing
 
