@@ -95,7 +95,7 @@ describe('same-origin full-size image boundary', () => {
 		expect(response.status).toBe(200);
 		expect(response.headers.get('content-type')).toBe('image/jpeg');
 		const body = new Uint8Array(await response.arrayBuffer());
-		expect(Buffer.from(body.subarray(0, 4))).toEqual(Buffer.from([0xff, 0xd8, 0xff, 0xd9]));
+		expect(Buffer.from(body.subarray(0, 4))).toEqual(Buffer.from([0xff, 0xd8, 0xff, 0xe0]));
 		vi.unstubAllEnvs();
 	});
 

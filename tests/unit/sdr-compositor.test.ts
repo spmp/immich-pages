@@ -13,8 +13,8 @@ describe('SDR HEIC to JPEG conversion', () => {
 	it('writes the input to a real temp file, invokes the real conversion contract, and returns real output bytes', async () => {
 		const input = new Uint8Array([1, 2, 3, 4, 5]);
 		const output = await convertHeicToJpeg(input, { executable: fakeExecutable, quality: 90 });
-		expect(Buffer.from(output.subarray(0, 4))).toEqual(Buffer.from([0xff, 0xd8, 0xff, 0xd9]));
-		expect(output[4]).toBe(input.length % 256);
+		expect(Buffer.from(output.subarray(0, 4))).toEqual(Buffer.from([0xff, 0xd8, 0xff, 0xe0]));
+		expect(output[output.byteLength - 1]).toBe(input.length % 256);
 	});
 
 	it('cleans up its temp directory after success', async () => {
