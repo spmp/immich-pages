@@ -60,6 +60,30 @@ describe('Immich v3 boundary contracts', () => {
 		expect(individualResult.data?.assets).toHaveLength(1);
 	});
 
+	it('trusts a populated top-level assets array as-is without reconciling it against nested album.assets', async () => {
+		// A non-empty top-level `assets` is Immich's documented primary field for a shared-link's
+		// asset order; this locks that as deliberate current behavior. If a live Immich instance is
+		// ever found returning a differently-ordered top-level `assets` for the same album, that is
+		// new evidence requiring research before changing this, not something to guess at here.
+		const first = { ...v3.assets[0], id: '22222222-2222-4222-8222-222222222222' };
+		const second = { ...v3.assets[0], id: '33333333-3333-4333-8333-333333333333' };
+		const share = { ...v3, assets: [second, first], album: { ...v3.album, assets: [first, second] } };
+		const resolved = await createImmichProvider(vi.fn(async () => new Response(JSON.stringify(share))), 'https://immich.example').getSharedLink(context);
+		expect(resolved.data?.assets.map((asset) => asset.id)).toEqual([second.id, first.id]);
+	});
+
+	it('orders metadata-search results chronologically when Immich supplies no curated order at all', async () => {
+		const early = { ...v3.assets[0], id: '22222222-2222-4222-8222-222222222222', localDateTime: '2026-01-01T00:00:00.000Z' };
+		const late = { ...v3.assets[0], id: '33333333-3333-4333-8333-333333333333', localDateTime: '2026-06-01T00:00:00.000Z' };
+		const middle = { ...v3.assets[0], id: '44444444-4444-4444-8444-444444444444', createdAt: '2026-03-01T00:00:00.000Z' };
+		const undated = { ...v3.assets[0], id: '55555555-5555-4555-8555-555555555555', localDateTime: undefined, createdAt: undefined };
+		const nested = { ...v3, assets: [], album: { ...v3.album, assetCount: 4 } };
+		// The search endpoint returns them out of chronological order, simulating relevance/insertion order.
+		const provider = createImmichProvider(vi.fn(async (input: URL | RequestInfo) => new Response(JSON.stringify(new URL(input.toString()).pathname === '/api/shared-links/me' ? nested : { albums: {}, assets: { items: [late, undated, early, middle] } }))), 'https://immich.example');
+		const resolved = await provider.getSharedLink(context);
+		expect(resolved.data?.assets.map((asset) => asset.id)).toEqual([early.id, middle.id, late.id, undated.id]);
+	});
+
 	it('preserves the ordered nested album assets before considering metadata search', async () => {
 		const first = { ...v3.assets[0], id: '22222222-2222-4222-8222-222222222222' };
 		const second = { ...v3.assets[0], id: '33333333-3333-4333-8333-333333333333' };

@@ -114,6 +114,11 @@ async function getJsonArray<T>(responsePromise: Promise<Response>, schema: { saf
 	try { const value = JSON.parse(await readBoundedText(response)); if (!Array.isArray(value)) return { status: 422, error: 'malformed' }; const data = value.map((item) => schema.safeParse(item)); return data.every((item) => item.success) ? { status: response.status, data: data.map((item) => item.data) as T[] } : { status: 422, error: 'malformed' }; } catch { return { status: 422, error: 'malformed' }; }
 }
 
+function assetSortTimestamp(asset: SharedLinkResponse['assets'][number]): number {
+	const parsed = Date.parse(asset.localDateTime ?? asset.createdAt ?? '');
+	return Number.isFinite(parsed) ? parsed : Number.POSITIVE_INFINITY;
+}
+
 async function fetchAlbumAssets(baseUrl: string, context: AuthContext, albumId: string, declaredCount: number, fetchImpl: typeof fetch): Promise<SharedLinkResponse['assets'] | null> {
 		let response: Response;
 		try {
@@ -136,7 +141,11 @@ async function fetchAlbumAssets(baseUrl: string, context: AuthContext, albumId: 
 				return null;
 			}
 			logAlbumAssetsResponse({ declaredCount, normalizedCount: parsed.data.assets.items.length });
-			return parsed.data.assets.items;
+			// /api/search/metadata has no concept of curated album order; this path only runs when
+			// Immich supplied neither an ordered top-level assets array nor a nested album.assets
+			// array, so chronological order is the best available deterministic proxy for the
+			// album's intended sequence (matching the "auto" journey-path sort convention).
+			return [...parsed.data.assets.items].sort((a, b) => assetSortTimestamp(a) - assetSortTimestamp(b));
 		} catch (error) {
 			logAlbumAssetsRequest({ status: 'failure', failureCategory: error instanceof Error && error.message === 'response-too-large' ? 'response-too-large' : 'invalid-response' });
 			return null;
