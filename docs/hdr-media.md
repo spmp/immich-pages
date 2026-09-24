@@ -10,11 +10,22 @@ anchor.
 ## Apple gain-map eligibility
 
 The native boundary accepts only an Apple auxiliary image with type
-`urn:com:apple:photo:2020:aux:hdrgainmap`, `HDRGainMapVersion` `1`/`1.0`, numeric
-MakerNote keys `33` (`HDRHeadroom`) and `48` (`HDRGain`), orientation `1`, and a
-validated Display-P3 or Rec.709 source profile. Friendly aliases alone are not
-accepted. Unknown profiles, transfer functions, dimensions, orientation, malformed
-values, and missing auxiliary relationships use SDR fallback.
+`urn:com:apple:photo:2020:aux:hdrgainmap`, a recognized `HDRGainMapVersion`,
+numeric MakerNote keys `33` (`HDRHeadroom`) and `48` (`HDRGain`), orientation `1`,
+and a validated Display-P3 or Rec.709 source profile. Unknown profiles, transfer
+functions, dimensions, orientation, malformed values, and missing auxiliary
+relationships use SDR fallback.
+
+Verified against real ExifTool 13.50 output on real Apple HDR gain-map photos
+(not inferred): ExifTool's Apple.pm table names MakerNote `0x21`/`0x30` as
+`HDRHeadroom`/`HDRGain` directly, not raw numeric keys `33`/`48` (the raw-key
+match is kept only as a defense-in-depth fallback for older ExifTool versions);
+`HDRGainMapVersion` prints as the dotted string `0.1.0.0`, never a bare `1`/`1.0`,
+and is normalized to the canonical `1.0` the native compositor's `--hdr-version`
+contract expects; and the source color profile is only reliably present as
+`ICC_Profile:ProfileDescription` (EXIF `ColorSpace`/`ProfileName` report
+`Uncalibrated` or are absent for real files). Getting any of this wrong meant
+every real photo -- HDR or not -- produced an identical 404.
 
 Apple's documented stop curve is evaluated per image:
 

@@ -33,19 +33,33 @@ export async function extractAppleHdrMetadata(
 	}
 }
 
+// Field names/formats below are verified against real ExifTool 13.50 output on real Apple HDR
+// gain-map HEIC photos (not inferred): ExifTool's Apple.pm table names MakerNote 0x21/0x30 as
+// HDRHeadroom/HDRGain directly rather than emitting raw numeric keys "33"/"48"; HDRGainMapVersion
+// prints as the dotted string "0.1.0.0", never a bare "1"/"1.0"; and the source color profile is
+// only reliably present as ICC_Profile:ProfileDescription (EXIF ColorSpace/ProfileName report
+// "Uncalibrated" or are absent for these files). All of this was previously silently rejecting
+// every real photo -- both a genuine HDR one and an ordinary one produced an identical 404.
+const KNOWN_VERSION_STRINGS = new Set(['1', '1.0', '0.1.0.0']);
+
 export function normalizeAppleMetadata(record: ExifToolRecord): AppleHdrMetadata | undefined {
 	const auxiliaryType = findString(record, (key) => key === 'AuxiliaryImageType' || key.endsWith(':AuxiliaryImageType'));
 	if (auxiliaryType !== APPLE_GAIN_MAP_TYPE) return undefined;
-	const version = findString(record, (key) => key === 'HDRGainMapVersion' || key.endsWith(':HDRGainMapVersion'));
-	if (!version || !/^\d+(?:\.\d+)?$/.test(version)) return undefined;
-	const makerNote33 = findNumericKey(record, '33');
-	const makerNote48 = findNumericKey(record, '48');
+	const rawVersion = findString(record, (key) => key === 'HDRGainMapVersion' || key.endsWith(':HDRGainMapVersion'));
+	if (!rawVersion || !KNOWN_VERSION_STRINGS.has(rawVersion)) return undefined;
+	const version = '1.0'; // Canonical form the native compositor's --hdr-version contract accepts.
+	const makerNote33 = findNumericKey(record, 'HDRHeadroom') ?? findNumericKey(record, '33');
+	const makerNote48 = findNumericKey(record, 'HDRGain') ?? findNumericKey(record, '48');
 	if (!validMakerNote(makerNote33) || !validMakerNote(makerNote48)) return undefined;
-	const sourceProfile = normalizeProfile(findString(record, (key) => key === 'ProfileName' || key.endsWith(':ProfileName')) ?? findString(record, (key) => key === 'ColorSpace' || key.endsWith(':ColorSpace')));
+	const sourceProfile = normalizeProfile(
+		findString(record, (key) => key === 'ICC_Profile:ProfileDescription')
+		?? findString(record, (key) => key === 'ProfileName' || key.endsWith(':ProfileName'))
+		?? findString(record, (key) => key === 'ColorSpace' || key.endsWith(':ColorSpace'))
+	);
 	if (!sourceProfile) return undefined;
 	const sourceTransfer = normalizeTransfer(findString(record, (key) => key === 'TransferFunction' || key.endsWith(':TransferFunction')) ?? sourceProfile);
 	if (!sourceTransfer) return undefined;
-	const orientation = findNumericKey(record, 'Orientation') ?? findNumericKey(record, 'Orientation#');
+	const orientation = findNumericKey(record, 'Orientation');
 	if (orientation !== 1) return undefined;
 	const headroom = appleHeadroom(makerNote33, makerNote48);
 	return { version, auxiliaryType: APPLE_GAIN_MAP_TYPE, makerNote33, makerNote48, headroom, hdrGain: makerNote48, sourceProfile, sourceTransfer, orientation };
@@ -98,7 +112,10 @@ function findValue(value: unknown, match: (key: string) => boolean): unknown {
 
 function runExifTool(executable: string, input: Uint8Array, timeoutMs: number, invocationId?: string): Promise<string> {
 	return new Promise((resolve, reject) => {
-		const child = spawn(executable, ['-json', '-G1', '-s', '-n', '-HDRGainMapVersion', '-MakerNotes', '-AuxiliaryImageType', '-ProfileName', '-ColorSpace', '-TransferFunction', '-Orientation', '-'], { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true, shell: false, env: invocationId ? { ...process.env, HDR_BRIDGE_ASSET_ID: invocationId } : process.env });
+		// -HDRGainMapVersion and -ICC_Profile:ProfileDescription use ExifTool's default (string)
+		// conversion; -Apple:HDRHeadroom#/-Apple:HDRGain#/-Orientation# force numeric per-tag
+		// regardless of that default, verified against real Apple HDR gain-map photos.
+		const child = spawn(executable, ['-json', '-G1', '-s', '-HDRGainMapVersion', '-Apple:HDRHeadroom#', '-Apple:HDRGain#', '-MakerNotes', '-AuxiliaryImageType', '-ICC_Profile:ProfileDescription', '-ProfileName', '-ColorSpace', '-TransferFunction', '-Orientation#', '-'], { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true, shell: false, env: invocationId ? { ...process.env, HDR_BRIDGE_ASSET_ID: invocationId } : process.env });
 		const chunks: Buffer[] = [];
 		let bytes = 0;
 		let settled = false;
