@@ -30,7 +30,9 @@ export const AlbumResponseSchema = z.object({
 	startDate: z.string().max(128).nullable().optional(),
 	endDate: z.string().max(128).nullable().optional(),
 	updatedAt: z.string().max(128).optional(),
-	assetCount: z.number().int().nonnegative().optional()
+	assetCount: z.number().int().nonnegative().optional(),
+	/** Immich's only asset-ordering control: a global chronological direction, not a manual per-asset position. Immich defaults to 'desc' (newest first). */
+	order: z.enum(['asc', 'desc']).optional()
 });
 export type AlbumResponse = z.infer<typeof AlbumResponseSchema>;
 
@@ -63,7 +65,8 @@ export const SharedLinkResponseSchema = z.object({
 		endDate: z.string().max(128).nullable().optional(),
 		updatedAt: z.string().max(128).optional(),
 		assetCount: z.number().int().nonnegative().optional(),
-		assets: z.array(AssetResponseSchema).optional()
+		assets: z.array(AssetResponseSchema).optional(),
+		order: z.enum(['asc', 'desc']).optional()
 	}).optional(),
 	assets: z.array(AssetResponseSchema),
 	allowUpload: z.boolean(),

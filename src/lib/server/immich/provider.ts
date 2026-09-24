@@ -35,7 +35,7 @@ export function createImmichProvider(fetchImpl: typeof fetch = fetch, baseUrl = 
 					if (data.album.assets?.length) {
 						data = { ...data, assets: data.album.assets };
 					} else {
-						const albumAssets = await fetchAlbumAssets(baseUrl, context, data.album.id, data.album.assetCount ?? 0, fetchImpl);
+						const albumAssets = await fetchAlbumAssets(baseUrl, context, data.album.id, data.album.assetCount ?? 0, data.album.order ?? 'desc', fetchImpl);
 						if (!albumAssets) return { status: 502 };
 						data = { ...data, assets: albumAssets };
 					}
@@ -114,12 +114,12 @@ async function getJsonArray<T>(responsePromise: Promise<Response>, schema: { saf
 	try { const value = JSON.parse(await readBoundedText(response)); if (!Array.isArray(value)) return { status: 422, error: 'malformed' }; const data = value.map((item) => schema.safeParse(item)); return data.every((item) => item.success) ? { status: response.status, data: data.map((item) => item.data) as T[] } : { status: 422, error: 'malformed' }; } catch { return { status: 422, error: 'malformed' }; }
 }
 
-function assetSortTimestamp(asset: SharedLinkResponse['assets'][number]): number {
+function assetSortTimestamp(asset: SharedLinkResponse['assets'][number]): number | null {
 	const parsed = Date.parse(asset.localDateTime ?? asset.createdAt ?? '');
-	return Number.isFinite(parsed) ? parsed : Number.POSITIVE_INFINITY;
+	return Number.isFinite(parsed) ? parsed : null;
 }
 
-async function fetchAlbumAssets(baseUrl: string, context: AuthContext, albumId: string, declaredCount: number, fetchImpl: typeof fetch): Promise<SharedLinkResponse['assets'] | null> {
+async function fetchAlbumAssets(baseUrl: string, context: AuthContext, albumId: string, declaredCount: number, order: 'asc' | 'desc', fetchImpl: typeof fetch): Promise<SharedLinkResponse['assets'] | null> {
 		let response: Response;
 		try {
 			response = await requestImmich(baseUrl, `/api/search/metadata?${shareQuery(context)}`, context, fetchImpl, {
@@ -143,9 +143,16 @@ async function fetchAlbumAssets(baseUrl: string, context: AuthContext, albumId: 
 			logAlbumAssetsResponse({ declaredCount, normalizedCount: parsed.data.assets.items.length });
 			// /api/search/metadata has no concept of curated album order; this path only runs when
 			// Immich supplied neither an ordered top-level assets array nor a nested album.assets
-			// array, so chronological order is the best available deterministic proxy for the
-			// album's intended sequence (matching the "auto" journey-path sort convention).
-			return [...parsed.data.assets.items].sort((a, b) => assetSortTimestamp(a) - assetSortTimestamp(b));
+			// array. Immich albums have no manual per-asset position -- their only ordering control
+			// is this asc/desc chronological toggle -- so replicate the album's own configured
+			// direction (Immich defaults to 'desc', newest first) rather than guessing a direction.
+			const direction = order === 'asc' ? 1 : -1;
+			return [...parsed.data.assets.items].sort((a, b) => {
+				const ta = assetSortTimestamp(a);
+				const tb = assetSortTimestamp(b);
+				if (ta === null || tb === null) return ta === tb ? 0 : ta === null ? 1 : -1; // undated assets always sort last
+				return direction * (ta - tb);
+			});
 		} catch (error) {
 			logAlbumAssetsRequest({ status: 'failure', failureCategory: error instanceof Error && error.message === 'response-too-large' ? 'response-too-large' : 'invalid-response' });
 			return null;
