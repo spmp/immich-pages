@@ -6,4 +6,19 @@ build/
 !.env.example
 playwright-report/
 test-results/
+
+# Generated HDR probes and media fixtures are local-only.
+tests/resources/hdr/
 tests/resources/heic-test-set/
+
+# Local agent tool config/cache, not project source.
+.opencode/
+
+# Local research cache (TTL'd, regenerable).
+.planning/research/.cache/
+
+# Operator's real deployment compose file: contains live credentials/paths.
+immich.yml
+
+# External rebuild-watcher trigger/status, host-local runtime state only.
+rebuild/
