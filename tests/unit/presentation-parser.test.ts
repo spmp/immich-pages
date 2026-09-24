@@ -7,7 +7,7 @@ describe('presentation frontmatter', () => {
 	it('accepts and normalizes a strict gradient', () => {
 		const result = parsePresentationDocument(prefix('  gradient:\n    direction: 135deg\n    top: "#ABCDEF"\n    bottom: "#123456"'));
 		expect(result.kind).toBe('valid');
-		if (result.kind === 'valid') expect(result.config.gradient).toEqual({ direction: '135deg', top: '#abcdef', bottom: '#123456' });
+	if (result.kind === 'valid') expect(result.config.gradient).toEqual({ auto: false, direction: '135deg', top: '#abcdef', bottom: '#123456' });
 	});
 
 	it.each([

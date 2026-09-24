@@ -24,6 +24,9 @@ describe('journey map component contract', () => {
 		expect(source).toContain('Map unavailable; the narrative and gallery remain available.');
 		expect(source).toContain('No location data is available for this journey.');
 		expect(source).toContain('aria-live="polite"');
+		expect(source).toContain('aria-label="Journey map"');
+		expect(source).not.toContain('>Journey map<');
+		expect(source).not.toContain('Interactive journey map');
 		expect(source).toContain('prefers-reduced-motion');
 		expect(source).toContain('min-height: 280px');
 	});
@@ -31,8 +34,11 @@ describe('journey map component contract', () => {
 		expect(source).toContain('brouter-profile-unsupported');
 		expect(source).toContain('brouter-endpoint-unsafe');
 		expect(source).toContain('brouter-timeout');
+		expect(source).toContain('brouter-route-rejected');
 		expect(source).toContain('brouter-response-too-large');
 		expect(source).toContain('showing locations only.');
+		expect(source).toContain("reportJournalDebug('route-failure'");
+		expect(source).toContain("return 'check-road-access'");
 	});
 	it('keeps bounded clusters and all semantic marker choices reachable', () => {
 		expect(source).toContain('getClusterLeaves(Number(feature.properties.cluster_id), MAX_COLLOCATED_LEAVES, 0)');

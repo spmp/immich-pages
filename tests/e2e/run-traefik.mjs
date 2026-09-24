@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import https from 'node:https';
 
 const compose = ['compose', '-f', 'tests/e2e/traefik-test.compose.yaml'];
 
@@ -16,8 +17,14 @@ async function waitForTraefik() {
   const deadline = Date.now() + 60_000;
   while (Date.now() < deadline) {
     try {
-      const response = await fetch('https://127.0.0.1:18080/health', { headers: { host: 'pages.example.xyz' } });
-      if (response.status !== 404 && response.status < 599) return;
+      const status = await new Promise((resolve, reject) => {
+        const request = https.get('https://127.0.0.1:18080/health', { headers: { host: 'pages.example.xyz' }, rejectUnauthorized: false }, (response) => {
+          response.resume();
+          resolve(response.statusCode ?? 599);
+        });
+        request.on('error', reject);
+      });
+      if (status !== 404 && status < 599) return;
     } catch {
       // The published entrypoint is not ready yet.
     }
@@ -31,7 +38,7 @@ let failure;
 try {
   await run([...compose, 'up', '-d', '--build']);
   await waitForTraefik();
-  await run(['exec', '-T', 'traefik', 'traefik', 'healthcheck', '--ping']);
+  await run([...compose, 'exec', '-T', 'traefik', 'traefik', 'healthcheck', '--ping']);
     await runCommand('npx', ['playwright', 'test', ...playwrightArgs], { env: { ...process.env, PLAYWRIGHT_BASE_URL: 'https://pages.example.xyz:18080' } });
 } catch (error) {
   failure = error;

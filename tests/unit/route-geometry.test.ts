@@ -10,6 +10,11 @@ describe('bounded route geometry', () => {
 		expect(normalizeRouteGeometry({ type: 'FeatureCollection', features: [{ type: 'Feature', geometry: line }, { type: 'Feature', geometry: multi }] })).toMatchObject({ kind: 'resolved', route: { type: 'MultiLineString', coordinates: [line.coordinates, ...multi.coordinates] } });
 	});
 
+	it('accepts GeoJSON elevation and canonicalizes routes to 2D positions', () => {
+		const result = normalizeRouteGeometry({ type: 'LineString', coordinates: [[20, 10, 123.4], [21, 11, 125.6]] });
+		expect(result).toEqual({ kind: 'resolved', route: { type: 'LineString', coordinates: [[20, 10], [21, 11]] }, warnings: [] });
+	});
+
 	it('rejects unsupported, malformed, and unsafe geometry as a safe unavailable result', () => {
 		for (const value of [{ type: 'Point', coordinates: [1, 2] }, { type: 'LineString', coordinates: [[1, 2]] }, { type: 'LineString', coordinates: [[Infinity, 2], [1, 2]] }, '{bad json', null]) {
 			const result = normalizeRouteGeometry(value);

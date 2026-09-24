@@ -10,8 +10,8 @@ describe('journal presentation contract', () => {
 		expect(source.indexOf('<JournalHero')).toBeLessThan(source.indexOf('<JourneyMapSlot'));
 		expect(source.indexOf('<JourneyMapSlot')).toBeLessThan(source.indexOf('<JournalNarrative'));
 		expect(source.indexOf('<JournalNarrative')).toBeLessThan(source.indexOf('<section class="gallery"'));
-		expect(component('JournalHero')).toContain('Explore the gallery');
-		expect(source).toContain('aria-labelledby="gallery-title"');
+		expect(component('JournalHero')).not.toContain('Explore the gallery');
+		expect(component('JournalGallery')).toContain('aria-label="Gallery"');
 	});
 
 	it('keeps the map seam empty and the narrative server-rendered', () => {
@@ -26,12 +26,12 @@ describe('journal presentation contract', () => {
 		expect(route()).not.toContain('fetch(');
 	});
 
-	it('keeps only the no-hero fallback label and the locked gallery CTA', () => {
+	it('keeps only the no-hero fallback label without the removed gallery CTA', () => {
 		const hero = component('JournalHero');
 		expect(hero).not.toMatch(/<p class="eyebrow">Journey gallery<\/p>\s*<h1/);
 		expect(hero).toContain('{#if !hero}');
 		expect(hero).toContain('Journey gallery');
-		expect(hero).toContain('Explore the gallery');
+		expect(hero).not.toContain('Explore the gallery');
 	});
 
 	it('declares responsive layout and accessible gallery targets', () => {

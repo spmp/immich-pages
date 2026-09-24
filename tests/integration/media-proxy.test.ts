@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { GET } from '../../src/routes/share/[kind]/[ref]/media/[assetId]/thumbnail/+server';
 import { GET as GET_VIDEO } from '../../src/routes/share/[kind]/[ref]/media/[assetId]/video/playback/+server';
+import { GET as GET_FULLSIZE } from '../../src/routes/share/[kind]/[ref]/media/[assetId]/image/fullsize/+server';
 import v3 from '../fixtures/shared-link/v3-valid-page.json';
 
 describe('same-origin thumbnail boundary', () => {
@@ -17,6 +18,67 @@ describe('same-origin thumbnail boundary', () => {
 		expect(calls[1].headers.get('authorization')).toBe('Bearer visitor');
 		expect(response.headers.get('set-cookie')).toBeNull();
 		vi.unstubAllEnvs();
+	});
+});
+
+describe('same-origin full-size image boundary', () => {
+	beforeEach(() => vi.stubEnv('IMMICH_BASE_URL', 'https://immich.example'));
+	const imageId = '22222222-2222-4222-8222-222222222222';
+	const request = (kind: 'key' | 'slug' = 'key') => new Request(`https://pages.example/share/${kind}/opaque_ref/media/${imageId}/image/fullsize`, { headers: { cookie: 'immich_shared_link_token=visitor' } });
+	const invoke = async (fetchMock: typeof fetch, kind: 'key' | 'slug' = 'key', assetId = imageId) => GET_FULLSIZE({ params: { kind, ref: 'opaque_ref', assetId }, request: request(kind), cookies: { get: vi.fn(() => undefined), set: vi.fn() }, fetch: fetchMock } as never);
+
+	it.each(['key', 'slug'] as const)('uses the %s share and authorized original endpoint', async (kind) => {
+		const calls: string[] = [];
+		const fetchMock = vi.fn(async (input: URL | RequestInfo) => { calls.push(input.toString()); return calls.length === 1 ? new Response(JSON.stringify(v3)) : new Response('jpeg', { headers: { 'content-type': 'image/jpeg', 'set-cookie': 'secret' } }); });
+		const response = await invoke(fetchMock, kind);
+		expect(response.status).toBe(200);
+		expect(calls[1]).toBe(`https://immich.example/api/assets/${imageId}/original?${kind}=opaque_ref`);
+		expect(response.headers.get('content-type')).toBe('image/jpeg');
+		expect(response.headers.get('cache-control')).toBe('private, no-store');
+		expect(response.headers.get('set-cookie')).toBeNull();
+	});
+
+	it('retrieves a camera original larger than the generated-thumbnail limit', async () => {
+		const original = new Uint8Array(10 * 1024 * 1024 + 1);
+		original.set([0xff, 0xd8, 0xff]);
+		const calls: string[] = [];
+		const fetchMock = vi.fn(async (input: URL | RequestInfo) => {
+			calls.push(input.toString());
+			return calls.length === 1
+				? new Response(JSON.stringify(v3))
+				: new Response(original, { headers: { 'content-type': 'image/jpeg' } });
+		});
+
+		const response = await invoke(fetchMock);
+
+		expect(response.status).toBe(200);
+		expect(calls[1]).toBe(`https://immich.example/api/assets/${imageId}/original?key=opaque_ref`);
+		expect((await response.arrayBuffer()).byteLength).toBe(original.byteLength);
+	});
+
+	it('rejects non-images and untrusted content types', async () => {
+		const videoShare = { ...v3, assets: [{ ...v3.assets[0], id: imageId, type: 'VIDEO' }] };
+		const nonImage = await invoke(vi.fn(async () => new Response(JSON.stringify(videoShare))), 'key');
+		expect(nonImage.status).toBe(404);
+		const html = await invoke(vi.fn(async (input: URL | RequestInfo) => new Response(new URL(input.toString()).pathname.endsWith('/me') ? JSON.stringify(v3) : '<script>', { headers: { 'content-type': 'text/html' } })));
+		expect(html.status).toBe(502);
+	});
+
+	it('accepts generated image bytes declared as octet-stream', async () => {
+		const png = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]);
+		const response = await invoke(vi.fn(async (input: URL | RequestInfo) => new Response(new URL(input.toString()).pathname.endsWith('/me') ? JSON.stringify(v3) : png, { headers: { 'content-type': 'application/octet-stream' } })));
+		expect(response.status).toBe(200);
+		expect(response.headers.get('content-type')).toBe('image/png');
+	});
+
+	it('rejects unknown bytes even when the upstream declares octet-stream', async () => {
+		const response = await invoke(vi.fn(async (input: URL | RequestInfo) => new Response(new URL(input.toString()).pathname.endsWith('/me') ? JSON.stringify(v3) : 'not an image', { headers: { 'content-type': 'application/octet-stream' } })));
+		expect(response.status).toBe(502);
+	});
+
+	it('bounds oversized original responses', async () => {
+		const response = await invoke(vi.fn(async (input: URL | RequestInfo) => new Response(new URL(input.toString()).pathname.endsWith('/me') ? JSON.stringify(v3) : 'x', { headers: { 'content-type': 'image/jpeg', 'content-length': String(100 * 1024 * 1024 + 1) } })));
+		expect(response.status).toBe(502);
 	});
 });
 

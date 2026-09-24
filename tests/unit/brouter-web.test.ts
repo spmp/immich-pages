@@ -1,11 +1,16 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it, vi } from 'vitest';
 import { parseBrouterWebPermalink, BRouterWebProfiles } from '../../src/lib/server/map/brouter-web';
+import { DEFAULT_BROUTER_ALLOWED_ORIGINS, DEFAULT_BROUTER_ENDPOINT } from '../../src/lib/server/map/path-adapters';
 
 const fixture = (name: string) => readFileSync(new URL(`../fixtures/brouter-web/${name}`, import.meta.url), 'utf8').trim();
 const forward = [[13.377485, 52.516247], [13.351221, 52.515004], [13.337, 52.52]];
 
 describe('BRouter-Web permalink parser', () => {
+	it('has a public BRouter service default for the built-in adapter', () => {
+		expect(DEFAULT_BROUTER_ENDPOINT).toBe('https://brouter.de/brouter');
+		expect(DEFAULT_BROUTER_ALLOWED_ORIGINS).toEqual(['https://brouter.de']);
+	});
 
 	it('decodes the checked-in forward, reverse, and encoded fixtures without fetching', () => {
 		const fetchSpy = vi.spyOn(globalThis, 'fetch');
@@ -17,6 +22,24 @@ describe('BRouter-Web permalink parser', () => {
 
 	it('approves exactly the built-in profile allowlist', () => {
 		for (const profile of BRouterWebProfiles) expect(parseBrouterWebPermalink(`https://brouter.de/brouter-web/#lonlats=1,2%7C3,4&profile=${profile}`).kind).toBe('resolved');
+	});
+
+	it('accepts the BRouter-Web map view and semicolon-separated waypoints', () => {
+		const result = parseBrouterWebPermalink('https://brouter.de/brouter-web/#map=9/39.2914/-105.4253/standard&lonlats=-105.273743,40.014994;-105.24031,39.910964;-105.089607,39.553118&profile=car-fast');
+		expect(result).toMatchObject({
+			kind: 'resolved',
+			profile: 'car-fast',
+			waypoints: [[-105.273743, 40.014994], [-105.24031, 39.910964], [-105.089607, 39.553118]]
+		});
+	});
+
+	it('ignores tracking query parameters that BRouter-Web also ignores', () => {
+		const result = parseBrouterWebPermalink('https://brouter.de/brouter-web/?utm_source=chatgpt.com#map=18/37.74353/-105.50588/standard&lonlats=-105.273743,40.014994;-105.24031,39.910964;-105.089607,39.553118;-104.990787,39.475724;-105.505185,37.744602;-105.747645,38.021343;-105.258356,39.997946&profile=car-fast');
+		expect(result).toMatchObject({ kind: 'resolved', profile: 'car-fast', waypoints: [[-105.273743, 40.014994], [-105.24031, 39.910964], [-105.089607, 39.553118], [-104.990787, 39.475724], [-105.505185, 37.744602], [-105.747645, 38.021343], [-105.258356, 39.997946]] });
+	});
+
+	it('rejects non-tracking query parameters', () => {
+		expect(parseBrouterWebPermalink('https://brouter.de/brouter-web/?profile=car-fast#lonlats=1,2%7C3,4')).toEqual({ kind: 'unavailable', warnings: ['brouter-permalink-invalid'] });
 	});
 
 	it('returns deterministic warnings for ambiguity, unsafe hosts, malformed coordinates, and unsupported profiles', () => {

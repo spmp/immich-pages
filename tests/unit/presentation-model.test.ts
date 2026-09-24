@@ -13,7 +13,7 @@ describe('normalized presentation model seams', () => {
 		expect(parsed.kind).toBe('valid');
 		if (parsed.kind === 'valid') {
 			const model = { presentation: parsed.config } as Pick<NormalizedPageModel, 'presentation'>;
-			expect(model.presentation.gradient).toEqual({ direction: 'to bottom', top: '#abcdef', bottom: '#123456' });
+		expect(model.presentation.gradient).toEqual({ auto: false, direction: 'to bottom', top: '#abcdef', bottom: '#123456' });
 			expect(JSON.stringify(model)).not.toContain('rgba');
 		}
 	});

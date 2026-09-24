@@ -48,6 +48,17 @@ test('renders a supported BRouter permalink response from the local fixture', as
   await expectPageSurvives(page, 'BRouter success proof');
 });
 
+test('renders the supplied BRouter-Web permalink through the live BRouter service', async ({ page }) => {
+  test.skip(!process.env.RUN_LIVE_BROUTER_E2E, 'set RUN_LIVE_BROUTER_E2E=true to exercise public BRouter');
+  const diagnostics: string[] = [];
+  page.on('console', (message) => { if (message.text().includes('route-failure')) diagnostics.push(message.text()); });
+  await page.goto('/share/key/route-brouter-live');
+  const seam = page.locator('[data-phase="3-map-seam"]');
+  await expect(seam).toHaveAttribute('data-route-ready', 'true');
+  await expect(seam).toHaveAttribute('data-route-layer-ready', 'true');
+  expect(diagnostics).toEqual([]);
+});
+
 test('shows deterministic route failure while narrative, gallery, and markers survive', async ({ page }) => {
   await page.goto('/share/key/route-brouter-failure');
   const seam = page.locator('[data-phase="3-map-seam"]');

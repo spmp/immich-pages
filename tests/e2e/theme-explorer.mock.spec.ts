@@ -54,7 +54,9 @@ test.describe('production gradient boundary', () => {
 		await expect(root).toBeVisible();
 		await expect(root).toHaveAttribute('data-theme', 'dark');
 		await expect(page.getByRole('heading', { name: 'Mock Journey' })).toBeVisible();
-		await expect(root).toHaveAttribute('data-gradient-mode', /theme|automatic/);
+		await expect(root).toHaveAttribute('data-gradient-mode', 'automatic');
+		const stops = await root.evaluate((element) => ({ top: getComputedStyle(element).getPropertyValue('--theme-gradient-top'), bottom: getComputedStyle(element).getPropertyValue('--theme-gradient-bottom') }));
+		expect(stops.top).not.toBe(stops.bottom);
 		await expect.poll(() => page.evaluate(() => document.querySelector('.theme-root')?.getAttribute('style') ?? '')).not.toContain('url(');
 		await expect.poll(() => page.evaluate(() => document.querySelector('.theme-root')?.getAttribute('style') ?? '')).not.toContain('http');
 		expect(requests.some((path) => /\/original|\/download/.test(path))).toBe(false);

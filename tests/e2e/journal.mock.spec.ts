@@ -141,7 +141,7 @@ test('formats dates for the browser locale without hydration warnings and serves
   const consoleMessages: string[] = [];
   page.on('console', (message) => consoleMessages.push(message.text()));
   await page.goto('/share/key/opaque-ref');
-  const expected = new Intl.DateTimeFormat('en-GB', { year: 'numeric', month: 'long', day: 'numeric' }).format(new Date('2026-01-01T00:00:00.000Z'));
+  const expected = await page.evaluate(() => new Intl.DateTimeFormat('en-GB', { year: 'numeric', month: 'long', day: 'numeric' }).format(new Date('2026-01-01T00:00:00.000Z')));
   await expect(page.locator('[data-date-iso="2026-01-01T00:00:00.000Z"] .date-value')).toHaveText(expected);
   await expect(page.locator('[data-date-iso="2026-01-01T00:00:00.000Z"]')).toHaveAttribute('data-date-iso', '2026-01-01T00:00:00.000Z');
   expect(consoleMessages.filter((message) => /hydration|mismatch/i.test(message))).toEqual([]);
@@ -203,6 +203,7 @@ test('renders the local MapLibre journey and focuses an authorized gallery asset
   });
   await page.goto('/share/key/map-ref');
   await expect(page.getByRole('region', { name: 'Journey map' })).toBeVisible();
+  await expect(page.locator('.journey-slot.enabled')).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
   await expect(page.locator('.journey-slot.enabled canvas').first()).toBeVisible({ timeout: 15_000 });
   await expect(page.getByRole('heading', { name: 'Journey map' })).toHaveCount(0);
   await expect(page.getByText('Interactive journey map')).toHaveCount(0);

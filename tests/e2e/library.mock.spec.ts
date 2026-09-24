@@ -14,8 +14,9 @@ test('opening a share registers it and anonymous library lists only opened share
 
   await page.goto('/library');
   await expect(page.getByRole('heading', { name: 'Published journeys' })).toBeVisible();
-  await expect(page.getByRole('link', { name: /Mock Journey/ })).toHaveCount(1);
-  await expect(page.getByRole('link', { name: /Second Journey/ })).toHaveCount(0);
+  const libraryMain = page.locator('main');
+  await expect(libraryMain.getByRole('link', { name: /Mock Journey/ })).toHaveCount(1);
+  await expect(libraryMain.getByRole('link', { name: /Second Journey/ })).toHaveCount(0);
   expect(await page.content()).not.toMatch(/Immich user|authenticated session|550e8400/);
 });
 
@@ -31,9 +32,10 @@ test('multiple opened shares navigate through direct-share routes with fresh req
   await page.goto('/share/key/opaque-ref');
   await page.goto('/share/slug/second-ref');
   await page.goto('/library');
-  await expect(page.getByRole('link', { name: /Mock Journey/ })).toBeVisible();
-  await expect(page.getByRole('link', { name: /Second Journey/ })).toBeVisible();
-  await page.getByRole('link', { name: /Mock Journey/ }).click();
+  const libraryMain = page.locator('main');
+  await expect(libraryMain.getByRole('link', { name: /Mock Journey/ })).toBeVisible();
+  await expect(libraryMain.getByRole('link', { name: /Second Journey/ })).toBeVisible();
+  await libraryMain.getByRole('link', { name: /Mock Journey/ }).click();
   await expect(page).toHaveURL(/\/share\/key\/opaque-ref$/);
   await expect(page.getByRole('heading', { name: 'Mock Journey' })).toBeVisible();
   expect(requests.some((url) => url.endsWith('/share/key/opaque-ref'))).toBe(true);
