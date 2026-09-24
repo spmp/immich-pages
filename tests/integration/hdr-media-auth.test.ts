@@ -1,13 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { GET } from '../../src/routes/share/[kind]/[ref]/media/[assetId]/image/hdr/+server';
 import { clearHdrCache } from '../../src/lib/server/media/hdr-cache';
+import { clearHdrMetadataCache } from '../../src/lib/server/media/hdr-metadata-cache';
 import v3 from '../fixtures/shared-link/v3-valid-page.json';
 
 const assetId = v3.assets[0].id;
 const params = { kind: 'key', ref: 'opaque-ref', assetId };
 
 describe('share HDR media boundary', () => {
-	beforeEach(() => { vi.stubEnv('IMMICH_BASE_URL', 'https://immich.example'); clearHdrCache(); });
+	beforeEach(() => { vi.stubEnv('IMMICH_BASE_URL', 'https://immich.example'); clearHdrCache(); clearHdrMetadataCache(); });
 
 	it('checks share membership before attempting conversion', async () => {
 		const calls: string[] = [];
@@ -47,6 +48,23 @@ describe('share HDR media boundary', () => {
 		const response = await GET({ params, request: new Request('https://pages.example/share/key/opaque-ref'), cookies: { get: vi.fn(), set: vi.fn() }, fetch: fetchMock } as never);
 		expect(response.status).toBe(404);
 		expect(extract).toHaveBeenCalledWith(source);
+		extract.mockRestore();
+	});
+
+	it('caches the no-HDR-metadata result so a repeat request never re-invokes extraction', async () => {
+		// This is the real-world hot path: a viewer opens each photo in the lightbox and the client
+		// probes /image/hdr for every HEIC asset, but the large majority of real photos are not
+		// Apple HDR captures. Without this cache, every single one of those requests re-downloaded
+		// the full original and spawned exiftool, on every click, forever.
+		const source = new Uint8Array([0, 0, 0, 0, 102, 116, 121, 112, 104, 101, 105, 99]);
+		const fetchMock = vi.fn(async (input: URL | RequestInfo) => new Response(new URL(input.toString()).pathname.endsWith('/me') ? JSON.stringify(v3) : source, { headers: { 'content-type': 'image/heic' } }));
+		const metadata = await import('../../src/lib/server/media/hdr-metadata');
+		const extract = vi.spyOn(metadata, 'extractAppleHdrMetadata').mockResolvedValue(undefined);
+		const first = await GET({ params, request: new Request('https://pages.example/share/key/opaque-ref'), cookies: { get: vi.fn(), set: vi.fn() }, fetch: fetchMock } as never);
+		const second = await GET({ params, request: new Request('https://pages.example/share/key/opaque-ref'), cookies: { get: vi.fn(), set: vi.fn() }, fetch: fetchMock } as never);
+		expect(first.status).toBe(404);
+		expect(second.status).toBe(404);
+		expect(extract).toHaveBeenCalledTimes(1);
 		extract.mockRestore();
 	});
 

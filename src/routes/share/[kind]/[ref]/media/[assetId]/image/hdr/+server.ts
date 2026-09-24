@@ -9,6 +9,7 @@ import { logShareMediaStatus } from '$server/share/diagnostics';
 import { composeHdr, encodeHdrMp4, nativeFailureDetail, nativeFailureReason } from '$server/media/hdr-compositor';
 import { buildHdrCacheKey, getOrCreateHdr, withHdrConcurrency } from '$server/media/hdr-cache';
 import { extractAppleHdrMetadata } from '$server/media/hdr-metadata';
+import { buildHdrMetadataCacheKey, getCachedHdrMetadata, getOrExtractHdrMetadata } from '$server/media/hdr-metadata-cache';
 
 const noStore = { 'cache-control': 'private, no-store' };
 const unavailable = () => new Response('HDR unavailable', { status: 404, headers: noStore });
@@ -26,6 +27,22 @@ export const GET: RequestHandler = async ({ params, request, cookies, fetch }) =
 	if (source.status === 401 || source.status === 403) { cookies.set(PAGES_SESSION_COOKIE, '', { path: '/', httpOnly: true, secure: true, sameSite: 'lax', maxAge: 0 }); return new Response('Media not authorized', { status: 403, headers: noStore }); }
 	if (source.error === 'asset-mismatch' || source.error === 'not-image' || source.status === 404) return unavailable();
 	if (!source.response?.ok) return new Response('Immich is unavailable', { status: 502, headers: { 'cache-control': 'private, no-store' } });
+	// Whether this asset has Apple HDR gain-map metadata is a property of its bytes, checkable
+	// from response-header identity alone -- before reading a body that can be up to 100MB. Most
+	// HEIC photos are not HDR, so a cached negative result here skips the full re-download of the
+	// original (already fetched once by /image/fullsize) and the exiftool spawn entirely, instead
+	// of redoing both on every single click as before.
+	const headerSourceIdentity = [
+		source.response.headers.get('etag'),
+		source.response.headers.get('last-modified'),
+		source.response.headers.get('content-length')
+	].filter(Boolean).join('|') || `asset-${params.assetId}`;
+	const metadataCacheKey = buildHdrMetadataCacheKey({ assetId: params.assetId, sourceIdentity: headerSourceIdentity });
+	const cachedMetadata = getCachedHdrMetadata(metadataCacheKey);
+	if (cachedMetadata.hit && !cachedMetadata.value) {
+		logShareMediaStatus({ media: 'fullsize', status: 'failure', statusCode: 404, failureCategory: 'not-found', failureReason: 'metadata-invalid' });
+		return unavailable();
+	}
 	try {
 		const input = await readBoundedBytes(source.response, IMMICH_MAX_ORIGINAL_BYTES);
 		const requestUrl = new URL(request.url);
@@ -39,11 +56,16 @@ export const GET: RequestHandler = async ({ params, request, cookies, fetch }) =
 		const bridgeEnabled = Boolean(process.env.HDR_METADATA_PATH || process.env.HDR_COMPOSITOR_PATH || process.env.HDR_FFMPEG_PATH);
 		let metadata;
 		try {
-			metadata = bridgeEnabled
-				? await extractAppleHdrMetadata(input, { executable: process.env.HDR_METADATA_PATH, invocationId: params.assetId })
-				: await extractAppleHdrMetadata(input);
+			metadata = cachedMetadata.hit
+				? cachedMetadata.value
+				: await getOrExtractHdrMetadata(metadataCacheKey, () => bridgeEnabled
+					? extractAppleHdrMetadata(input, { executable: process.env.HDR_METADATA_PATH, invocationId: params.assetId })
+					: extractAppleHdrMetadata(input));
 		} catch { return unavailable(); }
-		if (!metadata) return unavailable();
+		if (!metadata) {
+			logShareMediaStatus({ media: 'fullsize', status: 'failure', statusCode: 404, failureCategory: 'not-found', failureReason: 'metadata-invalid' });
+			return unavailable();
+		}
 		let output;
 		try {
 			const sourceIdentity = [
