@@ -7,11 +7,11 @@ const method = process.argv.includes('-json') ? 'extractAppleHdrMetadata' : proc
 if (logPath) appendFileSync(logPath, `${JSON.stringify({ method, assetId: process.env.HDR_BRIDGE_ASSET_ID ?? null })}\n`);
 
 if (method === 'extractAppleHdrMetadata') {
+  process.stdin.resume();
   process.stdout.write(JSON.stringify([{
     AuxiliaryImageType: 'urn:com:apple:photo:2020:aux:hdrgainmap',
     HDRGainMapVersion: '1.0',
-    'MakerNotes:33': 0.5,
-    'MakerNotes:48': 0.5,
+    MakerNotes: { '33': 0.5, '48': 0.5 },
     ProfileName: 'Display P3',
     TransferFunction: 'sRGB',
     Orientation: 1
@@ -19,5 +19,6 @@ if (method === 'extractAppleHdrMetadata') {
 } else if (method === 'composeHdr') {
   process.stdin.on('data', (chunk) => process.stdout.write(chunk));
 } else {
-  process.stdout.write(readFileSync(fileURLToPath(new URL('./fixtures/video/chromium-2s-320x180-h264-aac.mp4', import.meta.url))));
+  process.stdin.resume();
+  process.stdout.write(readFileSync(fileURLToPath(new URL('../fixtures/video/chromium-2s-320x180-h264-aac.mp4', import.meta.url))));
 }
