@@ -1,3 +1,4 @@
+// Mostly a source-text contract (the +error.svelte check); presentationCopy/routeErrorCopy assertions are real unit logic.
 import { describe, expect, it } from 'vitest';
 import { presentationCopy, routeErrorCopy } from '../../src/lib/components/journal/presentation-copy';
 import { readFileSync } from 'node:fs';

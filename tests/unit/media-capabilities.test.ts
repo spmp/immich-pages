@@ -1,5 +1,4 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { readFileSync } from 'node:fs';
 import { probeImageDecode, supportsHdrDisplay, supportsWideColorGamut } from '../../src/lib/media/capabilities';
 
 afterEach(() => vi.unstubAllGlobals());
@@ -26,11 +25,7 @@ describe('progressive media capability hints', () => {
 		await expect(probeImageDecode('/never.avif', 1)).resolves.toBe(false);
 	});
 
-	it('has a physical-evidence record that keeps the HDR claim gated', () => {
-		const evidence = readFileSync('docs/phase-8-gate-c-hdr-evidence.md', 'utf8');
-		expect(evidence).toContain('`overall_status`: PENDING');
-		expect(evidence).toContain('physical HDR-capable device');
-		expect(evidence).toContain('emulation');
-		expect(evidence).toContain('SDR fallback');
-	});
+	// The HDR release-gate evidence contract itself (structured PENDING/PASS/FAIL, physical-row,
+	// and redaction invariants) is covered by tests/contracts/phase-8-hdr-release.test.ts, which
+	// parses the doc's machine-readable JSON block rather than grepping prose that reformats.
 });

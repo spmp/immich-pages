@@ -20,6 +20,7 @@ export default defineConfig({
     }
   }],
   test: {
-    exclude: ['tests/e2e/**', '**/node_modules/**']
+    exclude: ['tests/e2e/**', '**/node_modules/**', 'tests/component/**/*.render.test.ts'],
+    environment: 'node'
   }
 });

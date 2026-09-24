@@ -1,3 +1,4 @@
+// Source-text contract: asserts on raw .svelte source, not rendered DOM/behavior. See tests/component/gallery-asset.render.test.ts for a real render-based example.
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 

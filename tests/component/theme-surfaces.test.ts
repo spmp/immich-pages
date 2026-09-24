@@ -1,3 +1,4 @@
+// Source-text contract: asserts on raw source, not rendered DOM/behavior. See tests/component/gallery-asset.render.test.ts for a real render-based example.
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
@@ -56,7 +57,7 @@ describe('shared theme surface contract', () => {
 		const root = read('src/lib/components/journal/ThemeRoot.svelte');
 		expect(page).toContain('gradient={page.presentation.gradient}');
 		expect(page).toContain('heroSource={page.hero?.thumbnail}');
-		expect(root).toContain('sampleHeroGradient(heroSource)');
+		expect(root).toContain('sampleHeroGradient(heroSource, foreground)');
 		expect(root).toContain("onMount(() =>");
 		expect(root).not.toMatch(/authorization|cookie|original|download/i);
 	});

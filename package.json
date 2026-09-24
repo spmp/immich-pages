@@ -4,7 +4,8 @@
   "type": "module",
   "scripts": {
     "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
-    "test": "vitest run",
+    "test": "vitest run && npm run test:component",
+    "test:component": "vitest run --config vitest.component.config.ts",
     "dev": "vite dev",
     "build": "vite build",
     "e2e": "playwright test",
@@ -19,7 +20,9 @@
   "devDependencies": {
     "@playwright/test": "1.62.1",
     "@sveltejs/kit": "2.70.3",
+    "@testing-library/svelte": "5.4.2",
     "@types/node": "24.0.0",
+    "happy-dom": "20.14.5",
     "svelte": "5.56.10",
     "svelte-check": "4.4.6",
     "typescript": "6.0.2",
