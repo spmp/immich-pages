@@ -1,0 +1,109 @@
+name: immich
+
+services:
+  immich-server:
+    image: ghcr.io/immich-app/immich-server:v3
+    labels:
+      traefik.enable: true
+      traefik.docker.network: ${TRAEFIK_NETWORK:-images}
+      traefik.http.routers.immich.rule: Host(`${IMMICH_HOST:-immich.example.xyz}`)
+      traefik.http.routers.immich.entrypoints: ${TRAEFIK_ENTRYPOINT:-websecure}
+      traefik.http.routers.immich.tls: true
+      traefik.http.routers.immich.tls.certresolver: ${TRAEFIK_CERTRESOLVER:-letsencrypt}
+      traefik.http.routers.immich.service: immich
+      traefik.http.services.immich.loadbalancer.server.port: 2283
+      traefik.http.routers.immich-share-to-pages.rule: Host(`${IMMICH_HOST:-immich.example.xyz}`) && PathPrefix(`/share`)
+      traefik.http.routers.immich-share-to-pages.priority: 100
+      traefik.http.routers.immich-share-to-pages.entrypoints: ${TRAEFIK_ENTRYPOINT:-websecure}
+      traefik.http.routers.immich-share-to-pages.tls: true
+      traefik.http.routers.immich-share-to-pages.tls.certresolver: ${TRAEFIK_CERTRESOLVER:-letsencrypt}
+      traefik.http.routers.immich-share-to-pages.middlewares: immich-share-redirect
+      traefik.http.routers.immich-share-to-pages.service: immich
+      traefik.http.middlewares.immich-share-redirect.redirectregex.regex: '^https://${IMMICH_HOST:-immich.example.xyz}/share/(.*)'
+      traefik.http.middlewares.immich-share-redirect.redirectregex.replacement: 'https://${PAGES_HOST:-pages.example.xyz}/share/key/$${1}'
+      traefik.http.middlewares.immich-share-redirect.redirectregex.permanent: true
+    volumes:
+      - ${IMMICH_LIBRARY_LOCATION:-./library}:/data
+      - /etc/localtime:/etc/localtime:ro
+    environment:
+      TZ: ${TZ:-UTC}
+      REDIS_HOSTNAME: redis
+      DB_HOSTNAME: database
+      DB_USERNAME: ${DB_USERNAME:-postgres}
+      DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required}
+      DB_DATABASE_NAME: ${DB_DATABASE_NAME:-immich}
+    depends_on:
+      - redis
+      - database
+    restart: always
+    networks:
+      - images
+
+  immich-machine-learning:
+    image: ghcr.io/immich-app/immich-machine-learning:v3
+    volumes:
+      - ${IMMICH_MODEL_CACHE_LOCATION:-./model-cache}:/cache
+    environment:
+      MPLCONFIGDIR: /cache
+    restart: always
+    networks:
+      - images
+
+  redis:
+    image: docker.io/valkey/valkey:8
+    healthcheck:
+      test: [CMD, redis-cli, ping]
+    restart: always
+    networks:
+      - images
+
+  database:
+    image: ghcr.io/immich-app/postgres:14-vectorchord0.4.3-pgvectors0.2.0
+    environment:
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required}
+      POSTGRES_USER: ${DB_USERNAME:-postgres}
+      POSTGRES_DB: ${DB_DATABASE_NAME:-immich}
+      POSTGRES_INITDB_ARGS: --data-checksums --allow-group-access
+    volumes:
+      - ${IMMICH_DATABASE_LOCATION:-./postgres}:/var/lib/postgresql/data
+    shm_size: 128mb
+    restart: always
+    networks:
+      - images
+
+  pages:
+    build: .
+    environment:
+      IMMICH_BASE_URL: https://${IMMICH_HOST:-immich.example.xyz}
+      IMMICH_SUPPORTED_VERSION: ${IMMICH_SUPPORTED_VERSION:-3.1.0}
+      PAGES_SESSION_SECRET: ${PAGES_SESSION_SECRET:?PAGES_SESSION_SECRET is required}
+      PAGES_VISITED_SHARES_SECRET: ${PAGES_VISITED_SHARES_SECRET:?PAGES_VISITED_SHARES_SECRET is required}
+      MAP_STYLE_URL_QUIET_ATLAS: ${MAP_STYLE_URL_QUIET_ATLAS:-https://tiles.openfreemap.org/styles/liberty}
+      PUBLIC_PAGES_DEBUG: ${PUBLIC_PAGES_DEBUG:-false}
+      HOST: 0.0.0.0
+      PORT: 3000
+      PROTOCOL_HEADER: X-Forwarded-Proto
+      HOST_HEADER: X-Forwarded-Host
+    depends_on:
+      - immich-server
+    labels:
+      traefik.enable: true
+      traefik.docker.network: ${TRAEFIK_NETWORK:-images}
+      traefik.http.routers.pages.rule: Host(`${PAGES_HOST:-pages.example.xyz}`)
+      traefik.http.routers.pages.entrypoints: ${TRAEFIK_ENTRYPOINT:-websecure}
+      traefik.http.routers.pages.tls: true
+      traefik.http.routers.pages.tls.certresolver: ${TRAEFIK_CERTRESOLVER:-letsencrypt}
+      traefik.http.routers.pages.service: pages
+      traefik.http.services.pages.loadbalancer.server.port: 3000
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:3000/health').then(r => { if (!r.ok) process.exit(1) }).catch(() => process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: always
+    networks:
+      - images
+
+networks:
+  images:
+    external: true

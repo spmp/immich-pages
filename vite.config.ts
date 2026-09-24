@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 
 export default defineConfig({
   optimizeDeps: { exclude: ['maplibre-gl'] },
+  ssr: { noExternal: ['maplibre-gl'] },
   plugins: [sveltekit(), {
     name: 'favicon-content-type',
     enforce: 'pre',
@@ -19,6 +20,6 @@ export default defineConfig({
     }
   }],
   test: {
-    exclude: ['tests/e2e/**', 'node_modules/**']
+    exclude: ['tests/e2e/**', '**/node_modules/**']
   }
 });
