@@ -4,7 +4,7 @@ import { authContextFromRequest } from '$server/immich/auth-context';
 import { createImmichProvider } from '$server/immich/provider';
 import { assembleDirectShare } from '$server/page/assemble';
 import { parseSharedLinkRef } from '$server/share/ref';
-import { logDirectShareBoundary, logDirectShareOutcome } from '$server/share/diagnostics';
+import { logDirectShareBoundary, logDirectShareOutcome, logVisitedShareRegistry } from '$server/share/diagnostics';
 import { addSession, clearSessionCookie, extractImmichShareToken, PAGES_SESSION_COOKIE, sessionCookie, sessionForShare } from '$server/share/session';
 import { registerShare, VISITED_SHARES_COOKIE } from '$server/share/registry';
 import { discoverLibrary } from '$server/library/discover';
@@ -35,18 +35,21 @@ export const load: PageServerLoad = async ({ params, request, locals, fetch, coo
 	logDirectShareOutcome({ outcome: outcome.kind, method: request.method, pathname,
 		metadataReason: outcome.kind === 'invalid-metadata' ? outcome.metadataReason : undefined });
 	if (outcome.kind === 'page') {
-		const registry = registerShare(cookies.get(VISITED_SHARES_COOKIE), ref);
-		cookies.set(VISITED_SHARES_COOKIE, registry, { path: '/', httpOnly: true, secure: true, sameSite: 'lax', maxAge: 30 * 24 * 60 * 60 });
 		const currentHref = `/share/${ref.kind}/${encodeURIComponent(ref.value)}`;
 		const currentEntry: NavigationEntry = { href: currentHref, title: outcome.page.album.title,
 			date: outcome.page.album.startDate && outcome.page.album.endDate ? { start: outcome.page.album.startDate, end: outcome.page.album.endDate } : undefined };
 		let navigationEntries = [currentEntry];
 		try {
+			const registry = registerShare(cookies.get(VISITED_SHARES_COOKIE), ref);
+			cookies.set(VISITED_SHARES_COOKIE, registry, { path: '/', httpOnly: true, secure: true, sameSite: 'lax', maxAge: 30 * 24 * 60 * 60 });
 			const navigation = await discoverLibrary(createImmichProvider(fetch), { registryCookie: registry, sessionCookie: cookies.get(PAGES_SESSION_COOKIE), requestId: locals.requestId, current: [ref] });
 			navigationEntries = navigation.entries.some((entry) => entry.href === currentHref) ? navigation.entries : [currentEntry, ...navigation.entries];
-		} catch { /* The authorized current page remains usable without optional navigation candidates. */ }
+			logVisitedShareRegistry({ phase: 'register', result: 'success', entryCount: navigation.entries.length });
+		} catch { /* Missing registry configuration must not break an otherwise authorized share. */ logVisitedShareRegistry({ phase: 'register', result: 'unavailable' }); }
+		const { id: _albumId, ...browserAlbum } = outcome.page.album;
+		const browserOutcome = { ...outcome, page: { ...outcome.page, album: browserAlbum } };
 		logDirectShareBoundary({ phase: 'end', method: request.method, pathname, status: 200 });
-		return { outcome, navigation: { entries: navigationEntries, activeHref: currentHref } };
+		return { outcome: browserOutcome, navigation: { entries: navigationEntries, activeHref: currentHref } };
 	}
 	if (outcome.kind === 'non-page') { logDirectShareBoundary({ phase: 'end', method: request.method, pathname, status: 404 }); return { outcome }; }
 	if (outcome.kind === 'invalid-metadata') { logDirectShareBoundary({ phase: 'end', method: request.method, pathname, status: 422 }); return { outcome: { kind: 'presentation-error' as const, state: 'invalid' as const } }; }

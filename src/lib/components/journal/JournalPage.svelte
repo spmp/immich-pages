@@ -33,7 +33,7 @@
 	<ThemeRoot {theme} gradient={page.presentation.gradient} heroSource={page.hero?.thumbnail}>
 		<div class:navigated={navigation} class="journal-layout">
 			{#if navigation}<PageNavigation entries={navigation.entries} activeHref={navigation.activeHref} {theme} />{/if}
-			<main class="journal">
+			<main class="journal journal-content">
 	<JournalHero title={page.album.title} hero={page.hero} {date} mobileNavigation={mobileNavigation} />
 	<JourneyMapSlot routeData={page.routeData} markers={page.markers} enabled={page.presentation.map.enabled} activation={page.presentation.map.markerActivation} showMarkerList={page.presentation.map.showMarkerList} clustering={page.presentation.map.clustering} clusterRadius={page.presentation.map.clusterRadius} markerColor={page.presentation.map.markerColor} routeColor={page.presentation.map.routeColor} routeWidth={page.presentation.map.routeWidth} routeStartColor={page.presentation.map.routeStartColor} routeEndColor={page.presentation.map.routeEndColor} style={page.mapStyle?.url} warnings={page.warnings} />
 	<JournalNarrative html={page.narrativeHtml} />
@@ -48,7 +48,7 @@
 	:global(*) { box-sizing: border-box; }
 	:global(html) { scroll-behavior: smooth; }
 	:global(body) { margin: 0; background: transparent; color: var(--theme-text); font: 400 16px/1.5 var(--theme-font-body); }
-	.journal { width: 100%; max-width: var(--theme-content-width); margin: 0 auto; overflow-wrap: anywhere; }
+	.journal { width: 100%; max-width: var(--theme-content-width); margin: 0 auto; overflow-wrap: anywhere; background: var(--theme-gradient); }
 	.journal-layout { display: flex; align-items: stretch; min-height: 100svh; }
 	.journal-layout.navigated .journal { max-width: none; }
 	@media (max-width: 959px) { .journal-layout { display: block; } }

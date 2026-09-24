@@ -4,14 +4,25 @@ import https from 'node:https';
 import net from 'node:net';
 import type { BRouterWebParseResult } from './brouter-web';
 import { normalizeRouteGeometry } from './geometry';
+import { BrouterLruCache } from './brouter-cache';
 import type { MapWarning, PathResult } from './types';
 
-const MAX_RESPONSE_BYTES = 256 * 1024;
+export const DEFAULT_BROUTER_MAX_RESPONSE_BYTES = 256 * 1024;
+export const MAX_BROUTER_RESPONSE_BYTES = 8 * 1024 * 1024;
+export const MAX_BROUTER_ROUTE_VERTICES = 10_000;
 const REQUEST_TIMEOUT_MS = 8_000;
 type Address = { address: string; family: 4 | 6 };
 export type BrouterLookup = (hostname: string, options?: { all?: boolean; verbatim?: boolean }) => Promise<Address[]>;
 type ClientOptions = { endpoint: string; allowedOrigins: string[]; lookup?: BrouterLookup; allowLoopbackForTests?: boolean };
 const defaultLookup: BrouterLookup = async (hostname) => dns.lookup(hostname, { all: true, verbatim: true }) as Promise<Address[]>;
+const routeCache = new BrouterLruCache();
+const inFlight = new Map<string, Promise<PathResult>>();
+
+export function parseBrouterMaxResponseBytes(value: string | undefined): number {
+	if (!value || !/^\d+$/.test(value)) return DEFAULT_BROUTER_MAX_RESPONSE_BYTES;
+	const bytes = Number(value);
+	return Number.isSafeInteger(bytes) && bytes >= 64 * 1024 && bytes <= MAX_BROUTER_RESPONSE_BYTES ? bytes : DEFAULT_BROUTER_MAX_RESPONSE_BYTES;
+}
 
 const unavailable = (warning: MapWarning): PathResult => ({ kind: 'unavailable', warnings: [warning] });
 export type BrouterEndpointValidation =
@@ -76,23 +87,48 @@ export class BrouterClient {
 		if (!addresses.length || addresses.some(({ address }) => unsafeAddress(address, this.options.allowLoopbackForTests))) return unavailable('brouter-endpoint-unsafe');
 		const fresh = await this.options.lookup(endpoint.hostname, { all: true, verbatim: true }).catch(() => []);
 		if (!sameAnswers(addresses, fresh) || fresh.some(({ address }) => unsafeAddress(address, this.options.allowLoopbackForTests))) return unavailable('brouter-endpoint-unsafe');
-		endpoint.search = new URLSearchParams({ lonlats: parsed.waypoints.map(([lon, lat]) => `${lon},${lat}`).join('|'), profile: parsed.profile, alternativeidx: '0', format: 'geojson' }).toString();
-		return this.request(endpoint, addresses[0], parsed.warnings);
+		const coordinates: Array<[number, number]> = [];
+		for (let index = 0; index < parsed.waypoints.length - 1; index += 1) {
+			const [from, to] = [parsed.waypoints[index], parsed.waypoints[index + 1]];
+			const lonlats = `${from[0]},${from[1]}|${to[0]},${to[1]}`;
+			endpoint.search = `?lonlats=${lonlats}&profile=${encodeURIComponent(parsed.profile)}&alternativeidx=0&format=geojson`;
+			const cacheEnabled = process.env.BROUTER_CACHE_ENABLED !== 'false';
+			const cacheKey = `${endpoint.origin}${endpoint.pathname}|${parsed.profile}|${from[0]},${from[1]}|${to[0]},${to[1]}`;
+			const cached = cacheEnabled ? routeCache.get(cacheKey) : undefined;
+			const segment = cached ? { kind: 'resolved' as const, route: cached, warnings: [] } : await this.resolveSegment(cacheKey, endpoint, addresses[0], parseBrouterMaxResponseBytes(process.env.BROUTER_MAX_RESPONSE_BYTES), cacheEnabled);
+			if (segment.kind !== 'resolved') return segment;
+			const segmentCoordinates = segment.route.type === 'LineString' ? segment.route.coordinates : segment.route.coordinates.flat();
+			coordinates.push(...(coordinates.length > 0 && coordinates[coordinates.length - 1][0] === segmentCoordinates[0][0] && coordinates[coordinates.length - 1][1] === segmentCoordinates[0][1] ? segmentCoordinates.slice(1) : segmentCoordinates));
+		}
+		const route = normalizeRouteGeometry({ type: 'LineString', coordinates }, MAX_BROUTER_ROUTE_VERTICES);
+		return route.kind === 'resolved' ? { ...route, warnings: [...parsed.warnings, ...route.warnings] } : route;
 	}
 
-	private request(url: URL, pinned: Address, warnings: MapWarning[]): Promise<PathResult> {
+	private resolveSegment(key: string, url: URL, pinned: Address, maxResponseBytes: number, cacheEnabled: boolean): Promise<PathResult> {
+		if (!cacheEnabled) return this.request(url, pinned, maxResponseBytes);
+		const existing = inFlight.get(key);
+		if (existing) return existing;
+		const request = this.request(url, pinned, maxResponseBytes).then((result) => {
+			if (result.kind === 'resolved') routeCache.set(key, result.route);
+			return result;
+		}).finally(() => inFlight.delete(key));
+		inFlight.set(key, request);
+		return request;
+	}
+
+	private request(url: URL, pinned: Address, maxResponseBytes: number): Promise<PathResult> {
 		return new Promise((resolve) => {
 			const transport = url.protocol === 'https:' ? https : http;
 			let settled = false;
 			const finish = (result: PathResult) => { if (!settled) { settled = true; resolve(result); } };
-			const request = transport.request(url, { method: 'GET', headers: {}, timeout: REQUEST_TIMEOUT_MS, servername: url.hostname, lookup: (_host, _options, callback) => callback(null, pinned.address, pinned.family) }, (response) => {
+			const request = transport.request(url, { method: 'GET', headers: url.origin === 'https://brouter.de' ? { referer: 'https://brouter.de/brouter-web/' } : {}, timeout: REQUEST_TIMEOUT_MS, servername: url.hostname, lookup: (_host, options, callback) => options.all ? callback(null, [{ address: pinned.address, family: pinned.family }]) : callback(null, pinned.address, pinned.family) }, (response) => {
 				if (response.statusCode && response.statusCode >= 300 && response.statusCode < 400) { response.resume(); finish(unavailable('brouter-request-failed')); return; }
-				if (response.statusCode !== 200) { response.resume(); finish(unavailable('brouter-request-failed')); return; }
+				if (response.statusCode !== 200) { response.resume(); finish(unavailable(response.statusCode === 400 ? 'brouter-route-rejected' : 'brouter-request-failed')); return; }
 				const contentType = response.headers['content-type'];
 				if (contentType && !String(contentType).toLowerCase().includes('json')) { response.resume(); finish(unavailable('brouter-response-invalid')); return; }
 				const chunks: Buffer[] = []; let size = 0;
-				response.on('data', (chunk: Buffer | string) => { const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk); size += buffer.byteLength; if (size > MAX_RESPONSE_BYTES) { response.destroy(); finish(unavailable('brouter-response-too-large')); } else chunks.push(buffer); });
-				response.on('end', () => { try { const result = normalizeRouteGeometry(JSON.parse(Buffer.concat(chunks).toString('utf8'))); finish(result.kind === 'resolved' ? { ...result, warnings: [...warnings, ...result.warnings] } : unavailable('brouter-response-invalid')); } catch { finish(unavailable('brouter-response-invalid')); } });
+				response.on('data', (chunk: Buffer | string) => { const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk); size += buffer.byteLength; if (size > maxResponseBytes) { response.destroy(); finish(unavailable('brouter-response-too-large')); } else chunks.push(buffer); });
+				response.on('end', () => { try { const result = normalizeRouteGeometry(JSON.parse(Buffer.concat(chunks).toString('utf8')), MAX_BROUTER_ROUTE_VERTICES); finish(result.kind === 'resolved' ? result : unavailable('brouter-response-invalid')); } catch { finish(unavailable('brouter-response-invalid')); } });
 				response.on('error', () => finish(unavailable('brouter-response-invalid')));
 			});
 			request.on('timeout', () => { request.destroy(); finish(unavailable('brouter-timeout')); });

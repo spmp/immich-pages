@@ -27,16 +27,15 @@
 
 .theme-root {
 	min-height: 100svh;
-	/* Resolve the gradient in the themed subtree, not from inherited root tokens. */
+	/* Resolve the recipe in the themed subtree; the journal content owns the paint. */
 	--theme-gradient: linear-gradient(var(--theme-gradient-direction), var(--theme-gradient-top) 0%, var(--theme-gradient-bottom) 100%);
-	background: var(--theme-gradient);
 	background-color: var(--theme-bg);
 	color: var(--theme-text);
 	font-family: var(--theme-font-body);
 }
 
-.theme-root[data-theme='default'], .theme-root[data-theme='dark'] { --theme-bg: #161616; --theme-gradient-direction: to bottom; --theme-gradient-top: #161616; --theme-gradient-bottom: #161616; --theme-focus: #d89a4a; }
-.theme-root[data-theme='light'] { --theme-bg: #fafafa; --theme-gradient-direction: to bottom; --theme-gradient-top: #fafafa; --theme-gradient-bottom: #fafafa; --theme-surface: #fff; --theme-text: #1b1b1b; --theme-muted: #676767; --theme-accent: #8b3027; --theme-focus: #8b3027; --theme-rule: #cfcfcf; }
+.theme-root[data-theme='default'], .theme-root[data-theme='dark'] { --theme-bg: #161616; --theme-gradient-direction: to bottom; --theme-gradient-top: #161616; --theme-gradient-bottom: #161616; --theme-focus: #d89a4a; --theme-nav-bg: #161616; --theme-control-bg: #222222; --theme-card: #222222; }
+.theme-root[data-theme='light'] { --theme-bg: #fafafa; --theme-gradient-direction: to bottom; --theme-gradient-top: #fafafa; --theme-gradient-bottom: #fafafa; --theme-surface: #fff; --theme-text: #1b1b1b; --theme-muted: #676767; --theme-accent: #8b3027; --theme-focus: #8b3027; --theme-rule: #cfcfcf; --theme-nav-bg: #fafafa; --theme-control-bg: #fff; --theme-card: #fff; }
 
 /* Keep the overscroll canvas in the same fixed, allowlisted palette as the page. */
 html:has(.theme-root[data-theme='default']), html:has(.theme-root[data-theme='default']) body,

@@ -129,7 +129,7 @@
 <style>
 	.journey-slot { width: 100%; padding: 0; min-height: 0; overflow: hidden; }
 	.journey-slot:not(.enabled) { width: 0; height: 0; }
-	.journey-slot.enabled { padding: 32px 16px; color: var(--theme-text); background: var(--theme-surface); }
+	.journey-slot.enabled { padding: 32px 16px; color: var(--theme-text); background: transparent; }
 	.map { min-height: 280px; height: clamp(280px, 48vw, 560px); border-radius: var(--theme-radius); overflow: hidden; background: var(--theme-rule); }
 	.map-status { margin: 0 0 8px; color: var(--theme-muted); }
 	.marker-list { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }

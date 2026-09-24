@@ -1,6 +1,7 @@
 import { assembleDirectShare } from '$server/page/assemble';
 import { decodeRegistry } from '$server/share/registry';
 import { sessionForShare } from '$server/share/session';
+import { logVisitedShareRegistry } from '$server/share/diagnostics';
 import type { SharedLinkRef } from '$server/share/ref';
 import type { ImmichProvider } from '$server/immich/provider';
 import type { LibraryDiscoveryContext, LibraryResult, NavigationEntry } from './model';
@@ -9,6 +10,7 @@ const MAX_CANDIDATES = 8;
 
 export async function discoverLibrary(provider: ImmichProvider, context: LibraryDiscoveryContext, now = Date.now()): Promise<LibraryResult> {
 	const registered = decodeRegistry(context.registryCookie, now)?.entries ?? [];
+	logVisitedShareRegistry({ phase: 'decode', result: registered.length ? 'success' : 'empty', entryCount: registered.length });
 	const candidates = [...registered.map(({ kind, value }) => ({ kind, value } satisfies SharedLinkRef)), ...(context.current ?? [])]
 		.filter((ref, index, all) => all.findIndex((candidate) => candidate.kind === ref.kind && candidate.value === ref.value) === index)
 		.slice(0, MAX_CANDIDATES);

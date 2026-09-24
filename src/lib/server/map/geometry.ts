@@ -18,8 +18,10 @@ export function routeVertexCount(route: MapRoute): number {
 	return route.type === 'LineString' ? route.coordinates.length : route.coordinates.reduce((count, segment) => count + segment.length, 0);
 }
 
-function position(value: unknown): value is Position {
-	return Array.isArray(value) && value.length === 2 && value.every((part) => typeof part === 'number' && Number.isFinite(part)) && value[0] >= -180 && value[0] <= 180 && value[1] >= -90 && value[1] <= 90;
+function position(value: unknown): Position | null {
+	if (!Array.isArray(value) || value.length < 2 || !value.every((part) => typeof part === 'number' && Number.isFinite(part))) return null;
+	const [lon, lat] = value;
+	return lon >= -180 && lon <= 180 && lat >= -90 && lat <= 90 ? [lon, lat] : null;
 }
 
 function invalid(): PathResult { return { kind: 'unavailable', warnings: ['map-route-invalid'] }; }
@@ -27,8 +29,14 @@ function invalid(): PathResult { return { kind: 'unavailable', warnings: ['map-r
 function linesFromGeometry(value: unknown): Position[][] | null {
 	if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
 	const geometry = value as { type?: unknown; coordinates?: unknown };
-	if (geometry.type === 'LineString' && Array.isArray(geometry.coordinates) && geometry.coordinates.length >= 2 && geometry.coordinates.every(position)) return [(geometry.coordinates as unknown[]).map((item) => [...(item as Position)] as Position)];
-	if (geometry.type === 'MultiLineString' && Array.isArray(geometry.coordinates) && geometry.coordinates.length > 0 && geometry.coordinates.every((line) => Array.isArray(line) && line.length >= 2 && line.every(position))) return (geometry.coordinates as unknown[][]).map((line) => line.map((item) => [...(item as Position)] as Position));
+	if (geometry.type === 'LineString' && Array.isArray(geometry.coordinates) && geometry.coordinates.length >= 2) {
+		const line = geometry.coordinates.map(position);
+		if (line.every((item): item is Position => item !== null)) return [line];
+	}
+	if (geometry.type === 'MultiLineString' && Array.isArray(geometry.coordinates) && geometry.coordinates.length > 0) {
+		const lines = (geometry.coordinates as unknown[]).map((line) => Array.isArray(line) && line.length >= 2 ? line.map(position) : null);
+		if (lines.every((line): line is Position[] => line !== null && line.every((item): item is Position => item !== null))) return lines;
+	}
 	return null;
 }
 
@@ -49,7 +57,7 @@ function extract(value: unknown): Position[][] | null {
 	return lines.length ? lines : null;
 }
 
-export function normalizeRouteGeometry(input: unknown): PathResult {
+export function normalizeRouteGeometry(input: unknown, maxVertices = MAX_ROUTE_VERTICES): PathResult {
 	let value = input;
 	if (typeof input === 'string') {
 		if (new TextEncoder().encode(input).byteLength > MAX_ROUTE_BYTES) return invalid();
@@ -58,7 +66,7 @@ export function normalizeRouteGeometry(input: unknown): PathResult {
 	const lines = extract(value);
 	if (!lines || lines.length > MAX_ROUTE_SEGMENTS) return invalid();
 	const vertices = lines.reduce((total, line) => total + line.length, 0);
-	if (vertices > MAX_ROUTE_VERTICES) return invalid();
+	if (vertices > maxVertices) return invalid();
 	const route: MapRoute = lines.length === 1 ? { type: 'LineString', coordinates: lines[0] } : { type: 'MultiLineString', coordinates: lines };
 	return { kind: 'resolved', route, warnings: [] };
 }

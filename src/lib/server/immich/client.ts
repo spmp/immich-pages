@@ -1,9 +1,26 @@
 import { upstreamHeaders, type AuthContext } from './auth-context';
-import { logImmichRequest } from '$server/share/diagnostics';
+import { logImmichRedirect, logImmichRequest } from '$server/share/diagnostics';
 
 export const IMMICH_REQUEST_TIMEOUT_MS = 5_000;
 export const IMMICH_MAX_RESPONSE_BYTES = 1_048_576;
 export const IMMICH_MAX_MEDIA_BYTES = 10 * 1_048_576;
+export const IMMICH_MAX_ORIGINAL_BYTES = 100 * 1_048_576;
+
+const IMAGE_MIME_TYPES = new Set(['image/avif', 'image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/heic', 'image/heif']);
+
+export function inferSafeImageMime(bytes: Uint8Array, declaredType: string | null): string | null {
+	const type = declaredType?.split(';', 1)[0]?.trim().toLowerCase();
+	if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return 'image/jpeg';
+	if (bytes.length >= 8 && bytes.subarray(0, 8).every((byte, index) => byte === [137, 80, 78, 71, 13, 10, 26, 10][index])) return 'image/png';
+	if (bytes.length >= 6 && (new TextDecoder().decode(bytes.subarray(0, 6)) === 'GIF87a' || new TextDecoder().decode(bytes.subarray(0, 6)) === 'GIF89a')) return 'image/gif';
+	if (bytes.length >= 12 && new TextDecoder().decode(bytes.subarray(0, 4)) === 'RIFF' && new TextDecoder().decode(bytes.subarray(8, 12)) === 'WEBP') return 'image/webp';
+	if (bytes.length >= 12 && new TextDecoder().decode(bytes.subarray(4, 8)) === 'ftyp') {
+		const brand = new TextDecoder().decode(bytes.subarray(8, 12));
+		if (['avif', 'avis'].includes(brand)) return 'image/avif';
+		if (['heic', 'heix', 'hevc', 'hevx', 'mif1', 'msf1'].includes(brand)) return 'image/heif';
+	}
+	return type && IMAGE_MIME_TYPES.has(type) && bytes.length > 0 ? type : null;
+}
 
 export function immichOrigin(baseUrl: string): string {
 	const parsed = new URL(baseUrl);
@@ -23,7 +40,7 @@ export async function requestImmich(
 	path: string,
 	context: AuthContext,
 	fetchImpl: typeof fetch = fetch,
-	options: { timeoutMs?: number; headers?: HeadersInit; method?: string; body?: BodyInit | null; endpoint?: 'shared-link' | 'album-assets' | 'thumbnail' | 'video' | 'version' | 'map-markers' | 'current-user' | 'albums' | 'album' } = {}
+	options: { timeoutMs?: number; headers?: HeadersInit; method?: string; body?: BodyInit | null; redirect?: RequestRedirect; endpoint?: 'shared-link' | 'album-assets' | 'thumbnail' | 'video' | 'version' | 'map-markers' | 'current-user' | 'albums' | 'album'; sameOriginRedirectPathPrefix?: string } = {}
 ): Promise<Response> {
 	const origin = immichOrigin(baseUrl);
 	const apiPath = path.startsWith('/api/') ? path.slice(4) : path.startsWith('api/') ? path.slice(3) : path;
@@ -33,8 +50,22 @@ export async function requestImmich(
 	try {
 		const headers = upstreamHeaders(context);
 		for (const [name, value] of new Headers(options.headers)) headers.set(name, value);
-		const response = await fetchImpl(target, { method: options.method ?? 'GET', body: options.body, headers, signal: controller.signal });
+		let response = await fetchImpl(target, { method: options.method ?? 'GET', body: options.body, headers, redirect: options.redirect, credentials: 'omit', signal: controller.signal });
 		if (options.endpoint) logImmichRequest({ endpoint: options.endpoint, status: response.status });
+		if (options.sameOriginRedirectPathPrefix && response.status >= 300 && response.status < 400) {
+			const location = response.headers.get('location');
+			if (!location) { logImmichRedirect({ endpoint: options.endpoint === 'thumbnail' || options.endpoint === 'video' ? options.endpoint : 'thumbnail', classification: 'missing' }); throw new Error('redirect-without-location'); }
+			const redirected = new URL(location, origin);
+			const classification = redirected.origin !== origin
+				? 'external'
+				: /\/original(?:\/|$)|\/download(?:\/|$)/.test(redirected.pathname)
+					? 'original-or-download'
+					: redirected.pathname === options.sameOriginRedirectPathPrefix ? 'same-origin-allowed' : 'other';
+			logImmichRedirect({ endpoint: options.endpoint === 'thumbnail' || options.endpoint === 'video' ? options.endpoint : 'thumbnail', classification });
+			if (classification !== 'same-origin-allowed') throw new Error('unsafe-fullsize-redirect');
+			response = await fetchImpl(redirected, { method: options.method ?? 'GET', body: options.body, headers, redirect: 'error', credentials: 'omit', signal: controller.signal });
+			if (options.endpoint) logImmichRequest({ endpoint: options.endpoint, status: response.status });
+		}
 		return response;
 	} catch (error) {
 		if (options.endpoint) logImmichRequest({ endpoint: options.endpoint, status: 'failure', failureCategory: error instanceof DOMException && error.name === 'AbortError' ? 'timeout' : 'network' });

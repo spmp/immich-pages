@@ -3,10 +3,18 @@ import { z } from 'zod';
 const SafeText = z.string().trim().min(1).max(512);
 const HexColor = z.string().regex(/^#[0-9a-fA-F]{6}$/).transform((value) => value.toLowerCase());
 const GradientSchema = z.object({
-		direction: z.enum(['to bottom', '135deg']),
-		top: HexColor,
-		bottom: HexColor
-}).strict();
+		auto: z.boolean().default(false),
+		direction: z.enum(['to bottom', '135deg']).default('to bottom'),
+		top: HexColor.optional(),
+		bottom: HexColor.optional()
+	}).strict().superRefine((gradient, ctx) => {
+		if (!gradient.auto && (!gradient.top || !gradient.bottom)) {
+			ctx.addIssue({ code: 'custom', path: ['top'], message: 'manual gradients require top and bottom colors' });
+		}
+		if (gradient.auto && (gradient.top || gradient.bottom)) {
+			ctx.addIssue({ code: 'custom', path: ['auto'], message: 'automatic gradients cannot include manual colors' });
+		}
+	});
 const MapSchema = z.object({
 		enabled: z.boolean().default(false),
 		source: z.enum(['auto', 'waypoints', 'geojson', 'brouter-web']).default('auto'),

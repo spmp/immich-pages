@@ -8,15 +8,16 @@ export type BRouterWebParseResult =
 	| { kind: 'unavailable'; warnings: MapWarning[] };
 
 const invalid = (warning: MapWarning = 'brouter-permalink-invalid'): BRouterWebParseResult => ({ kind: 'unavailable', warnings: [warning] });
+const trackingQuery = /^(?:utm_[a-z0-9_]+|gclid|fbclid)$/;
 
 export function parseBrouterWebPermalink(value: string): BRouterWebParseResult {
 	let url: URL;
 	try { url = new URL(value); } catch { return invalid(); }
-	if (url.protocol !== 'https:' || url.hostname !== 'brouter.de' || url.port || url.pathname !== '/brouter-web/' || url.username || url.password || url.search) return invalid();
+	if (url.protocol !== 'https:' || url.hostname !== 'brouter.de' || url.port || url.pathname !== '/brouter-web/' || url.username || url.password || [...url.searchParams.keys()].some((key) => !trackingQuery.test(key))) return invalid();
 	let fragment: string;
 	try { fragment = decodeURIComponent(url.hash.slice(1)); } catch { return invalid(); }
 	const params = new URLSearchParams(fragment);
-	const allowed = new Set(['lonlats', 'profile', 'alternativeidx']);
+	const allowed = new Set(['map', 'lonlats', 'profile', 'alternativeidx']);
 	if ([...params.keys()].some((key) => !allowed.has(key))) {
 		// View state is intentionally ignored, but is still surfaced as a safe warning.
 	}
@@ -24,7 +25,7 @@ export function parseBrouterWebPermalink(value: string): BRouterWebParseResult {
 	if (params.has('alternativeidx') && params.get('alternativeidx') !== '0') return invalid('brouter-permalink-unsupported');
 	const profile = params.get('profile');
 	if (!BRouterWebProfiles.includes(profile as BRouterWebProfile)) return invalid('brouter-profile-unsupported');
-	const rawWaypoints = params.get('lonlats')?.split('|') ?? [];
+	const rawWaypoints = params.get('lonlats')?.split(/[;|]/) ?? [];
 	if (rawWaypoints.length < 2) return invalid();
 	const waypoints: Waypoint[] = [];
 	for (const raw of rawWaypoints) {
