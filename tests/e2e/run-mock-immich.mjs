@@ -1,6 +1,10 @@
 import { spawn } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 
 const children = [];
+// Keep the deterministic mock gate independent of whether libheif's real heif-convert is
+// installed on the host; a real bridge process still exercises actual spawn/temp-file plumbing.
+const defaultSdrConverterPath = fileURLToPath(new URL('../unit/fixtures/fake-heif-convert.mjs', import.meta.url));
 
 function start(command, args, options = {}) {
   const child = spawn(command, args, {
@@ -78,7 +82,8 @@ try {
         MAP_STYLE_URL_QUIET_ATLAS: `http://127.0.0.1:${match[1]}/api/map-style.json`,
         BROUTER_ENDPOINT: process.env.BROUTER_ENDPOINT ?? `http://127.0.0.1:${match[1]}/brouter`,
         BROUTER_ALLOWED_ORIGINS: process.env.BROUTER_ALLOWED_ORIGINS ?? `http://127.0.0.1:${match[1]}`,
-        BROUTER_ALLOW_LOOPBACK_FOR_TESTS: 'true'
+        BROUTER_ALLOW_LOOPBACK_FOR_TESTS: 'true',
+        SDR_HEIC_CONVERTER_PATH: process.env.SDR_HEIC_CONVERTER_PATH ?? defaultSdrConverterPath
       }
   });
   await waitForHttp('http://127.0.0.1:4173/health');

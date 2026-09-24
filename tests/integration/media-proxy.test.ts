@@ -1,9 +1,17 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { GET } from '../../src/routes/share/[kind]/[ref]/media/[assetId]/thumbnail/+server';
 import { GET as GET_VIDEO } from '../../src/routes/share/[kind]/[ref]/media/[assetId]/video/playback/+server';
 import { GET as GET_FULLSIZE } from '../../src/routes/share/[kind]/[ref]/media/[assetId]/image/fullsize/+server';
+import { clearSdrCache } from '../../src/lib/server/media/sdr-cache';
 import v3 from '../fixtures/shared-link/v3-valid-page.json';
+
+const fakeHeifConvert = fileURLToPath(new URL('../unit/fixtures/fake-heif-convert.mjs', import.meta.url));
+function heicBytes() {
+	// Minimal real ftyp-brand HEIC sniff target: inferSafeImageMime only inspects bytes 4-12.
+	return new Uint8Array([0, 0, 0, 24, 0x66, 0x74, 0x79, 0x70, 0x68, 0x65, 0x69, 0x63, 0, 0, 0, 0]);
+}
 
 describe('same-origin thumbnail boundary', () => {
 	it.each(['key', 'slug'] as const)('re-resolves the %s share, preserves it for media, and forwards only thumbnail', async (kind) => {
@@ -22,7 +30,7 @@ describe('same-origin thumbnail boundary', () => {
 });
 
 describe('same-origin full-size image boundary', () => {
-	beforeEach(() => vi.stubEnv('IMMICH_BASE_URL', 'https://immich.example'));
+	beforeEach(() => { vi.stubEnv('IMMICH_BASE_URL', 'https://immich.example'); clearSdrCache(); });
 	const imageId = '22222222-2222-4222-8222-222222222222';
 	const request = (kind: 'key' | 'slug' = 'key') => new Request(`https://pages.example/share/${kind}/opaque_ref/media/${imageId}/image/fullsize`, { headers: { cookie: 'immich_shared_link_token=visitor' } });
 	const invoke = async (fetchMock: typeof fetch, kind: 'key' | 'slug' = 'key', assetId = imageId) => GET_FULLSIZE({ params: { kind, ref: 'opaque_ref', assetId }, request: request(kind), cookies: { get: vi.fn(() => undefined), set: vi.fn() }, fetch: fetchMock } as never);
@@ -79,6 +87,40 @@ describe('same-origin full-size image boundary', () => {
 	it('bounds oversized original responses', async () => {
 		const response = await invoke(vi.fn(async (input: URL | RequestInfo) => new Response(new URL(input.toString()).pathname.endsWith('/me') ? JSON.stringify(v3) : 'x', { headers: { 'content-type': 'image/jpeg', 'content-length': String(100 * 1024 * 1024 + 1) } })));
 		expect(response.status).toBe(502);
+	});
+
+	it('converts a HEIC original into a browser-displayable JPEG instead of forwarding undecodable bytes', async () => {
+		vi.stubEnv('SDR_HEIC_CONVERTER_PATH', fakeHeifConvert);
+		const response = await invoke(vi.fn(async (input: URL | RequestInfo) => new Response(new URL(input.toString()).pathname.endsWith('/me') ? JSON.stringify(v3) : heicBytes(), { headers: { 'content-type': 'image/heic' } })));
+		expect(response.status).toBe(200);
+		expect(response.headers.get('content-type')).toBe('image/jpeg');
+		const body = new Uint8Array(await response.arrayBuffer());
+		expect(Buffer.from(body.subarray(0, 4))).toEqual(Buffer.from([0xff, 0xd8, 0xff, 0xd9]));
+		vi.unstubAllEnvs();
+	});
+
+	it('reuses a cached conversion instead of re-invoking the converter for a repeat request', async () => {
+		vi.stubEnv('SDR_HEIC_CONVERTER_PATH', fakeHeifConvert);
+		const originalResponse = () => new Response(heicBytes(), { headers: { 'content-type': 'image/heic', etag: 'fixed-etag' } });
+		const fetchFor = () => vi.fn(async (input: URL | RequestInfo) => new URL(input.toString()).pathname.endsWith('/me') ? new Response(JSON.stringify(v3)) : originalResponse());
+
+		const first = await invoke(fetchFor());
+		expect(first.status).toBe(200);
+
+		// If the second identical request re-invoked the converter, it would hit this forced
+		// failure; getting a 200 instead proves the first request's result was actually reused.
+		vi.stubEnv('FAKE_HEIF_CONVERT_BEHAVIOR', 'fail');
+		const second = await invoke(fetchFor());
+		expect(second.status).toBe(200);
+		vi.unstubAllEnvs();
+	});
+
+	it('degrades to a conversion-failure response (letting the client fall back to its thumbnail) when the converter fails', async () => {
+		vi.stubEnv('SDR_HEIC_CONVERTER_PATH', fakeHeifConvert);
+		vi.stubEnv('FAKE_HEIF_CONVERT_BEHAVIOR', 'fail');
+		const response = await invoke(vi.fn(async (input: URL | RequestInfo) => new Response(new URL(input.toString()).pathname.endsWith('/me') ? JSON.stringify(v3) : heicBytes(), { headers: { 'content-type': 'image/heic' } })));
+		expect(response.status).toBe(502);
+		vi.unstubAllEnvs();
 	});
 });
 
