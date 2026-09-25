@@ -37,8 +37,11 @@ describe('share media authorization boundary', () => {
 				? new Response('abcd', { status: 206, headers: { 'content-type': 'video/mp4', 'content-length': '4', 'content-range': 'bytes 0-3/4', 'accept-ranges': 'bytes', 'set-cookie': 'immich-secret=leak' } })
 				: new Response('abcd', { headers: { 'content-type': 'video/mp4', 'content-length': '4', 'accept-ranges': 'bytes', location: 'https://immich.example/private' } });
 		});
+		// A client request with no Range header still gets a bounded sub-range requested from
+		// Immich (so a real, much-larger-than-the-cap video can never make Immich answer with more
+		// than this proxy will accept), so it now legitimately comes back as 206, not 200.
 		const full = await getVideo({ params, request: new Request('https://pages.example/share/key/opaque-ref'), fetch: fetchMock, ...cookies() } as never);
-		expect(full.status).toBe(200);
+		expect(full.status).toBe(206);
 		expect(await full.text()).toBe('abcd');
 		expect(full.headers.get('location')).toBeNull();
 		const ranged = await getVideo({ params, request: new Request('https://pages.example/share/key/opaque-ref', { headers: { range: 'bytes=0-3' } }), fetch: fetchMock, ...cookies() } as never);

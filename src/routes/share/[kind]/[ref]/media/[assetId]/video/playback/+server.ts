@@ -27,6 +27,22 @@ function rangeValue(value: string | null): { value?: string; max: number } | { i
 	return { value, max: MAX_VIDEO_RANGE_BYTES };
 }
 
+// Browsers commonly probe video with an open-ended range ("bytes=0-") or no range header at
+// all, trusting the server to decide how much of a (potentially huge, real-world phone-video-sized)
+// file to send back in one response. Forwarding that open request to Immich verbatim means Immich
+// answers with the *entire* remaining file, which this proxy must then reject once it exceeds
+// MAX_VIDEO_RANGE_BYTES -- permanently breaking playback for any real video past that size. Asking
+// Immich for an explicitly bounded sub-range instead keeps every upstream response inside the cap
+// while Immich's Content-Range header still reports the true total size, so the browser knows to
+// issue further range requests for the rest as playback needs it.
+function upstreamRange(clientRange: string | undefined, max: number): string {
+	if (!clientRange) return `bytes=0-${max - 1}`;
+	const open = clientRange.match(OPEN_RANGE);
+	if (!open) return clientRange;
+	const start = Number(open[1]);
+	return `bytes=${start}-${start + max - 1}`;
+}
+
 function safeHeaders(upstream: Response): Headers {
 	const headers = new Headers();
 	for (const name of ['content-type', 'content-length', 'content-range', 'accept-ranges']) {
@@ -65,7 +81,7 @@ export const GET: RequestHandler = async ({ params, request, cookies, fetch }) =
 	const parsedRange = rangeValue(request.headers.get('range'));
 	if ('invalid' in parsedRange) return new Response('Range not satisfiable', { status: 416, headers: { 'content-range': 'bytes */*', 'cache-control': 'private, no-store' } });
 	let result: Awaited<ReturnType<ReturnType<typeof createImmichProvider>['getVideoPlayback']>>;
-	try { result = await createImmichProvider(fetch).getVideoPlayback(context, params.assetId, parsedRange.value); }
+	try { result = await createImmichProvider(fetch).getVideoPlayback(context, params.assetId, upstreamRange(parsedRange.value, parsedRange.max)); }
 	catch { logShareMediaStatus({ media: 'video', status: 'failure', failureCategory: 'upstream' }); return new Response('Immich is unavailable', { status: 502 }); }
 	if (result.error === 'asset-mismatch' || result.error === 'not-video' || result.status === 404) { logShareMediaStatus({ media: 'video', status: 'failure', failureCategory: 'not-found' }); return new Response('Media not found', { status: 404 }); }
 	if (result.status === 401 || result.status === 403) { cookies.set(PAGES_SESSION_COOKIE, '', { path: '/', httpOnly: true, secure: true, sameSite: 'lax', maxAge: 0 }); logShareMediaStatus({ media: 'video', status: 'failure', failureCategory: 'unauthorized' }); return new Response('Media not authorized', { status: 403 }); }

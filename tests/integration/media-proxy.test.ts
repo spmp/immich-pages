@@ -199,4 +199,46 @@ describe('bounded share-bound video boundary', () => {
 		expect(response.headers.get('content-range')).toBe(`bytes ${start}-${end}/${fixture.byteLength}`);
 		expect(Buffer.compare(Buffer.from(await response.arrayBuffer()), body)).toBe(0);
 	});
+
+	// A real phone-shot video is routinely well past the 64MB cap. Browsers still start playback
+	// with an open-ended ("bytes=0-") or absent range header, trusting the server to decide how
+	// much to send back -- and a permissive real media server (Immich included) answers an open
+	// range with the *entire* remaining file. Forwarding that request to Immich unmodified means
+	// Immich's answer always exceeds the cap and this proxy always rejects it, so a real large
+	// video could never play at all. The proxy must ask Immich for an explicitly bounded sub-range
+	// instead, so Immich's response fits under the cap while its Content-Range still reports the
+	// true (large) total, letting the browser request the remainder itself.
+	function permissiveUpstream(totalSize: number) {
+		const calls: Array<{ url: string; headers: Headers }> = [];
+		const fetchMock = vi.fn(async (input: URL | RequestInfo, init?: RequestInit) => {
+			const url = input.toString();
+			const headers = new Headers(init?.headers);
+			calls.push({ url, headers });
+			if (url.includes('/api/shared-links/me')) return new Response(JSON.stringify(share()));
+			const range = headers.get('range');
+			const match = range?.match(/^bytes=(\d+)-(\d+)$/);
+			if (!match) return new Response(new Uint8Array(totalSize), { status: 200, headers: { 'content-type': 'video/mp4', 'content-length': String(totalSize) } });
+			const start = Number(match[1]);
+			const end = Math.min(Number(match[2]), totalSize - 1);
+			return new Response(new Uint8Array(end - start + 1), { status: 206, headers: { 'content-type': 'video/mp4', 'content-length': String(end - start + 1), 'content-range': `bytes ${start}-${end}/${totalSize}` } });
+		});
+		return { fetchMock, calls };
+	}
+
+	it.each([undefined, 'bytes=0-'] as const)('bounds a real large video instead of rejecting it, for client range %s', async (range) => {
+		const totalSize = 200 * 1024 * 1024;
+		const upstream = permissiveUpstream(totalSize);
+		const response = await call(range, upstream.fetchMock);
+		expect(response.status).toBe(206);
+		expect(response.headers.get('content-range')).toBe(`bytes 0-${64 * 1024 * 1024 - 1}/${totalSize}`);
+		expect(Number(response.headers.get('content-length'))).toBeLessThanOrEqual(64 * 1024 * 1024);
+	});
+
+	it('bounds a real large video resumed mid-stream with an open-ended range', async () => {
+		const totalSize = 200 * 1024 * 1024;
+		const upstream = permissiveUpstream(totalSize);
+		const response = await call('bytes=100000000-', upstream.fetchMock);
+		expect(response.status).toBe(206);
+		expect(response.headers.get('content-range')).toBe(`bytes 100000000-${100000000 + 64 * 1024 * 1024 - 1}/${totalSize}`);
+	});
 });
