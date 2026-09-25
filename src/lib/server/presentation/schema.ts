@@ -16,7 +16,9 @@ const GradientSchema = z.object({
 		}
 	});
 const MapSchema = z.object({
-		enabled: z.boolean().default(false),
+		// A map that gracefully degrades (no GPS -> just omitted, never fails the page) is safe to
+		// default on, so a minimal/empty `immich-presentation:` still gets a useful page.
+		enabled: z.boolean().default(true),
 		source: z.enum(['auto', 'waypoints', 'geojson', 'brouter-web']).default('auto'),
 		styleName: z.enum(['quiet-atlas']).default('quiet-atlas'),
 		markerActivation: z.enum(['gallery', 'lightbox']).default('gallery'),
@@ -41,8 +43,10 @@ const AuthSchema = z.object({
 }).strict();
 
 export const PresentationSchema = z.object({
-	type: z.literal('journey'),
-	version: z.preprocess((value) => value === '1' ? 1 : value, z.literal(1)),
+	// Both default so a bare `immich-presentation:` key (no sub-keys at all) is a complete,
+	// minimal, fully-defaulted page -- the only requirement is the namespace key being present.
+	type: z.literal('journey').default('journey'),
+	version: z.preprocess((value) => value === '1' ? 1 : value, z.literal(1)).default(1),
 	template: SafeText.default('journal'),
 	hero: z.object({
 		source: z.enum(['album-thumbnail', 'primary', 'filename', 'asset-id']).default('album-thumbnail'),
@@ -52,7 +56,9 @@ export const PresentationSchema = z.object({
 	date: DateText.optional(),
 	dateRange: z.object({ start: DateText.optional(), end: DateText.optional() }).optional(),
 	auth: AuthSchema.optional(),
-	map: MapSchema.default({ enabled: false, source: 'auto', styleName: 'quiet-atlas', markerActivation: 'gallery', showMarkerList: false, clustering: true, clusterRadius: 24, markerColor: '#c96b4b', routeColor: '#c96b4b', routeWidth: 3, routeStartColor: '#356859', routeEndColor: '#c96b4b' }),
+	// Defaults derived from the sub-schemas themselves (MapSchema.parse({})), not a second
+	// hand-written literal, so a field's default can never drift between the two declarations.
+	map: MapSchema.default(MapSchema.parse({})),
 	gallery: z.object({
 		sort: z.literal('album').default('album'),
 		showCaptions: z.boolean().default(true),

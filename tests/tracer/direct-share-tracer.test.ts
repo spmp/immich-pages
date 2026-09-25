@@ -15,6 +15,9 @@ describe('direct-share tracer', () => {
 	it.each(['key', 'slug'] as const)('forwards only request auth and matching %s query', async (kind) => {
 		const fetchMock = vi.fn(async (input: URL | RequestInfo, init?: RequestInit) => {
 			const url = new URL(input.toString());
+			// map.enabled now defaults to true, so a minimal presentation config also triggers a
+			// map-markers lookup; only the shared-link lookup itself is asserted here.
+			if (url.pathname.endsWith('/map-markers')) return new Response(JSON.stringify([]), { status: 200 });
 			expect(url.pathname).toBe('/api/shared-links/me');
 			expect(url.searchParams.get(kind)).toBe('opaque_ref');
 			expect(url.searchParams.get(kind === 'key' ? 'slug' : 'key')).toBeNull();

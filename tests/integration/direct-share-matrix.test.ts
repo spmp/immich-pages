@@ -7,7 +7,9 @@ import v3 from '../fixtures/shared-link/v3-valid-page.json';
 describe('v3 direct-share matrix', () => {
 	it.each(['key', 'slug'] as const)('resolves one authorized %s album without state leakage', async (kind) => {
 		const calls: string[] = [];
-		const provider = createImmichProvider(vi.fn(async (input: URL | RequestInfo, init?: RequestInit) => { calls.push(`${new URL(input.toString()).search}${new Headers(init?.headers).get('cookie')}`); return new Response(JSON.stringify(v3)); }), 'https://immich.example');
+		// map.enabled defaults to true now, so each resolution also makes a map-markers call;
+		// this test only cares about the shared-link lookup's own query/cookie state.
+		const provider = createImmichProvider(vi.fn(async (input: URL | RequestInfo, init?: RequestInit) => { const url = new URL(input.toString()); if (url.pathname === '/api/shared-links/me') calls.push(`${url.search}${new Headers(init?.headers).get('cookie')}`); return new Response(JSON.stringify(v3)); }), 'https://immich.example');
 		await assembleDirectShare(provider, { shareRef: { kind, value: 'first' }, cookie: 'first=1', authorization: null }, 'one');
 		await assembleDirectShare(provider, { shareRef: { kind, value: 'second' }, cookie: 'second=1', authorization: 'Bearer second' }, 'two');
 		expect(calls).toEqual([`?${kind}=firstfirst=1`, `?${kind}=secondsecond=1`]);
@@ -34,7 +36,10 @@ describe('v3 direct-share matrix', () => {
 		if (result.kind !== 'page') return;
 		expect(result.page.assets).toHaveLength(1);
 		expect(result.page.hero?.id).toBe(v3.assets[0].id);
-		expect(calls).toHaveLength(2);
+		// map.enabled defaults to true now, so a minimal presentation config also triggers a
+		// third, map-markers call after asset hydration completes.
+		expect(calls).toHaveLength(3);
+		expect(calls[2].url.pathname).toBe('/api/albums/11111111-1111-4111-8111-111111111111/map-markers');
 		expect(calls[1].url.pathname).toBe('/api/search/metadata');
 		expect(calls[1].url.search).toBe('?slug=opaque-ref');
 		expect(calls[1].init?.method).toBe('POST');

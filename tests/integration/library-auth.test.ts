@@ -16,7 +16,9 @@ describe('share-only library route', () => {
 		expect((await discoverLibrary(provider, context)).kind).toBe('ready');
 		revoked = true;
 		expect((await discoverLibrary(provider, context)).kind).toBe('empty');
-		expect(fetchMock).toHaveBeenCalledTimes(2);
+		// map.enabled defaults to true now: the first (successful) discovery also makes a
+		// map-markers call; the second (revoked, 403) short-circuits before reaching it.
+		expect(fetchMock).toHaveBeenCalledTimes(3);
 	});
 	it('does not require or forward incoming Immich user credentials', async () => {
 		process.env.IMMICH_BASE_URL = 'https://immich.test';

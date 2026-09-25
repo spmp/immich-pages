@@ -45,14 +45,29 @@ function withinBounds(value: unknown, depth = 0): boolean {
 	return typeof value !== 'string' || value.length <= 8192;
 }
 
+/**
+ * When true, every album is treated as a page (using full presentation defaults) even with no
+ * `immich-presentation` key or no frontmatter at all. Default false: explicit opt-in per album,
+ * via the album description, remains the default activation model. Malformed `immich-presentation`
+ * config (present but broken) is never swept in by this -- that stays a real, visible error so a
+ * typo in an album an author IS trying to configure doesn't silently disappear.
+ */
+export function allAlbumsArePagesByDefault(): boolean {
+	return process.env.PAGES_ALL_ALBUMS_ARE_PAGES === 'true';
+}
+
+function defaultPresentationOutcome(markdown: string): FrontmatterOutcome {
+	return { kind: 'valid', config: PresentationSchema.parse({}), markdown, warnings: [] };
+}
+
 export function parsePresentationDocument(description: string | null | undefined): FrontmatterOutcome {
 	const source = description ?? '';
 	const bytes = new TextEncoder().encode(source).byteLength;
-	if (!source || !source.startsWith('---')) return { kind: 'absent', markdown: source };
+	if (!source || !source.startsWith('---')) return allAlbumsArePagesByDefault() ? defaultPresentationOutcome(source) : { kind: 'absent', markdown: source };
 	if (bytes > MAX_DESCRIPTION_BYTES) return { kind: 'invalid', markdown: '', reason: 'oversized' };
 	const lines = source.split(/\r?\n/);
 	if (lines.length > MAX_LINES) return { kind: 'invalid', markdown: '', reason: 'resource-limit' };
-	if (lines[0] !== '---') return { kind: 'absent', markdown: source };
+	if (lines[0] !== '---') return allAlbumsArePagesByDefault() ? defaultPresentationOutcome(source) : { kind: 'absent', markdown: source };
 	const closing = lines.slice(1).findIndex((line) => line === '---');
 	if (closing < 0) return { kind: 'invalid', markdown: '', reason: 'missing-closing-delimiter' };
 	const yamlText = lines.slice(1, closing + 1).join('\n');
@@ -76,10 +91,13 @@ export function parsePresentationDocument(description: string | null | undefined
 	if (!withinBounds(value)) return { kind: 'invalid', markdown, reason: 'resource-limit' };
 	const root = value as Record<string, unknown>;
 	const namespace = root['immich-presentation'];
-	if (namespace === undefined) return { kind: 'unrelated', markdown, unknownKeys: Object.keys(root).length };
-	if (!namespace || typeof namespace !== 'object' || Array.isArray(namespace)) return { kind: 'invalid', markdown, reason: 'invalid-schema' };
-	const extra = unknownCount(namespace as Record<string, unknown>);
-	const parsed = PresentationSchema.safeParse(namespace);
+	if (namespace === undefined) return allAlbumsArePagesByDefault() ? defaultPresentationOutcome(markdown) : { kind: 'unrelated', markdown, unknownKeys: Object.keys(root).length };
+	// A bare `immich-presentation:` key (YAML null) activates with full defaults -- only genuinely
+	// wrong types (a string, number, or array where a mapping belongs) are still invalid-schema.
+	const namespaceObject = namespace === null ? {} : namespace;
+	if (typeof namespaceObject !== 'object' || Array.isArray(namespaceObject)) return { kind: 'invalid', markdown, reason: 'invalid-schema' };
+	const extra = unknownCount(namespaceObject as Record<string, unknown>);
+	const parsed = PresentationSchema.safeParse(namespaceObject);
 	if (!parsed.success) return { kind: 'invalid', markdown, reason: 'invalid-schema' };
 	return { kind: 'valid', config: parsed.data, markdown, warnings: extra ? ['unknown-fields'] : [] };
 }

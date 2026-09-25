@@ -44,6 +44,14 @@ destination is freshly authorized against Immich using the visitor's current
 session. Direct-share `/share/key/...` and `/share/slug/...` paths remain a
 separate authorization mode.
 
+Set `PAGES_ALL_ALBUMS_ARE_PAGES=true` to treat every accessed album as a page
+using full presentation defaults, even with no `immich-presentation` key in
+its description at all. Default `false`: explicit per-album opt-in (adding an
+`immich-presentation` key to the album description) remains the default
+activation model. This never suppresses a real authoring error -- an album
+whose `immich-presentation` block is present but malformed still surfaces
+`invalid-metadata` regardless of this setting.
+
 ```sh
 cp .env.example .env
 # edit .env and set IMMICH_BASE_URL=https://immich.example.xyz

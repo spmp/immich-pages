@@ -26,7 +26,12 @@ test('renders ordered responsive gallery and authorized video tile', async ({ pa
 	  await expect(videoLink).toHaveAttribute('data-media-source', 'thumbnail');
 	  await expect(assets.nth(0).locator('a')).toHaveAttribute('data-media-source', 'thumbnail');
   await expect(page.locator('.gallery-grid img').nth(0)).toHaveAttribute('loading', 'lazy');
-  expect(await page.content()).not.toMatch(/original|download|127\.0\.0\.1:\d+/);
+  // map.enabled defaults to true now, so the page legitimately embeds the (intentionally public,
+  // browser-fetched) map style URL; only this mock's fixture setup happens to serve it from the
+  // same 127.0.0.1 origin as fake Immich. Strip that one expected occurrence, then the check for
+  // a leaked Immich original/download endpoint or any other internal address stays strict.
+  const content = (await page.content()).replace(/http:\/\/127\.0\.0\.1:\d+\/api\/map-style\.json/g, '');
+  expect(content).not.toMatch(/original|download|127\.0\.0\.1:\d+/);
   await page.setViewportSize({ width: 1024, height: 768 });
   await expect(page.locator('.gallery-grid')).toBeVisible();
 });
@@ -187,7 +192,9 @@ test('keeps a gallery item inline when a previously valid thumbnail becomes unau
 });
 
 test('omits the hero CTA and collapses the empty Phase 3 seam', async ({ page }) => {
-  await page.goto('/share/key/opaque-ref');
+  // map.enabled now defaults to true; this test is specifically about the seam collapsing to
+  // zero height when there is no map, so it needs a fixture that explicitly opts out.
+  await page.goto('/share/key/no-map-ref');
   const seam = page.locator('[data-phase="3-map-seam"]');
   await expect(seam).toHaveCount(1);
   expect((await seam.boundingBox())?.height ?? -1).toBe(0);
