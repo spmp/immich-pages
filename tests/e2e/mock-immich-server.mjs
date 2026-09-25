@@ -189,11 +189,12 @@ const server = http.createServer((request, response) => {
       : ref === 'non-page'
       ? { ...page, album: { ...page.album, description: 'An ordinary album' } }
          : ref === 'map-ref'
-         ? { ...page, assets: assets.map((asset, index) => index === 0 ? { ...asset, localDateTime: '2026-01-01T00:00:00.000Z' } : index === 2 ? { ...asset, localDateTime: '2026-01-02T00:00:00.000Z' } : asset), album: { ...page.album, description: '---\nimmich-presentation:\n  type: journey\n  version: 1\n  map:\n    enabled: true\n    source: auto\n    showMarkerList: true\n    styleName: quiet-atlas\n---\nMap browser proof' } }
+         ? { ...page, assets: assets.map((asset, index) => index === 0 ? { ...asset, localDateTime: '2026-01-01T00:00:00.000Z' } : index === 2 ? { ...asset, localDateTime: '2026-01-02T00:00:00.000Z' } : asset), album: { ...page.album, albumName: 'Map Journey', description: '---\nimmich-presentation:\n  type: journey\n  version: 1\n  map:\n    enabled: true\n    source: auto\n    showMarkerList: true\n    styleName: quiet-atlas\n---\nMap browser proof' } }
          : ref === 'no-map-ref'
          // map.enabled defaults to true; this fixture explicitly opts out for tests specifically
          // about the collapsed/absent map seam, distinct from the (now map-enabled) default page.
-         ? { ...page, album: { ...page.album, description: '---\nimmich-presentation:\n  type: journey\n  version: 1\n  map:\n    enabled: false\n---\nMock browser proof' } }
+         // A distinct albumName (from Mock Journey/Map Journey) so nav-link tests can target it.
+         ? { ...page, album: { ...page.album, albumName: 'No-Map Journey', description: '---\nimmich-presentation:\n  type: journey\n  version: 1\n  map:\n    enabled: false\n---\nMock browser proof' } }
          : shareForRef(ref);
     response.writeHead(200, { 'content-type': 'application/json', 'set-cookie': 'secret=must-not-relay; Path=/' });
     response.end(JSON.stringify(ref === 'heic-ref' || ref === 'heic-reverse-ref' || ref === 'heic-forward-ref' ? body : { ...body, album: { ...body.album, assetCount: assets.length } }));

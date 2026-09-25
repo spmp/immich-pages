@@ -1,5 +1,6 @@
 <script lang="ts">
  import { onMount } from 'svelte';
+	import { page as currentRoute } from '$app/state';
 	import type { NormalizedPageModel } from '$server/presentation/model';
 	import JournalHero from './JournalHero.svelte';
 	import JournalNarrative from './JournalNarrative.svelte';
@@ -35,7 +36,13 @@
 			{#if navigation}<PageNavigation entries={navigation.entries} activeHref={navigation.activeHref} {theme} />{/if}
 			<main class="journal journal-content">
 	<JournalHero title={page.album.title} hero={page.hero} {date} mobileNavigation={mobileNavigation} />
-	<JourneyMapSlot routeData={page.routeData} markers={page.markers} enabled={page.presentation.map.enabled} activation={page.presentation.map.markerActivation} showMarkerList={page.presentation.map.showMarkerList} clustering={page.presentation.map.clustering} clusterRadius={page.presentation.map.clusterRadius} markerColor={page.presentation.map.markerColor} routeColor={page.presentation.map.routeColor} routeWidth={page.presentation.map.routeWidth} routeStartColor={page.presentation.map.routeStartColor} routeEndColor={page.presentation.map.routeEndColor} style={page.mapStyle?.url} warnings={page.warnings} />
+	<!-- SvelteKit reuses this component instance across client-side navigations between journeys
+		(that's why the rest of the page updates reactively without a remount); JourneyMapSlot builds
+		its MapLibre instance imperatively, once, inside onMount, so without this key it would keep
+		showing the previous journey's map. Keying on the URL forces a real remount on navigation. -->
+	{#key currentRoute.url.pathname}
+		<JourneyMapSlot routeData={page.routeData} markers={page.markers} enabled={page.presentation.map.enabled} activation={page.presentation.map.markerActivation} showMarkerList={page.presentation.map.showMarkerList} clustering={page.presentation.map.clustering} clusterRadius={page.presentation.map.clusterRadius} markerColor={page.presentation.map.markerColor} routeColor={page.presentation.map.routeColor} routeWidth={page.presentation.map.routeWidth} routeStartColor={page.presentation.map.routeStartColor} routeEndColor={page.presentation.map.routeEndColor} style={page.mapStyle?.url} warnings={page.warnings} />
+	{/key}
 	<JournalNarrative html={page.narrativeHtml} />
 	<section class="gallery"><JournalGallery assets={page.assets} fullWidth={page.presentation.gallery.fullWidth} /></section>
 	<!-- GalleryAsset owns id={'asset-' + asset.id}, loading="lazy", and mixed media markup. -->

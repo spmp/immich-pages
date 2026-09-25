@@ -74,6 +74,44 @@ test('direct shares expose desktop collapse and mobile drawer focus behavior', a
   await expect(opener).toBeFocused();
 });
 
+test.describe('map state across a client-side navigation between journeys', () => {
+  test.use({ extraHTTPHeaders: { authorization: 'Bearer fixture' } });
+
+  test('rebuilds the map instead of staying stuck on the previous journey (or the previous no-map state)', async ({ page, context }) => {
+    await context.addCookies([{ name: 'immich_shared_link_token', value: 'fixture', domain: '127.0.0.1', path: '/' }]);
+    // Register both shares first via full loads (safe -- a full load always mounts fresh and
+    // can never exhibit the bug). The actual test is the *client-side* navigation between them.
+    await page.goto('/share/key/no-map-ref');
+    await expect(page.locator('[data-phase="3-map-seam"]')).not.toHaveClass(/enabled/);
+    await page.goto('/share/key/map-ref');
+    const seam = page.locator('[data-phase="3-map-seam"]');
+    await expect(seam).toHaveAttribute('data-marker-count', '2');
+    await expect(seam.locator('canvas').first()).toBeVisible({ timeout: 15_000 });
+
+    const sidebar = page.getByRole('complementary', { name: 'Published journeys' });
+    await expect(sidebar.getByRole('link', { name: /^No-Map Journey/ })).toBeVisible();
+    await expect(sidebar.getByRole('link', { name: /^Map Journey/ })).toBeVisible();
+
+    // Client-side navigation to the no-map journey: JourneyMapSlot's onMount previously never
+    // reran here (SvelteKit reuses the component across same-route navigations), so the seam
+    // would stay stuck showing the previous journey's enabled map and markers forever.
+    await sidebar.getByRole('link', { name: /^No-Map Journey/ }).click();
+    await expect(page).toHaveURL(/\/share\/key\/no-map-ref$/);
+    await expect(seam).not.toHaveClass(/enabled/);
+    await expect(seam.locator('canvas')).toHaveCount(0);
+
+    // And the reverse: navigating client-side from no-map back to a map-enabled journey must
+    // actually build and show a real map, not stay stuck "disabled" (no onMount rerun) or in a
+    // perpetual "Loading journey map" state (enabled flips true but mapStatus -- a local $state
+    // set only inside the now-stale onMount closure -- never leaves 'disabled').
+    await sidebar.getByRole('link', { name: /^Map Journey/ }).click();
+    await expect(page).toHaveURL(/\/share\/key\/map-ref$/);
+    await expect(seam).toHaveAttribute('data-marker-count', '2');
+    await expect(page.getByText('Loading journey map')).toHaveCount(0);
+    await expect(seam.locator('canvas').first()).toBeVisible({ timeout: 15_000 });
+  });
+});
+
 test('revocation and expiry remove a previously opened share and block fresh page/media access', async ({ page }) => {
   await page.goto('/share/key/revoke-ref');
   await expect(page.getByRole('heading', { name: 'Mock Journey' })).toBeVisible();
