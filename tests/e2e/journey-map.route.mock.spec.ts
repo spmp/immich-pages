@@ -76,3 +76,35 @@ test('rejects an unsupported BRouter profile without falling back to GPS', async
   await expect(page.locator('p[role="status"]', { hasText: 'The selected route profile is not supported; showing locations only.' })).toBeVisible();
   await expectPageSurvives(page, 'Unsupported route proof');
 });
+
+test('reset view button re-fits the map after panning away', async ({ page }) => {
+  await page.goto('/share/key/route-waypoints');
+  const seam = page.locator('[data-phase="3-map-seam"]');
+  await expect(seam).toHaveAttribute('data-route-ready', 'true');
+  const button = page.locator('.maplibregl-ctrl-reset-view');
+  await expect(button).toBeVisible();
+
+  await page.waitForFunction(() => (globalThis as typeof globalThis & { __immichPagesMap?: any }).__immichPagesMap?.isStyleLoaded?.());
+  const readState = () => page.evaluate(() => {
+    const map = (globalThis as typeof globalThis & { __immichPagesMap?: any }).__immichPagesMap;
+    const center = map?.getCenter();
+    return { lng: center?.lng, lat: center?.lat, zoom: map?.getZoom() };
+  });
+  // The initial fitBounds() call on load animates over up to 600ms; give it time to settle
+  // before recording the baseline, or "before" would just be the pre-fit construction center.
+  await page.waitForTimeout(900);
+  const before = await readState();
+
+  await page.evaluate(() => (globalThis as typeof globalThis & { __immichPagesMap?: any }).__immichPagesMap?.jumpTo({ center: [0, 0], zoom: 1 }));
+  await expect.poll(async () => {
+    const panned = await readState();
+    return Math.abs(panned.lng - before.lng) > 1;
+  }, { timeout: 5000 }).toBe(true);
+
+  await button.click();
+  await expect.poll(async () => {
+    const after = await readState();
+    return Math.abs(after.lng - before.lng) < 0.5 && Math.abs(after.lat - before.lat) < 0.5 && Math.abs(after.zoom - before.zoom) < 0.5;
+  }, { timeout: 5000 }).toBe(true);
+});
+

@@ -8,6 +8,26 @@
 	import maplibreWorkerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url';
 	const MAX_COLLOCATED_LEAVES = 500;
 
+	function createResetViewControl(onReset: () => void) {
+		let container: HTMLDivElement | undefined;
+		return {
+			onAdd() {
+				container = document.createElement('div');
+				container.className = 'maplibregl-ctrl maplibregl-ctrl-group';
+				const button = document.createElement('button');
+				button.type = 'button';
+				button.className = 'maplibregl-ctrl-reset-view';
+				button.setAttribute('aria-label', 'Reset map view');
+				button.title = 'Reset map view';
+				button.innerHTML = '<svg viewBox="0 0 20 20" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="10" cy="10" r="6.5" /><path d="M10 2.5v3M10 14.5v3M2.5 10h3M14.5 10h3" stroke-linecap="round" /></svg>';
+				button.addEventListener('click', onReset);
+				container.appendChild(button);
+				return container;
+			},
+			onRemove() { container?.parentNode?.removeChild(container); container = undefined; }
+		};
+	}
+
 	let { routeData = null, markers = [], enabled = false, activation = 'gallery', showMarkerList = false, clustering = true, clusterRadius = 24, markerColor = '#c96b4b', routeColor = '#c96b4b', routeWidth = 3, routeStartColor = '#356859', routeEndColor = '#c96b4b', style, warnings = [] }: { routeData?: MapRoute | null; markers?: MapMarker[]; enabled?: boolean; activation?: MarkerActivation; showMarkerList?: boolean; clustering?: boolean; clusterRadius?: number; markerColor?: string; routeColor?: string; routeWidth?: number; routeStartColor?: string; routeEndColor?: string; style?: string; warnings?: string[] } = $props();
 	let mapElement = $state<HTMLDivElement | undefined>(undefined);
 	let mapStatus = $state<'disabled' | 'loading' | 'ready' | 'unavailable' | 'no-location'>('disabled');
@@ -78,7 +98,10 @@
 				if (!mapElement) throw new Error('map-container-unavailable');
 				map = new Map({ container: mapElement, style, center: [markers[0].lon, markers[0].lat], zoom: 3 });
 				if (env.PUBLIC_PAGES_DEBUG === 'true') (globalThis as typeof globalThis & { __immichPagesMap?: any }).__immichPagesMap = map;
+				const initialBounds = markers.reduce((box: any, marker) => box.extend([marker.lon, marker.lat]), new LngLatBounds());
+				const resetView = () => map.fitBounds(initialBounds, { padding: 48, duration: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 600, maxZoom: 12 });
 				map.addControl(new NavigationControl({ showCompass: false }), 'top-right');
+				map.addControl(createResetViewControl(resetView), 'top-right');
 				map.on('error', reportMapError);
 				map.on('webglcontextlost', fail);
 				map.on('load', () => {
@@ -96,8 +119,7 @@
 						map.addLayer({ id: 'journey-route-start', type: 'circle', source: 'journey-route-endpoints', filter: ['==', ['get', 'endpoint'], 'start'], paint: { 'circle-color': routeStartColor, 'circle-radius': 9, 'circle-stroke-color': '#fff', 'circle-stroke-width': 2 } });
 						map.addLayer({ id: 'journey-route-end', type: 'circle', source: 'journey-route-endpoints', filter: ['==', ['get', 'endpoint'], 'end'], paint: { 'circle-color': routeEndColor, 'circle-radius': 9, 'circle-stroke-color': '#fff', 'circle-stroke-width': 2 } });
 					}
-					const bounds = markers.reduce((box: any, marker) => box.extend([marker.lon, marker.lat]), new LngLatBounds());
-					map.fitBounds(bounds, { padding: 48, duration: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 600, maxZoom: 12 });
+					resetView();
 					map.on('click', 'journey-points', (event: any) => activate(event.features?.[0]?.properties?.assetId));
 					if (clustering) map.on('click', 'journey-clusters', async (event: any) => {
 						const feature = event.features?.[0]; const source = map.getSource('journey-markers'); if (!feature || !source) return;
@@ -131,6 +153,8 @@
 	.journey-slot:not(.enabled) { width: 0; height: 0; }
 	.journey-slot.enabled { padding: 32px 16px; color: var(--theme-text); background: transparent; }
 	.map { min-height: 280px; height: clamp(280px, 48vw, 560px); border-radius: var(--theme-radius); overflow: hidden; background: var(--theme-rule); }
+	:global(.maplibregl-ctrl-reset-view) { display: flex; align-items: center; justify-content: center; color: #333; }
+	:global(.maplibregl-ctrl-reset-view:hover) { background-color: rgba(0, 0, 0, 0.05); }
 	.map-status { margin: 0 0 8px; color: var(--theme-muted); }
 	.marker-list { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
 	.marker-list h3 { width: 100%; margin: 0; font-size: 14px; }
