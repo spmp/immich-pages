@@ -1,0 +1,32 @@
+## Throwaway spike image (see .planning/spikes/) -- NOT the production Dockerfile. Only
+## difference from Dockerfile: the runtime stage also installs avifenc/cjxl so the
+## /spike-hdr-formats debug route (SPIKE_HDR_COMPARE=true) can produce AVIF-HDR and JPEG XL
+## HDR candidates. Real local fixtures are bind-mounted at deploy time (see
+## compose.spike-hdr.yaml); nothing under tests/resources is ever copied into this image.
+FROM node:24-alpine AS build
+
+RUN apk add --no-cache ffmpeg g++ make libheif-dev libheif-libde265 libheif-tools
+LABEL org.opencontainers.image.description="Immich Pages HDR-format spike runtime; not for production"
+
+WORKDIR /app
+COPY package.json package-lock.json ./
+RUN npm ci
+COPY . .
+RUN g++ -O2 -std=c++17 -Wall -Wextra scripts/hdr-gainmap-compositor.cpp -lheif -o /usr/local/bin/hdr-gainmap-compositor
+RUN heif-convert --list-decoders | grep -q '^- libde265 ' || (echo "libheif HEVC decoder plugin missing" >&2 && exit 1)
+RUN npm run check && npm run build
+
+FROM node:24-alpine AS runtime
+
+RUN apk add --no-cache ffmpeg libheif libheif-libde265 libheif-tools exiftool libavif-apps libjxl-tools
+
+WORKDIR /app
+ENV NODE_ENV=production HOST=0.0.0.0 PORT=3000
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev && npm cache clean --force
+COPY --from=build /app/build ./build
+COPY --from=build /usr/local/bin/hdr-gainmap-compositor /usr/local/bin/hdr-gainmap-compositor
+
+USER node
+EXPOSE 3000
+CMD ["node", "build"]
