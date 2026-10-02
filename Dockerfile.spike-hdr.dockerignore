@@ -1,0 +1,21 @@
+## BuildKit per-Dockerfile override (named <dockerfile>.dockerignore): used only when building
+## Dockerfile.spike-hdr. Same as .dockerignore except it keeps tests/resources/hdr/ in the build
+## context, so the spike image can bake in the real local fixtures directly -- no volume mount,
+## no extra compose wiring. The real Dockerfile/.dockerignore pair is untouched: fixture bytes
+## never enter the production image.
+.env*
+!.env.example
+node_modules/
+.svelte-kit/
+build/
+coverage/
+playwright-report/
+test-results/
+.cache/
+.planning/
+.opencode/
+.claude/
+.agents/
+*.log
+SPEC.md
+tests/resources/heic-test-set/

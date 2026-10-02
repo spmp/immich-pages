@@ -1,8 +1,9 @@
-## Throwaway spike image (see .planning/spikes/) -- NOT the production Dockerfile. Only
-## difference from Dockerfile: the runtime stage also installs avifenc/cjxl so the
-## /spike-hdr-formats debug route (SPIKE_HDR_COMPARE=true) can produce AVIF-HDR and JPEG XL
-## HDR candidates. Real local fixtures are bind-mounted at deploy time (see
-## compose.spike-hdr.yaml); nothing under tests/resources is ever copied into this image.
+## Throwaway spike image (see .planning/spikes/) -- NOT the production Dockerfile. Differences
+## from Dockerfile: the runtime stage also installs avifenc/cjxl so the always-on
+## /spike-hdr-formats debug route can produce AVIF-HDR and JPEG XL HDR candidates, and the real
+## local HDR fixtures are baked in directly (see Dockerfile.spike-hdr.dockerignore, which keeps
+## tests/resources/hdr/ in the build context only for this Dockerfile). The real
+## Dockerfile/.dockerignore pair is untouched -- fixture bytes never enter the production image.
 FROM node:24-alpine AS build
 
 RUN apk add --no-cache ffmpeg g++ make libheif-dev libheif-libde265 libheif-tools
@@ -26,6 +27,7 @@ COPY package.json package-lock.json ./
 RUN npm ci --omit=dev && npm cache clean --force
 COPY --from=build /app/build ./build
 COPY --from=build /usr/local/bin/hdr-gainmap-compositor /usr/local/bin/hdr-gainmap-compositor
+COPY tests/resources/hdr ./tests/resources/hdr
 
 USER node
 EXPOSE 3000

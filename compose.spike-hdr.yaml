@@ -3,8 +3,9 @@
 #   docker compose -f compose.yaml -f compose.spike-hdr.yaml up -d --build
 # Then open https://<your-pages-host>/spike-hdr-formats from any device, including over the
 # public IP/domain your Traefik setup already serves -- this reuses the same service, network,
-# and TLS/Traefik labels as the normal deployment, just with a different image/Dockerfile and
-# one extra route enabled.
+# and TLS/Traefik labels as the normal deployment, just with a different image/Dockerfile.
+# No env vars or volume mounts needed: the route is always on and the real local fixtures are
+# baked into this image at build time (see Dockerfile.spike-hdr.dockerignore).
 # Remove the spike once you're done comparing:
 #   docker compose -f compose.yaml -f compose.spike-hdr.yaml down
 #   docker compose up -d --build   # back to the real production image
@@ -13,8 +14,3 @@ services:
     build:
       dockerfile: Dockerfile.spike-hdr
     image: immich-pages:spike-hdr
-    environment:
-      SPIKE_HDR_COMPARE: "true"
-      SPIKE_HDR_FIXTURES_DIR: /spike-fixtures
-    volumes:
-      - ./tests/resources/hdr:/spike-fixtures:ro
