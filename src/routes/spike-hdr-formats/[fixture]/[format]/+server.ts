@@ -36,7 +36,10 @@ export const GET: RequestHandler = async ({ params, url }) => {
 	const hasOverrides = overrides.headroom !== undefined || overrides.gamma !== undefined;
 	const cacheKey = `${params.fixture}:${params.format}:${overrideCacheSuffix(overrides)}`;
 	const cached = cache.get(cacheKey);
-	if (cached) return new Response(cached.buffer as ArrayBuffer, { headers: { 'content-type': FORMATS.get(params.format)!.contentType, ...noStore } });
+	// cached/body are Buffers; for small allocations .buffer is a view into Node's shared pool
+	// slab (leaking unrelated adjacent memory -- this is exactly what made the tiny synthetic
+	// chart outputs serve garbled/wrong bytes). slice() copies exactly this view's own bytes.
+	if (cached) return new Response(cached.buffer.slice(cached.byteOffset, cached.byteOffset + cached.byteLength) as ArrayBuffer, { headers: { 'content-type': FORMATS.get(params.format)!.contentType, ...noStore } });
 
 	try {
 		let body: Uint8Array;
@@ -70,7 +73,7 @@ export const GET: RequestHandler = async ({ params, url }) => {
 			}
 		}
 		cache.set(cacheKey, body);
-		return new Response(body.buffer as ArrayBuffer, { headers: { 'content-type': FORMATS.get(params.format)!.contentType, 'content-length': String(body.byteLength), ...noStore } });
+		return new Response(body.buffer.slice(body.byteOffset, body.byteOffset + body.byteLength) as ArrayBuffer, { headers: { 'content-type': FORMATS.get(params.format)!.contentType, 'content-length': String(body.byteLength), ...noStore } });
 	} catch (error) {
 		return new Response(`Spike encode failed: ${error instanceof Error ? error.message : 'unknown'}`, { status: 502, headers: noStore });
 	}

@@ -95,7 +95,10 @@ export const GET: RequestHandler = async ({ params, request, cookies, fetch }) =
 			return new Response('HDR conversion unavailable', { status: 502, headers: noStore });
 		}
 		logShareMediaStatus({ media: 'fullsize', status: 'success', contentType: output.contentType, byteLength: output.body.byteLength });
-		return new Response(output.body.buffer as ArrayBuffer, { headers: { 'content-type': output.contentType, 'content-length': String(output.body.byteLength), ...noStore } });
+		// output.body is a Buffer; for small allocations .buffer is a view into Node's shared
+		// pool slab (leaking unrelated adjacent memory), not just these bytes. slice() copies
+		// exactly this view's own byte range into a fresh ArrayBuffer.
+		return new Response(output.body.buffer.slice(output.body.byteOffset, output.body.byteOffset + output.body.byteLength) as ArrayBuffer, { headers: { 'content-type': output.contentType, 'content-length': String(output.body.byteLength), ...noStore } });
 	} catch { logShareMediaStatus({ media: 'fullsize', status: 'failure', failureCategory: 'upstream' }); return unavailable(); }
 	};
 

@@ -32,7 +32,10 @@ export const GET: RequestHandler = async ({ params, request, cookies, fetch }) =
 			const headers = new Headers({ 'content-type': sourceContentType, 'cache-control': 'private, no-store' });
 			if (body.byteLength > 0) headers.set('content-length', String(body.byteLength));
 			logShareMediaStatus({ media: 'fullsize', status: 'success', statusCode: result.status, contentType: sourceContentType, byteLength: body.byteLength });
-			return new Response(body.buffer as ArrayBuffer, { headers });
+			// body is a Buffer; for small allocations body.buffer is a view into Node's shared
+			// pool slab (leaking unrelated adjacent memory), not just these bytes. slice() copies
+			// exactly this view's own byte range into a fresh ArrayBuffer.
+			return new Response(body.buffer.slice(body.byteOffset, body.byteOffset + body.byteLength) as ArrayBuffer, { headers });
 		}
 
 		// Most non-Safari browsers cannot decode HEIC/HEIF in <img>; convert to a universally
@@ -52,7 +55,8 @@ export const GET: RequestHandler = async ({ params, request, cookies, fetch }) =
 			})));
 			const headers = new Headers({ 'content-type': converted.contentType, 'content-length': String(converted.body.byteLength), 'cache-control': 'private, no-store' });
 			logShareMediaStatus({ media: 'fullsize', status: 'success', statusCode: result.status, contentType: converted.contentType, byteLength: converted.body.byteLength });
-			return new Response(converted.body.buffer as ArrayBuffer, { headers });
+			// Same pool-slab hazard as above: slice() copies exactly this view's own bytes.
+			return new Response(converted.body.buffer.slice(converted.body.byteOffset, converted.body.byteOffset + converted.body.byteLength) as ArrayBuffer, { headers });
 		} catch (error) {
 			logShareMediaStatus({ media: 'fullsize', status: 'failure', statusCode: 502, contentType: sourceContentType, byteLength: body.byteLength, failureCategory: 'conversion', failureReason: error instanceof SdrConvertError ? error.reason : 'unknown' });
 			return new Response('Media conversion unavailable', { status: 502, headers: { 'cache-control': 'private, no-store' } });

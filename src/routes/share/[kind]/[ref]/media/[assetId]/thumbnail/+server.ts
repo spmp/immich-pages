@@ -27,7 +27,10 @@ export const GET: RequestHandler = async ({ params, request, cookies, fetch }) =
 		const body = await readBoundedBytes(result.response, IMMICH_MAX_MEDIA_BYTES);
 		const contentType = result.response.headers.get('content-type');
 		logShareMediaStatus({ media: 'thumbnail', status: 'success' });
-		return new Response(body.buffer as ArrayBuffer, { headers: { 'content-type': contentType?.startsWith('image/') ? contentType : 'application/octet-stream', 'cache-control': 'private, no-store' } });
+		// body is a Buffer, which for small allocations is a view into Node's shared pool --
+		// body.buffer would be the whole pool slab (leaking unrelated adjacent memory), not just
+		// these bytes. slice() copies exactly this view's own byte range into a fresh ArrayBuffer.
+		return new Response(body.buffer.slice(body.byteOffset, body.byteOffset + body.byteLength) as ArrayBuffer, { headers: { 'content-type': contentType?.startsWith('image/') ? contentType : 'application/octet-stream', 'cache-control': 'private, no-store' } });
 	} catch {
 		logShareMediaStatus({ media: 'thumbnail', status: 'failure', failureCategory: 'oversized' });
 		error(502, 'Immich response unavailable');
