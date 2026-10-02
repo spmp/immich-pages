@@ -2,7 +2,7 @@ import type { RequestHandler } from './$types';
 import { extractAppleHdrMetadata } from '$server/media/hdr-metadata';
 import { composeHdr, encodeHdrMp4 } from '$server/media/hdr-compositor';
 import { convertHeicToJpeg } from '$server/media/sdr-compositor';
-import { composeHdrPpm, encodeAvifHdr, encodeJxlHdr, ppmToPng16, SPIKE_FORMATS, SPIKE_HDR_ENABLED, type SpikeFormatSlug } from '$server/media/spike-hdr-formats';
+import { composeHdrPpm, encodeAvifHdr, encodeJxlHdr, encodeUltraHdrJpeg, ppmToPng16, SPIKE_FORMATS, SPIKE_HDR_ENABLED, type SpikeFormatSlug } from '$server/media/spike-hdr-formats';
 import { isSpikeFixtureSlug, readSpikeFixture } from '$server/media/spike-hdr-fixtures';
 
 const noStore = { 'cache-control': 'private, no-store' };
@@ -38,6 +38,8 @@ export const GET: RequestHandler = async ({ params }) => {
 				if (!metadata) return new Response('Fixture has no usable Apple HDR gain-map metadata', { status: 422, headers: noStore });
 				if (params.format === 'hdr-video.mp4') {
 					body = await encodeHdrMp4(await composeHdr(input, metadata));
+				} else if (params.format === 'ultrahdr.jpg') {
+					body = await encodeUltraHdrJpeg(input, metadata);
 				} else {
 					const ppm = await composeHdrPpm(input, metadata);
 					body = params.format === 'avif-hdr.avif' ? await encodeAvifHdr(await ppmToPng16(ppm)) : await encodeJxlHdr(ppm);

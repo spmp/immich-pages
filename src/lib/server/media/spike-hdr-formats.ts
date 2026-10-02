@@ -23,7 +23,8 @@ export const SPIKE_FORMATS = [
 	{ slug: 'hdr-video.mp4', contentType: 'video/mp4', tag: 'video', label: 'Current production candidate: HEVC Main10/PQ/BT.2020 video, single frame' },
 	{ slug: 'heic-original.heic', contentType: 'image/heic', tag: 'img', label: 'Original HEIC bytes, zero transcoding (Safari/WebKit may render its own gain map natively)' },
 	{ slug: 'avif-hdr.avif', contentType: 'image/avif', tag: 'img', label: 'AVIF, CICP 9/16/9 (BT.2020 / PQ / BT.2020-NCL), no gain map -- no known SDR fallback' },
-	{ slug: 'jxl-hdr.jxl', contentType: 'image/jxl', tag: 'img', label: 'JPEG XL, Rec.2100 PQ, intensity_target 1000 nits -- Safari-only decode, no known SDR fallback' }
+	{ slug: 'jxl-hdr.jxl', contentType: 'image/jxl', tag: 'img', label: 'JPEG XL, Rec.2100 PQ, intensity_target 1000 nits -- Safari-only decode, no known SDR fallback' },
+	{ slug: 'ultrahdr.jpg', contentType: 'image/jpeg', tag: 'img', label: 'Ultra HDR JPEG (ISO 21496-1 gain-map), built via libultrahdr -- real gain map, graceful SDR fallback by design; see spike 002' }
 ] as const;
 export type SpikeFormatSlug = (typeof SPIKE_FORMATS)[number]['slug'];
 
@@ -67,6 +68,17 @@ export async function encodeJxlHdr(ppm: Uint8Array): Promise<Uint8Array> {
 	} finally {
 		await rm(dir, { recursive: true, force: true });
 	}
+}
+
+/** scripts/hdr-ultrahdr-compositor.cpp reuses the exact same Apple gain-map reconstruction as
+ * composeHdr (see its header comment), then hands libultrahdr a linear HDR buffer and the plain
+ * SDR buffer directly and lets the reference encoder compute the ISO 21496-1 gain map and emit
+ * the finished JPEG -- so, unlike the other still candidates, this needs no separate PPM/PNG
+ * conversion step; the native program's stdout is already the final JPEG bytes. */
+export async function encodeUltraHdrJpeg(input: Uint8Array, metadata: AppleHdrMetadata): Promise<Uint8Array> {
+	const executable = process.env.SPIKE_ULTRAHDR_COMPOSITOR_PATH ?? '/usr/local/bin/hdr-ultrahdr-compositor';
+	const args = ['--hdr-version', metadata.version, '--maker-note-33', String(metadata.makerNote33), '--maker-note-48', String(metadata.makerNote48), '--source-profile', metadata.sourceProfile, '--source-transfer', metadata.sourceTransfer, '--orientation', String(metadata.orientation)];
+	return runPipedProcess(executable, args, input, TIMEOUT_MS);
 }
 
 async function readOutput(path: string): Promise<Uint8Array> {
