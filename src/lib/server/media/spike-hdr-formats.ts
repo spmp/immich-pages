@@ -70,6 +70,25 @@ export async function encodeJxlHdr(ppm: Uint8Array): Promise<Uint8Array> {
 	}
 }
 
+/** scripts/hdr-test-chart.cpp (spike 003): a synthetic, deterministic boost ladder with no
+ * dependency on a real photo or Apple metadata -- a flat result means a decoder ignored the gain
+ * map outright, a graduated one tells you exactly how many steps actually render. --mode ppm
+ * matches composeHdr's PQ-encoded PPM contract (feeds the same avif/jxl/video pipeline as the
+ * real fixtures); --mode ultrahdr emits the Ultra HDR JPEG directly via libultrahdr. */
+export async function composeTestChartPpm(): Promise<Uint8Array> {
+	return runPipedProcess(process.env.SPIKE_TEST_CHART_PATH ?? '/usr/local/bin/hdr-test-chart', ['--mode', 'ppm'], new Uint8Array(0), TIMEOUT_MS);
+}
+
+export async function encodeTestChartUltraHdrJpeg(): Promise<Uint8Array> {
+	return runPipedProcess(process.env.SPIKE_TEST_CHART_PATH ?? '/usr/local/bin/hdr-test-chart', ['--mode', 'ultrahdr'], new Uint8Array(0), TIMEOUT_MS);
+}
+
+export async function encodeTestChartSdrJpeg(): Promise<Uint8Array> {
+	const chartPath = process.env.SPIKE_TEST_CHART_PATH ?? '/usr/local/bin/hdr-test-chart';
+	const ppm = await runPipedProcess(chartPath, ['--mode', 'sdr-ppm'], new Uint8Array(0), TIMEOUT_MS);
+	return runPipedProcess(process.env.SPIKE_FFMPEG_PATH ?? '/usr/bin/ffmpeg', ['-hide_banner', '-loglevel', 'error', '-f', 'image2pipe', '-vcodec', 'ppm', '-i', 'pipe:0', '-frames:v', '1', '-f', 'image2pipe', '-vcodec', 'mjpeg', '-q:v', '2', 'pipe:1'], ppm);
+}
+
 /** scripts/hdr-ultrahdr-compositor.cpp reuses the exact same Apple gain-map reconstruction as
  * composeHdr (see its header comment), then hands libultrahdr a linear HDR buffer and the plain
  * SDR buffer directly and lets the reference encoder compute the ISO 21496-1 gain map and emit
