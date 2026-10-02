@@ -12,7 +12,10 @@ import type { AppleHdrMetadata } from './hdr-metadata';
  * still-image candidates to find out, with real devices, whether any of them can replace the
  * single-frame HDR video for a zoomable full-size view. Disabled unless SPIKE_HDR_COMPARE=true.
  */
-export const SPIKE_HDR_ENABLED = process.env.SPIKE_HDR_COMPARE === 'true';
+/** Intentionally always on, no env var required -- this whole route is a short-lived debug
+ * surface the user plans to delete outright once device testing is done (see
+ * .planning/spikes/001-hdr-still-image-formats/README.md), not a production feature flag. */
+export const SPIKE_HDR_ENABLED = true;
 
 /** Shared by the index page (which tag/label to render) and the media route (content-type). */
 export const SPIKE_FORMATS = [
