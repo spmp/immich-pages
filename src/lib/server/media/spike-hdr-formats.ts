@@ -33,9 +33,40 @@ const TIMEOUT_MS = 60_000;
 
 export type SpikeStillFormat = 'avif-hdr' | 'jxl-hdr';
 
+/** Spike 004: bounded, opt-in overrides for live tuning against real screens. Both default to
+ * the exact unmodified Apple-derived behavior when undefined -- see
+ * hdr-gainmap-compositor-tunable.cpp's header comment for why these exist and why they're a
+ * separate binary from the production compositor rather than new flags on it. */
+export type GainMapOverrides = { headroom?: number; gamma?: number };
+
+export function parseGainMapOverrides(searchParams: URLSearchParams): GainMapOverrides {
+	const headroomRaw = Number(searchParams.get('headroom'));
+	const gammaRaw = Number(searchParams.get('gamma'));
+	const overrides: GainMapOverrides = {};
+	if (Number.isFinite(headroomRaw) && headroomRaw >= 1 && headroomRaw <= 16) overrides.headroom = headroomRaw;
+	if (Number.isFinite(gammaRaw) && gammaRaw >= 0.1 && gammaRaw <= 10) overrides.gamma = gammaRaw;
+	return overrides;
+}
+
+function overrideArgs(overrides: GainMapOverrides): string[] {
+	const args: string[] = [];
+	if (overrides.headroom !== undefined) args.push('--headroom-override', String(overrides.headroom));
+	if (overrides.gamma !== undefined) args.push('--gain-gamma', String(overrides.gamma));
+	return args;
+}
+
 /** PPM carries no color tags; ffmpeg's own HDR mp4 path already treats these pixels as PQ/BT.2020 (see hdr-compositor.ts encodeHdrMp4), so every still candidate below tags the same primaries/transfer rather than guessing a different one. */
 export async function composeHdrPpm(input: Uint8Array, metadata: AppleHdrMetadata): Promise<Uint8Array> {
 	return composeHdr(input, metadata);
+}
+
+/** scripts/hdr-gainmap-compositor-tunable.cpp: a spike-only fork used only when the request asks
+ * for a headroom/gamma override, so the default (no query params) path keeps using the real,
+ * unmodified production compositor via composeHdrPpm above. */
+export async function composeHdrPpmTunable(input: Uint8Array, metadata: AppleHdrMetadata, overrides: GainMapOverrides): Promise<Uint8Array> {
+	const executable = process.env.SPIKE_TUNABLE_COMPOSITOR_PATH ?? '/usr/local/bin/hdr-gainmap-compositor-tunable';
+	const args = ['--hdr-version', metadata.version, '--maker-note-33', String(metadata.makerNote33), '--maker-note-48', String(metadata.makerNote48), '--source-profile', metadata.sourceProfile, '--source-transfer', metadata.sourceTransfer, '--orientation', String(metadata.orientation), ...overrideArgs(overrides)];
+	return runPipedProcess(executable, args, input, TIMEOUT_MS);
 }
 
 export async function ppmToPng16(ppm: Uint8Array): Promise<Uint8Array> {
@@ -70,22 +101,30 @@ export async function encodeJxlHdr(ppm: Uint8Array): Promise<Uint8Array> {
 	}
 }
 
-/** scripts/hdr-test-chart.cpp (spike 003): a synthetic, deterministic boost ladder with no
- * dependency on a real photo or Apple metadata -- a flat result means a decoder ignored the gain
- * map outright, a graduated one tells you exactly how many steps actually render. --mode ppm
- * matches composeHdr's PQ-encoded PPM contract (feeds the same avif/jxl/video pipeline as the
- * real fixtures); --mode ultrahdr emits the Ultra HDR JPEG directly via libultrahdr. */
-export async function composeTestChartPpm(): Promise<Uint8Array> {
-	return runPipedProcess(process.env.SPIKE_TEST_CHART_PATH ?? '/usr/local/bin/hdr-test-chart', ['--mode', 'ppm'], new Uint8Array(0), TIMEOUT_MS);
+/** scripts/hdr-test-chart.cpp: two synthetic, deterministic chart designs, neither depending on
+ * a real photo or Apple metadata.
+ * 'ladder' (spike 003): a no-boost control patch beside a 1.5x-6x boost ladder -- a flat result
+ *   means the decoder ignored the gain map outright, a graduated one tells you how many steps
+ *   actually render.
+ * 'text' (spike 004): bold block letters "HDR" at a fixed 4x boost against a flat mid-gray
+ *   background with no ladder to read -- an abrupt, binary, spatial reveal of whether (and where)
+ *   the gain map got applied at all.
+ * --mode *-ppm matches composeHdr's PQ-encoded PPM contract (feeds the same avif/jxl/video
+ * pipeline as the real fixtures); --mode *-ultrahdr emits the Ultra HDR JPEG directly via
+ * libultrahdr. */
+export type SyntheticChartKind = 'ladder' | 'text';
+
+export async function composeTestChartPpm(kind: SyntheticChartKind): Promise<Uint8Array> {
+	return runPipedProcess(process.env.SPIKE_TEST_CHART_PATH ?? '/usr/local/bin/hdr-test-chart', ['--mode', kind === 'text' ? 'text-ppm' : 'ppm'], new Uint8Array(0), TIMEOUT_MS);
 }
 
-export async function encodeTestChartUltraHdrJpeg(): Promise<Uint8Array> {
-	return runPipedProcess(process.env.SPIKE_TEST_CHART_PATH ?? '/usr/local/bin/hdr-test-chart', ['--mode', 'ultrahdr'], new Uint8Array(0), TIMEOUT_MS);
+export async function encodeTestChartUltraHdrJpeg(kind: SyntheticChartKind): Promise<Uint8Array> {
+	return runPipedProcess(process.env.SPIKE_TEST_CHART_PATH ?? '/usr/local/bin/hdr-test-chart', ['--mode', kind === 'text' ? 'text-ultrahdr' : 'ultrahdr'], new Uint8Array(0), TIMEOUT_MS);
 }
 
-export async function encodeTestChartSdrJpeg(): Promise<Uint8Array> {
+export async function encodeTestChartSdrJpeg(kind: SyntheticChartKind): Promise<Uint8Array> {
 	const chartPath = process.env.SPIKE_TEST_CHART_PATH ?? '/usr/local/bin/hdr-test-chart';
-	const ppm = await runPipedProcess(chartPath, ['--mode', 'sdr-ppm'], new Uint8Array(0), TIMEOUT_MS);
+	const ppm = await runPipedProcess(chartPath, ['--mode', kind === 'text' ? 'text-sdr-ppm' : 'sdr-ppm'], new Uint8Array(0), TIMEOUT_MS);
 	return runPipedProcess(process.env.SPIKE_FFMPEG_PATH ?? '/usr/bin/ffmpeg', ['-hide_banner', '-loglevel', 'error', '-f', 'image2pipe', '-vcodec', 'ppm', '-i', 'pipe:0', '-frames:v', '1', '-f', 'image2pipe', '-vcodec', 'mjpeg', '-q:v', '2', 'pipe:1'], ppm);
 }
 
@@ -94,9 +133,9 @@ export async function encodeTestChartSdrJpeg(): Promise<Uint8Array> {
  * SDR buffer directly and lets the reference encoder compute the ISO 21496-1 gain map and emit
  * the finished JPEG -- so, unlike the other still candidates, this needs no separate PPM/PNG
  * conversion step; the native program's stdout is already the final JPEG bytes. */
-export async function encodeUltraHdrJpeg(input: Uint8Array, metadata: AppleHdrMetadata): Promise<Uint8Array> {
+export async function encodeUltraHdrJpeg(input: Uint8Array, metadata: AppleHdrMetadata, overrides: GainMapOverrides = {}): Promise<Uint8Array> {
 	const executable = process.env.SPIKE_ULTRAHDR_COMPOSITOR_PATH ?? '/usr/local/bin/hdr-ultrahdr-compositor';
-	const args = ['--hdr-version', metadata.version, '--maker-note-33', String(metadata.makerNote33), '--maker-note-48', String(metadata.makerNote48), '--source-profile', metadata.sourceProfile, '--source-transfer', metadata.sourceTransfer, '--orientation', String(metadata.orientation)];
+	const args = ['--hdr-version', metadata.version, '--maker-note-33', String(metadata.makerNote33), '--maker-note-48', String(metadata.makerNote48), '--source-profile', metadata.sourceProfile, '--source-transfer', metadata.sourceTransfer, '--orientation', String(metadata.orientation), ...overrideArgs(overrides)];
 	return runPipedProcess(executable, args, input, TIMEOUT_MS);
 }
 

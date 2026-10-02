@@ -8,12 +8,19 @@ import { join } from 'node:path';
  * baked into the production Dockerfile/image; only read when SPIKE_HDR_COMPARE=true.
  */
 export const SPIKE_HDR_FIXTURES = {
-	ref: { file: '2.HEIF', label: 'Fixture A (2.HEIF, preserved reference, landscape)', synthetic: false },
-	alt: { file: '6.HEIC', label: 'Fixture B (6.HEIC, second real sample, landscape)', synthetic: false },
+	ref: { file: '2.HEIF', label: 'Fixture A (2.HEIF, preserved reference, landscape)', synthetic: false, chartKind: null },
+	alt: { file: '6.HEIC', label: 'Fixture B (6.HEIC, second real sample, landscape)', synthetic: false, chartKind: null },
 	chart: {
 		file: null,
 		synthetic: true,
-		label: 'Synthetic test chart (spike 003): one no-boost control patch beside a 1.5x/2x/3x/4x/6x ladder, all pure white -- a flat strip means the gain map was ignored outright, a graduated one tells you exactly how many steps actually render'
+		chartKind: 'ladder',
+		label: 'Synthetic ladder chart (spike 003): one no-boost control patch beside a 1.5x/2x/3x/4x/6x ladder, all pure white -- a flat strip means the gain map was ignored outright, a graduated one tells you exactly how many steps actually render'
+	},
+	text: {
+		file: null,
+		synthetic: true,
+		chartKind: 'text',
+		label: 'Synthetic "HDR" reveal (spike 004): bold block letters at a fixed 4x boost on a flat mid-gray background -- no ladder to read, just whether (and where) the gain map got applied at all'
 	}
 } as const;
 

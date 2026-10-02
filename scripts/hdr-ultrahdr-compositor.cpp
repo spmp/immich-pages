@@ -114,9 +114,24 @@ int main(int argc, char** argv) {
   const char* profile = argument(argc, argv, "--source-profile");
   const char* transfer = argument(argc, argv, "--source-transfer");
   const char* orientation = argument(argc, argv, "--orientation");
+  // Spike-only tunable overrides (.planning/spikes/004-tunable-gain-map-and-slider-compare/),
+  // both optional and defaulting to exactly the Apple-derived behavior when omitted -- see
+  // hdr-gainmap-compositor-tunable.cpp's header comment for why these exist.
+  const char* headroom_override_arg = argument(argc, argv, "--headroom-override");
+  const char* gain_gamma_arg = argument(argc, argv, "--gain-gamma");
   float maker33 = 0.0f, maker48 = 0.0f;
   if (!version || (std::strcmp(version, "1") != 0 && std::strcmp(version, "1.0") != 0) || !maker33_arg || !maker48_arg || !parse_float(maker33_arg, maker33) || !parse_float(maker48_arg, maker48) || !profile || !transfer || !orientation || std::strcmp(orientation, "1") != 0 || (std::strcmp(profile, "display-p3") != 0 && std::strcmp(profile, "rec709") != 0) || (std::strcmp(transfer, "srgb") != 0 && std::strcmp(transfer, "rec709") != 0)) {
     std::cerr << "invalid Apple HDR metadata contract\n";
+    return 2;
+  }
+  float headroom_override = -1.0f;
+  if (headroom_override_arg && (!parse_float(headroom_override_arg, headroom_override) || headroom_override < 1.0f || headroom_override > 16.0f)) {
+    std::cerr << "invalid --headroom-override (expected 1.0-16.0)\n";
+    return 2;
+  }
+  float gain_gamma = 1.0f;
+  if (gain_gamma_arg && (!parse_float(gain_gamma_arg, gain_gamma) || gain_gamma < 0.1f || gain_gamma > 10.0f)) {
+    std::cerr << "invalid --gain-gamma (expected 0.1-10.0)\n";
     return 2;
   }
 
@@ -169,7 +184,7 @@ int main(int argc, char** argv) {
 
   const float scale = std::min({1.0f, static_cast<float>(kMaxOutputDimension) / width, static_cast<float>(kMaxOutputDimension) / height});
   const int output_width = std::max(1, static_cast<int>(std::round(width * scale))), output_height = std::max(1, static_cast<int>(std::round(height * scale)));
-  const float headroom = apple_headroom(maker33, maker48);
+  const float headroom = headroom_override > 0.0f ? headroom_override : apple_headroom(maker33, maker48);
   const bool is_display_p3 = std::strcmp(profile, "display-p3") == 0;
 
   // Two buffers, same dimensions, pixel-for-pixel aligned: libultrahdr computes the gain map
@@ -182,7 +197,8 @@ int main(int argc, char** argv) {
     const float x = (ox + 0.5f) / output_width, y = (oy + 0.5f) / output_height;
     const int sx = std::min(static_cast<int>(x * width), width - 1), sy = std::min(static_cast<int>(y * height), height - 1);
     const uint8_t* pixel = primary_pixels + static_cast<size_t>(sy) * primary_stride + sx * 3;
-    const float gain_factor = 1.0f + (headroom - 1.0f) * sample_gain(gain_pixels, gain_stride, gain_width, gain_height, x, y);
+    const float shaped_gain = std::pow(std::clamp(sample_gain(gain_pixels, gain_stride, gain_width, gain_height, x, y), 0.0f, 1.0f), gain_gamma);
+    const float gain_factor = 1.0f + (headroom - 1.0f) * shaped_gain;
     float r = source_to_linear(pixel[0] / 255.0f, transfer) * gain_factor, g = source_to_linear(pixel[1] / 255.0f, transfer) * gain_factor, b = source_to_linear(pixel[2] / 255.0f, transfer) * gain_factor;
     if (is_display_p3) {
       const float nr = 0.8225927f * r + 0.177533f * g, ng = 0.0331995f * r + 0.9667835f * g, nb = 0.0170853f * r + 0.0723957f * g + 0.910519f * b;
