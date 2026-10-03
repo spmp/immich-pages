@@ -106,6 +106,15 @@
 							? { ...itemData, src: element.dataset.pswpSrc }
 						: itemData;
 				});
+				// The HDR candidate is a disguised still image (single frame, muted, looped, no
+				// controls) wearing a <video> element only because this is the one representation
+				// that actually renders HDR on real devices (see .planning/spikes/). An ordinary
+				// authored video keeps PhotoSwipe's default non-zoomable video behavior -- pinch-zoom
+				// fighting with playback controls/seeking makes no sense there.
+				instance.addFilter('isContentZoomable', (isContentZoomable: boolean, content: any) => {
+					const isHdrCandidate = content?.data?.element?.dataset.videoControls === 'false';
+					return isHdrCandidate ? true : isContentZoomable;
+				});
 				instance.on('contentLoad', (event: any) => {
 					const { content } = event;
 					if (content.type !== 'video') return;

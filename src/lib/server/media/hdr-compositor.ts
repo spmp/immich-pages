@@ -24,7 +24,13 @@ export async function composeHdr(input: Uint8Array, metadata: AppleHdrMetadata, 
 export async function encodeHdrMp4(input: Uint8Array, options: { executable?: string; timeoutMs?: number; invocationId?: string } = {}): Promise<Uint8Array> {
 	if (input.byteLength === 0 || input.byteLength > HDR_COMPOSITOR_MAX_OUTPUT_BYTES) throw new Error('hdr-input-limit');
 	const executable = options.executable ?? process.env.HDR_FFMPEG_PATH ?? '/usr/bin/ffmpeg';
-	const args = ['-hide_banner', '-loglevel', 'error', '-f', 'image2pipe', '-vcodec', 'ppm', '-i', 'pipe:0', '-frames:v', '1', '-an', '-c:v', 'libx265', '-preset', 'fast', '-profile:v', 'main10', '-pix_fmt', 'yuv420p10le', '-color_primaries', 'bt2020', '-color_trc', 'smpte2084', '-colorspace', 'bt2020nc', '-x265-params', 'colorprim=bt2020:transfer=smpte2084:colormatrix=bt2020nc', '-tag:v', 'hvc1', '-movflags', 'frag_keyframe+empty_moov+default_base_moof', '-f', 'mp4', 'pipe:1'];
+	// This is one still frame standing in for a full-size photo, not streaming video -- file size
+	// from a lower CRF is negligible (one frame), but the default CRF 28 (tuned for multi-frame
+	// streaming bitrate budgets) was visibly lossy once anyone looked closely/zoomed in. crf 16
+	// measured ~QP 18 either way; preset slow (~2.5-5s under load) cut it too close against
+	// HDR_FFMPEG_TIMEOUT_MS's 8s default on a loaded host -- preset medium hits the same QP/quality
+	// in roughly half the time, so it's the safer choice for the same visual result.
+	const args = ['-hide_banner', '-loglevel', 'error', '-f', 'image2pipe', '-vcodec', 'ppm', '-i', 'pipe:0', '-frames:v', '1', '-an', '-c:v', 'libx265', '-preset', 'medium', '-crf', '16', '-profile:v', 'main10', '-pix_fmt', 'yuv420p10le', '-color_primaries', 'bt2020', '-color_trc', 'smpte2084', '-colorspace', 'bt2020nc', '-x265-params', 'colorprim=bt2020:transfer=smpte2084:colormatrix=bt2020nc', '-tag:v', 'hvc1', '-movflags', 'frag_keyframe+empty_moov+default_base_moof', '-f', 'mp4', 'pipe:1'];
 	return runBoundedProcess(executable, args, input, HDR_FFMPEG_MAX_OUTPUT_BYTES, options.timeoutMs ?? HDR_FFMPEG_TIMEOUT_MS, 'hdr-ffmpeg', options.invocationId);
 }
 
