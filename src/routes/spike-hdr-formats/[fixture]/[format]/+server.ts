@@ -2,7 +2,7 @@ import type { RequestHandler } from './$types';
 import { extractAppleHdrMetadata } from '$server/media/hdr-metadata';
 import { encodeHdrMp4 } from '$server/media/hdr-compositor';
 import { convertHeicToJpeg } from '$server/media/sdr-compositor';
-import { composeHdrPpm, composeHdrPpmTunable, composeTestChartPpm, encodeAvifHdr, encodeJxlHdr, encodeTestChartSdrJpeg, encodeTestChartUltraHdrJpeg, encodeUltraHdrJpeg, parseGainMapOverrides, ppmToPng16, SPIKE_FORMATS, SPIKE_HDR_ENABLED, type GainMapOverrides, type SpikeFormatSlug, type SyntheticChartKind } from '$server/media/spike-hdr-formats';
+import { composeHdrPpm, composeHdrPpmTunable, composeTestChartPpm, encodeAvifGainmapP3, encodeAvifHdr, encodeAvifSdrP3, encodeJxlHdr, encodeTestChartSdrJpeg, encodeTestChartUltraHdrJpeg, encodeUltraHdrJpeg, parseGainMapOverrides, ppmToPng16, SPIKE_FORMATS, SPIKE_HDR_ENABLED, type GainMapOverrides, type SpikeFormatSlug, type SyntheticChartKind } from '$server/media/spike-hdr-formats';
 import { isSpikeFixtureSlug, readSpikeFixture, SPIKE_HDR_FIXTURES } from '$server/media/spike-hdr-fixtures';
 
 const noStore = { 'cache-control': 'private, no-store' };
@@ -22,6 +22,8 @@ async function buildSyntheticChart(format: SpikeFormatSlug, kind: SyntheticChart
 		case 'avif-hdr.avif': return encodeAvifHdr(await ppmToPng16(await composeTestChartPpm(kind)));
 		case 'jxl-hdr.jxl': return encodeJxlHdr(await composeTestChartPpm(kind));
 		case 'heic-original.heic': throw new Error('spike-chart-has-no-original-heic');
+		case 'avif-sdr-p3.avif': throw new Error('spike-chart-needs-real-apple-metadata');
+		case 'avif-gainmap-p3.avif': throw new Error('spike-chart-needs-real-apple-metadata');
 	}
 }
 
@@ -65,6 +67,10 @@ export const GET: RequestHandler = async ({ params, url }) => {
 						body = await encodeHdrMp4(ppm);
 					} else if (params.format === 'ultrahdr.jpg') {
 						body = await encodeUltraHdrJpeg(input, metadata, overrides);
+					} else if (params.format === 'avif-sdr-p3.avif') {
+						body = await encodeAvifSdrP3(input, metadata);
+					} else if (params.format === 'avif-gainmap-p3.avif') {
+						body = await encodeAvifGainmapP3(input, metadata);
 					} else {
 						const ppm = hasOverrides ? await composeHdrPpmTunable(input, metadata, overrides) : await composeHdrPpm(input, metadata);
 						body = params.format === 'avif-hdr.avif' ? await encodeAvifHdr(await ppmToPng16(ppm)) : await encodeJxlHdr(ppm);

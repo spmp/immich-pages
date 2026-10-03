@@ -7,7 +7,8 @@ export const GET: RequestHandler = () => {
 
 	const sections = Object.entries(SPIKE_HDR_FIXTURES)
 		.map(([slug, fixture]) => {
-			const formats = fixture.synthetic ? SPIKE_FORMATS.filter((format) => format.slug !== 'heic-original.heic') : SPIKE_FORMATS;
+			const synthUnsupported = new Set(['heic-original.heic', 'avif-sdr-p3.avif', 'avif-gainmap-p3.avif']);
+			const formats = fixture.synthetic ? SPIKE_FORMATS.filter((format) => !synthUnsupported.has(format.slug)) : SPIKE_FORMATS;
 			const items = formats.map((format) => {
 				const src = `/spike-hdr-formats/${slug}/${format.slug}`;
 				const compareHref = `/spike-hdr-formats/compare/${slug}/${format.slug}`;
