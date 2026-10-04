@@ -141,22 +141,35 @@ export async function encodeUltraHdrJpeg(input: Uint8Array, metadata: AppleHdrMe
 	return runPipedProcess(executable, args, input, TIMEOUT_MS);
 }
 
-/** scripts/hdr-avif-gainmap-compositor.cpp (spike 005): unlike avif-hdr.avif (spike 001, raw
- * PQ, no gain map, forced BT.2020), this preserves the source's real color primaries (Display P3
- * or Rec.709, never converted) and offers two modes sharing the same decode: --mode sdr emits a
- * plain no-HDR-claim AVIF as a control image, --mode gainmap attaches a real ISO 21496-1 gain map
- * via libavif's avifRGBImageComputeGainMap. Both should look identical on any decoder that
- * doesn't apply the gain map -- that's the actual test. */
+/** scripts/hdr-avif-decode.cpp + hdr-avif-encode.cpp (spike 005): unlike avif-hdr.avif (spike
+ * 001, raw PQ, no gain map, forced BT.2020), this preserves the source's real color primaries
+ * (Display P3 or Rec.709, never converted) and offers two modes sharing the same decode: --mode
+ * sdr emits a plain no-HDR-claim AVIF as a control image, --mode gainmap attaches a real ISO
+ * 21496-1 gain map via libavif's avifRGBImageComputeGainMap. Both should look identical on any
+ * decoder that doesn't apply the gain map -- that's the actual test.
+ *
+ * Two separate single-library binaries (decode links only libheif, encode links only libavif),
+ * piped together -- same one-native-contract-per-concern pattern as composeHdr/encodeHdrMp4 in
+ * hdr-compositor.ts. See hdr-avif-decode.cpp's header comment for the full story, including why
+ * verifying AVIF gain-map output needs a decoder matching the encoder's exact libavif version. */
+async function encodeAvifP3(mode: 'sdr' | 'gainmap', input: Uint8Array, metadata: AppleHdrMetadata): Promise<Uint8Array> {
+	const decodeExecutable = process.env.SPIKE_AVIF_DECODE_PATH ?? '/usr/local/bin/hdr-avif-decode';
+	const decodeArgs = ['--mode', mode, '--hdr-version', metadata.version, '--maker-note-33', String(metadata.makerNote33), '--maker-note-48', String(metadata.makerNote48), '--source-profile', metadata.sourceProfile, '--source-transfer', metadata.sourceTransfer, '--orientation', String(metadata.orientation)];
+	// The raw decode->encode stream is uncompressed RGBA (SDR 8-bit + HDR 16-bit half-float), far
+	// bigger than any final encoded image -- ~109MB for a 4032x2268 photo. It's never stored or
+	// cached, just piped straight into the next process, so a generous bound here is fine.
+	const stream = await runPipedProcess(decodeExecutable, decodeArgs, input, TIMEOUT_MS, 256 * 1024 * 1024);
+	const encodeExecutable = process.env.SPIKE_AVIF_ENCODE_PATH ?? '/usr/local/bin/hdr-avif-encode';
+	const encodeArgs = ['--source-profile', metadata.sourceProfile, '--source-transfer', metadata.sourceTransfer];
+	return runPipedProcess(encodeExecutable, encodeArgs, stream, TIMEOUT_MS);
+}
+
 export async function encodeAvifSdrP3(input: Uint8Array, metadata: AppleHdrMetadata): Promise<Uint8Array> {
-	const executable = process.env.SPIKE_AVIF_GAINMAP_COMPOSITOR_PATH ?? '/usr/local/bin/hdr-avif-gainmap-compositor';
-	const args = ['--mode', 'sdr', '--hdr-version', metadata.version, '--maker-note-33', String(metadata.makerNote33), '--maker-note-48', String(metadata.makerNote48), '--source-profile', metadata.sourceProfile, '--source-transfer', metadata.sourceTransfer, '--orientation', String(metadata.orientation)];
-	return runPipedProcess(executable, args, input, TIMEOUT_MS);
+	return encodeAvifP3('sdr', input, metadata);
 }
 
 export async function encodeAvifGainmapP3(input: Uint8Array, metadata: AppleHdrMetadata): Promise<Uint8Array> {
-	const executable = process.env.SPIKE_AVIF_GAINMAP_COMPOSITOR_PATH ?? '/usr/local/bin/hdr-avif-gainmap-compositor';
-	const args = ['--mode', 'gainmap', '--hdr-version', metadata.version, '--maker-note-33', String(metadata.makerNote33), '--maker-note-48', String(metadata.makerNote48), '--source-profile', metadata.sourceProfile, '--source-transfer', metadata.sourceTransfer, '--orientation', String(metadata.orientation)];
-	return runPipedProcess(executable, args, input, TIMEOUT_MS);
+	return encodeAvifP3('gainmap', input, metadata);
 }
 
 async function readOutput(path: string): Promise<Uint8Array> {
@@ -179,7 +192,7 @@ function runFileProcess(executable: string, args: string[], timeoutMs: number): 
 	});
 }
 
-function runPipedProcess(executable: string, args: string[], input: Uint8Array, timeoutMs = TIMEOUT_MS): Promise<Uint8Array> {
+function runPipedProcess(executable: string, args: string[], input: Uint8Array, timeoutMs = TIMEOUT_MS, maxOutputBytes = MAX_OUTPUT_BYTES): Promise<Uint8Array> {
 	return new Promise((resolve, reject) => {
 		const child = spawn(executable, args, { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true, shell: false });
 		const chunks: Buffer[] = [];
@@ -188,7 +201,7 @@ function runPipedProcess(executable: string, args: string[], input: Uint8Array, 
 		let settled = false;
 		const finish = (error?: Error) => { if (settled) return; settled = true; clearTimeout(timeout); if (error) reject(error); else resolve(Buffer.concat(chunks)); };
 		const timeout = setTimeout(() => { child.kill('SIGKILL'); finish(new Error('spike-hdr-timeout')); }, timeoutMs);
-		child.stdout.on('data', (chunk: Buffer) => { bytes += chunk.byteLength; if (bytes > MAX_OUTPUT_BYTES) { child.kill('SIGKILL'); finish(new Error('spike-hdr-output-limit')); return; } chunks.push(chunk); });
+		child.stdout.on('data', (chunk: Buffer) => { bytes += chunk.byteLength; if (bytes > maxOutputBytes) { child.kill('SIGKILL'); finish(new Error('spike-hdr-output-limit')); return; } chunks.push(chunk); });
 		child.stderr.on('data', (chunk: Buffer) => { if (stderr.length < 4 * 1024) stderr += chunk.toString('utf8').slice(0, 4 * 1024 - stderr.length); });
 		child.on('error', (error) => finish(new Error(`spike-hdr-spawn:${error.message}`)));
 		child.on('close', (code) => code === 0 && bytes > 0 ? finish() : finish(new Error(`spike-hdr-exit:${code}:${stderr.slice(0, 200)}`)));

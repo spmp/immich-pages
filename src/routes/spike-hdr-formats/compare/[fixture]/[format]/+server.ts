@@ -16,13 +16,17 @@ export const GET: RequestHandler = ({ params, url }) => {
 	const format = FORMATS.get(params.format)!;
 	const headroom = url.searchParams.get('headroom') ?? '';
 	const gamma = url.searchParams.get('gamma') ?? '';
+	const leftParam = url.searchParams.get('left') ?? '';
+	const leftSlug = isFormatSlug(leftParam) ? leftParam : 'sdr.jpg';
+	const leftFormat = FORMATS.get(leftSlug)!;
 	const query = new URLSearchParams();
 	if (headroom) query.set('headroom', headroom);
 	if (gamma) query.set('gamma', gamma);
 	const queryString = query.toString() ? `?${query.toString()}` : '';
-	const sdrSrc = `/spike-hdr-formats/${params.fixture}/sdr.jpg`;
+	const leftSrc = `/spike-hdr-formats/${params.fixture}/${leftSlug}${queryString}`;
 	const candidateSrc = `/spike-hdr-formats/${params.fixture}/${params.format}${queryString}`;
 	const isVideo = format.tag === 'video';
+	const isLeftVideo = leftFormat.tag === 'video';
 
 	const html = `<!doctype html>
 <html>
@@ -45,15 +49,17 @@ p.note { font-size: 0.85rem; color: #555; }
 </head>
 <body>
 <p><a href="/spike-hdr-formats">&larr; back to full comparison page</a></p>
-<h1>Compare: sdr.jpg vs ${escapeHtml(params.format)} (${escapeHtml(params.fixture)})</h1>
-<p class="note">Left: SDR baseline. Right: ${escapeHtml(format.label)}. On an HDR-capable display, the right side should look visibly brighter/richer in highlights than the left if the gain map is honored.</p>
+<h1>Compare: ${escapeHtml(leftSlug)} vs ${escapeHtml(params.format)} (${escapeHtml(params.fixture)})</h1>
+<p class="note">Left: ${escapeHtml(leftFormat.label)}. Right: ${escapeHtml(format.label)}. On an HDR-capable display, the right side should look visibly brighter/richer in highlights than the left if the gain map is honored; on a non-supporting browser the two should look identical.</p>
 <form class="controls" id="overrides">
+<label>Left format <input type="text" name="left" value="${escapeHtml(leftSlug)}" list="format-options" /></label>
+<datalist id="format-options">${SPIKE_FORMATS.map((f) => `<option value="${escapeHtml(f.slug)}"></option>`).join('')}</datalist>
 <label>Headroom override <input type="number" name="headroom" step="0.1" min="1" max="16" value="${escapeHtml(headroom)}" placeholder="auto" /></label>
 <label>Gain gamma <input type="number" name="gamma" step="0.1" min="0.1" max="10" value="${escapeHtml(gamma)}" placeholder="1.0" /></label>
 <button type="submit">Apply &amp; re-encode</button>
 </form>
 <div class="compare">
-	<figure class="pane"><figcaption>SDR</figcaption><img src="${sdrSrc}" alt="sdr" /></figure>
+	<figure class="pane"><figcaption>${escapeHtml(leftSlug)}</figcaption>${isLeftVideo ? `<video src="${leftSrc}" controls autoplay playsinline muted loop></video>` : `<img src="${leftSrc}" alt="${escapeHtml(leftSlug)}" />`}</figure>
 	<figure class="pane"><figcaption>${escapeHtml(params.format)}</figcaption>${isVideo ? `<video src="${candidateSrc}" controls autoplay playsinline muted loop></video>` : `<img src="${candidateSrc}" alt="${escapeHtml(params.format)}" />`}</figure>
 </div>
 <script>
@@ -61,8 +67,10 @@ document.getElementById('overrides').addEventListener('submit', function (e) {
 	e.preventDefault();
 	var form = new FormData(e.target);
 	var params = new URLSearchParams();
+	var left = form.get('left');
 	var headroom = form.get('headroom');
 	var gamma = form.get('gamma');
+	if (left) params.set('left', left);
 	if (headroom) params.set('headroom', headroom);
 	if (gamma) params.set('gamma', gamma);
 	window.location.search = params.toString();

@@ -1,13 +1,28 @@
-// Spike (.planning/spikes/005-avif-gainmap-and-p3-preservation/): a real ISO 21496-1 gain-map
-// AVIF via libavif's native gain-map API (avifRGBImageComputeGainMap), plus a plain no-gain-map
-// AVIF control image -- both tagged with the SOURCE color primaries (Display P3 or Rec.709)
-// directly, never converted into a different gamut. Unlike hdr-ultrahdr-compositor.cpp and
-// hdr-gainmap-compositor.cpp, this deliberately does NOT apply the Display-P3-to-output matrix:
-// the user asked explicitly to preserve P3, and skipping that matrix removes a whole class of
-// approximation (it was also the source of the color-matrix cross-talk anomaly found in spike 002
-// on near-zero-blue pixels). Decode + Apple gain-map math is otherwise copied verbatim from
-// hdr-gainmap-compositor.cpp -- see that file for the validated production semantics.
-#include <avif/avif.h>
+// Spike (.planning/spikes/005-avif-gainmap-and-p3-preservation/): decode stage of a two-process
+// AVIF gain-map pipeline. Links ONLY libheif; hdr-avif-encode.cpp links ONLY libavif.
+//
+// This split exists for the same reason composeHdr/encodeHdrMp4 are already two separate spawned
+// binaries in hdr-compositor.ts (one native contract per concern), NOT because of a confirmed bug
+// in linking libheif and libavif together. An apparent "degenerate zero headroom" was chased at
+// length and looked exactly like a link-time symbol collision between the two libraries -- it
+// wasn't: the real cause was verifying output with the host dev machine's avifdec (Ubuntu
+// libavif 1.3.0), which cannot correctly read gain-map headroom metadata written by the actual
+// runtime's Alpine libavif 1.4.1. Every file that looked "broken" decoded correctly once checked
+// with a matching 1.4.1 avifdec. Lesson: always verify AVIF gain-map output with a decoder from
+// the SAME libavif version as the encoder, never whatever happens to be on the dev host.
+//
+// Outputs a small raw stream to stdout for hdr-avif-encode.cpp to consume:
+//   uint32 output_width, output_height (LE)
+//   uint32 gain_width, gain_height (0,0 for --mode sdr)
+//   sdr_rgba: output_width*output_height*4 bytes (uint8 RGBA)
+//   if gainmap: hdr_rgba: output_width*output_height*4 uint16 LE half-floats (RGBA), PQ-encoded
+//     at libavif's own 203-nits SDR-white convention (see pq_encode's comment below)
+//
+// Apple gain-map decode + reconstruction math is otherwise copied verbatim from
+// hdr-gainmap-compositor.cpp -- see that file for the validated production semantics, and
+// .planning/spikes/005-avif-gainmap-and-p3-preservation/README.md for why this deliberately skips
+// the Display-P3-to-output matrix those other compositors apply (preserving P3 was requested
+// directly, and removing the matrix also removes the color-cross-talk anomaly found in spike 002).
 #include <libheif/heif.h>
 
 #include <algorithm>
@@ -31,13 +46,6 @@ constexpr int kMaxOutputDimension = 8192;
 void check(heif_error error, const char* operation) {
   if (error.code != heif_error_Ok) {
     std::cerr << operation << ": " << error.message << "\n";
-    std::exit(1);
-  }
-}
-
-void check_avif(avifResult result, const char* operation) {
-  if (result != AVIF_RESULT_OK) {
-    std::cerr << operation << ": " << avifResultToString(result) << "\n";
     std::exit(1);
   }
 }
@@ -68,6 +76,21 @@ float sample_gain(const uint8_t* pixels, size_t stride, int width, int height, f
   const float top = at(x0, y0) * (1.0f - tx) + at(x1, y0) * tx;
   const float bottom = at(x0, y1) * (1.0f - tx) + at(x1, y1) * tx;
   return rec709_to_linear(top * (1.0f - ty) + bottom * ty);
+}
+
+// Standard SMPTE ST 2084 (PQ) OETF. libavif's AVIF_TRANSFER_CHARACTERISTICS_LINEAR is NOT
+// extended-range -- its avifToGammaLinear() clamps to [0,1] (confirmed by reading libavif's
+// src/colr.c directly), silently crushing every value above SDR white. PQ is the one transfer
+// characteristic libavif treats as extended-range ("SDR white is 1.0 (extended SDR)", see
+// avifToLinearPQ/avifToGammaPQ in src/colr.c), using a fixed 203-nits SDR reference white --
+// matching that exact convention (not this project's other 100-nits convention) is required for
+// correct round-tripping through libavif's own PQ codec, hence the literal 203.0f at the call site.
+float pq_encode(float nits) {
+  constexpr float m1 = 2610.0f / 16384.0f, m2 = 2523.0f / 32.0f;
+  constexpr float c1 = 3424.0f / 4096.0f, c2 = 2413.0f / 128.0f, c3 = 2392.0f / 128.0f;
+  const float y = std::clamp(nits / 10000.0f, 0.0f, 1.0f);
+  const float ym1 = std::pow(y, m1);
+  return std::pow((c1 + c2 * ym1) / (1.0f + c3 * ym1), m2);
 }
 
 bool parse_float(const char* value, float& result) {
@@ -105,23 +128,16 @@ uint16_t float_to_half(float f) {
   return static_cast<uint16_t>(sign | (static_cast<uint32_t>(exponent) << 10) | half_mantissa);
 }
 
-avifResult writeEncodedAvif(avifImage* image, avifRWData* output) {
-  avifEncoder* encoder = avifEncoderCreate();
-  if (!encoder) return AVIF_RESULT_UNKNOWN_ERROR;
-  encoder->quality = 90;
-  encoder->qualityGainMap = 90;
-  encoder->speed = 6;
-  avifResult result = avifEncoderAddImage(encoder, image, 1, AVIF_ADD_IMAGE_FLAG_SINGLE);
-  if (result == AVIF_RESULT_OK) result = avifEncoderFinish(encoder, output);
-  avifEncoderDestroy(encoder);
-  return result;
+void write_u32(uint32_t value) {
+  unsigned char bytes[4] = { static_cast<unsigned char>(value), static_cast<unsigned char>(value >> 8), static_cast<unsigned char>(value >> 16), static_cast<unsigned char>(value >> 24) };
+  std::cout.write(reinterpret_cast<const char*>(bytes), 4);
 }
 } // namespace
 
 int main(int argc, char** argv) {
   const char* mode = argument(argc, argv, "--mode");
   if (!mode || (std::strcmp(mode, "sdr") != 0 && std::strcmp(mode, "gainmap") != 0)) {
-    std::cerr << "usage: hdr-avif-gainmap-compositor --mode sdr|gainmap [apple metadata flags]\n";
+    std::cerr << "usage: hdr-avif-decode --mode sdr|gainmap [apple metadata flags]\n";
     return 2;
   }
   const char* version = argument(argc, argv, "--hdr-version");
@@ -135,9 +151,6 @@ int main(int argc, char** argv) {
     std::cerr << "invalid Apple HDR metadata contract\n";
     return 2;
   }
-  const bool is_display_p3 = std::strcmp(profile, "display-p3") == 0;
-  const avifColorPrimaries primaries = is_display_p3 ? AVIF_COLOR_PRIMARIES_SMPTE432 : AVIF_COLOR_PRIMARIES_BT709;
-  const avifTransferCharacteristics base_transfer = std::strcmp(transfer, "rec709") == 0 ? AVIF_TRANSFER_CHARACTERISTICS_BT709 : AVIF_TRANSFER_CHARACTERISTICS_SRGB;
 
   heif_context* context = heif_context_alloc();
   if (!context) return 1;
@@ -177,34 +190,14 @@ int main(int argc, char** argv) {
     sdr_rgba[offset + 0] = pixel[0]; sdr_rgba[offset + 1] = pixel[1]; sdr_rgba[offset + 2] = pixel[2]; sdr_rgba[offset + 3] = 255;
   }
 
-  avifImage* image = avifImageCreate(static_cast<uint32_t>(output_width), static_cast<uint32_t>(output_height), 8, AVIF_PIXEL_FORMAT_YUV420);
-  image->colorPrimaries = primaries;
-  image->transferCharacteristics = base_transfer;
-  image->matrixCoefficients = AVIF_MATRIX_COEFFICIENTS_BT601;
-  image->yuvRange = AVIF_RANGE_FULL;
-
-  avifRGBImage baseRgb;
-  avifRGBImageSetDefaults(&baseRgb, image);
-  baseRgb.format = AVIF_RGB_FORMAT_RGBA;
-  baseRgb.depth = 8;
-  baseRgb.pixels = sdr_rgba.data();
-  baseRgb.rowBytes = static_cast<uint32_t>(output_width) * 4;
-  check_avif(avifImageRGBToYUV(image, &baseRgb), "convert base RGB to YUV");
-
-  avifRWData output = AVIF_DATA_EMPTY;
   if (std::strcmp(mode, "sdr") == 0) {
-    check_avif(writeEncodedAvif(image, &output), "encode SDR AVIF");
-    std::cout.write(reinterpret_cast<const char*>(output.data), static_cast<std::streamsize>(output.size));
-    avifRWDataFree(&output);
-    avifImageDestroy(image);
+    write_u32(static_cast<uint32_t>(output_width)); write_u32(static_cast<uint32_t>(output_height));
+    write_u32(0); write_u32(0);
+    std::cout.write(reinterpret_cast<const char*>(sdr_rgba.data()), static_cast<std::streamsize>(sdr_rgba.size()));
     heif_image_release(primary); heif_image_handle_release(primary_handle); heif_context_free(context);
     return std::cout.good() ? 0 : 1;
   }
 
-  // --mode gainmap: reconstruct the Apple gain-map linear HDR buffer (same formula as
-  // hdr-gainmap-compositor.cpp), but hand it to libavif's own gain-map computation instead of
-  // PQ-encoding and muxing ourselves -- same "let the reference implementation own the spec
-  // compliance" principle as spike 002's Ultra HDR JPEG path.
   const int auxiliary_count = heif_image_handle_get_number_of_auxiliary_images(primary_handle, 0);
   std::vector<heif_item_id> auxiliary_ids(auxiliary_count);
   heif_image_handle_get_list_of_auxiliary_image_IDs(primary_handle, 0, auxiliary_ids.data(), auxiliary_count);
@@ -240,49 +233,16 @@ int main(int argc, char** argv) {
     const float g = source_to_linear(pixel[1] / 255.0f, transfer) * gain_factor;
     const float b = source_to_linear(pixel[2] / 255.0f, transfer) * gain_factor;
     const size_t offset = (static_cast<size_t>(oy) * output_width + ox) * 4;
-    hdr_rgba[offset + 0] = float_to_half(r);
-    hdr_rgba[offset + 1] = float_to_half(g);
-    hdr_rgba[offset + 2] = float_to_half(b);
+    hdr_rgba[offset + 0] = float_to_half(pq_encode(r * 203.0f));
+    hdr_rgba[offset + 1] = float_to_half(pq_encode(g * 203.0f));
+    hdr_rgba[offset + 2] = float_to_half(pq_encode(b * 203.0f));
     hdr_rgba[offset + 3] = float_to_half(1.0f);
   }
   heif_image_release(gain); heif_image_handle_release(gain_handle); heif_image_release(primary); heif_image_handle_release(primary_handle); heif_context_free(context);
 
-  // avifRGBImageSetDefaults populates maxThreads/chromaUpsampling/etc. with library-expected
-  // defaults (a manual memset left maxThreads at 0, which crashed inside the library) -- reuse
-  // the base `image` purely for its width/height, then override depth/isFloat/format/pixels.
-  avifRGBImage altRgb;
-  avifRGBImageSetDefaults(&altRgb, image);
-  altRgb.depth = 16;
-  altRgb.isFloat = AVIF_TRUE;
-  altRgb.format = AVIF_RGB_FORMAT_RGBA;
-  altRgb.pixels = reinterpret_cast<uint8_t*>(hdr_rgba.data());
-  altRgb.rowBytes = static_cast<uint32_t>(output_width) * 4 * sizeof(uint16_t);
-
-  avifGainMap* gainMap = avifGainMapCreate();
-  // gainMap->image must be pre-allocated by the caller (avif.h: "gainMap->image should be
-  // initialized with avifImageCreate() ... before calling the computation function") -- reuse the
-  // source Apple gain map's own quarter-primary-resolution convention rather than guessing a size.
-  gainMap->image = avifImageCreate(static_cast<uint32_t>(gain_width), static_cast<uint32_t>(gain_height), 8, AVIF_PIXEL_FORMAT_YUV400);
-  gainMap->useBaseColorSpace = AVIF_TRUE;
-  // Preserve P3 throughout: the alternate (HDR) representation stays in the same primaries as the
-  // base/source image, never converted into a different gamut.
-  // libavif dereferences the diagnostics pointer unconditionally (crashes on nullptr).
-  avifDiagnostics diag;
-  avifDiagnosticsClearError(&diag);
-  check_avif(avifRGBImageComputeGainMap(&baseRgb, primaries, base_transfer, &altRgb, primaries, AVIF_TRANSFER_CHARACTERISTICS_LINEAR, gainMap, &diag), "compute gain map");
-  // KNOWN OPEN QUESTION (.planning/spikes/005-): gainMap->baseHdrHeadroom/alternateHdrHeadroom
-  // consistently read back as 0 here despite gainMap->gainMapMin/Max/Gamma containing real,
-  // non-trivial per-pixel values (confirmed: our own alt buffer's actual max linear value is
-  // ~2.77, matching the expected Apple headroom, so the input data is correct) -- root cause not
-  // identified despite reading libavif's gainmap.c source. Shipping anyway for real-device
-  // verification per this project's own evidence standard: physical-device observation, not
-  // further guessing from source, is what actually answers whether this field gates rendering.
-  image->gainMap = gainMap;
-
-  check_avif(writeEncodedAvif(image, &output), "encode gain-map AVIF");
-  std::cout.write(reinterpret_cast<const char*>(output.data), static_cast<std::streamsize>(output.size));
-  const bool ok = std::cout.good();
-  avifRWDataFree(&output);
-  avifImageDestroy(image); // also destroys image->gainMap
-  return ok ? 0 : 1;
+  write_u32(static_cast<uint32_t>(output_width)); write_u32(static_cast<uint32_t>(output_height));
+  write_u32(static_cast<uint32_t>(gain_width)); write_u32(static_cast<uint32_t>(gain_height));
+  std::cout.write(reinterpret_cast<const char*>(sdr_rgba.data()), static_cast<std::streamsize>(sdr_rgba.size()));
+  std::cout.write(reinterpret_cast<const char*>(hdr_rgba.data()), static_cast<std::streamsize>(hdr_rgba.size() * sizeof(uint16_t)));
+  return std::cout.good() ? 0 : 1;
 }
