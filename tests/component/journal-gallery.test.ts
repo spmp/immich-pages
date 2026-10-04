@@ -18,7 +18,7 @@ describe('journal gallery contract', () => {
 		expect(asset).toContain('Media unavailable');
 		 expect(asset).toContain('width={lightboxWidth}');
 		expect(asset).toContain('height={lightboxHeight}');
-		expect(asset).toContain('data-pswp-src={!hdrCandidate && fullsizeAvailable && !promotedFailed ? resolvedFullsizeSource : undefined}');
+		expect(asset).toContain('data-pswp-src={!hdrCandidate ? (lightboxImageSource ?? undefined) : undefined}');
 		expect(asset).not.toMatch(/original|download/);
 	});
 
@@ -159,9 +159,9 @@ describe('journal gallery contract', () => {
 		expect(asset).toContain('supportsHdrDisplay()');
 		expect(asset).toContain('resolvedHdrSource');
 		expect(asset).toContain('data-hdr-prewarm={hdrDisplay && hdrGamut ? (resolvedHdrSource ?? undefined) : undefined}');
-		expect(asset).toContain('const hdrCandidate = $derived(Boolean(resolvedHdrSource && hdrDisplay && hdrGamut && !promotedFailed))');
-		expect(asset).toContain('const hdrPosterSource = $derived(hdrCandidate && !promotedFailed ? (resolvedFullsizeSource ?? resolvedThumbnailSource) : resolvedThumbnailSource)');
-		expect(asset).toContain('data-video-poster={hdrCandidate ? hdrPosterSource : undefined}');
+		expect(asset).toContain('const hdrCandidate = $derived(Boolean(!avifCandidate && resolvedHdrSource && hdrDisplay && hdrGamut && !promotedFailed))');
+		expect(asset).toContain('const posterSource = $derived((hdrCandidate || avifCandidate) && !promotedFailed ? (resolvedFullsizeSource ?? resolvedThumbnailSource) : resolvedThumbnailSource)');
+		expect(asset).toContain('data-video-poster={hdrCandidate ? posterSource : undefined}');
 		expect(lightbox).toContain('void video.play().then(promote).catch(() => giveUp(');
 		expect(capabilities).toContain('setTimeout(() => finish(false)');
 		expect(capabilities).toContain("src.startsWith('//')");
@@ -204,6 +204,29 @@ describe('journal gallery contract', () => {
 		expect(contentLoad).toContain('content.element = video');
 		expect(contentLoad).toContain("video.addEventListener('error', () => giveUp('video-load'))");
 		expect(contentLoad).toContain('window.setTimeout(() => giveUp(');
+	});
+
+	it('wires the AVIF HDR candidate into PhotoSwipe via a custom content type, bypassing native image decode()', () => {
+		const asset = source('GalleryAsset');
+		const lightbox = source('Lightbox');
+		expect(asset).toContain("avifCandidate ? 'hdr-image' : undefined");
+		expect(asset).toContain('data-pswp-poster={avifCandidate ? posterSource : undefined}');
+		expect(lightbox).toContain("if (element?.dataset.pswpType === 'hdr-image') return { ...itemData, type: 'hdr-image'");
+		expect(lightbox).toContain("content?.type === 'hdr-image'");
+		const contentLoad = lightbox.slice(lightbox.indexOf("instance.on('contentLoad'"), lightbox.indexOf("instance.on('loadError'"));
+		expect(contentLoad).toContain("if (content.type === 'hdr-image')");
+		// The whole point of this path is to never call decode() -- that's the API observed to
+		// stall on a slow/cold AVIF gain-map conversion and leave the slide blank. Only the plain
+		// load/error events (and the synchronous .complete check) may gate the promotion.
+		const hdrImageBlock = contentLoad.slice(contentLoad.indexOf("if (content.type === 'hdr-image')"), contentLoad.indexOf("if (content.type !== 'video') return;"));
+		expect(hdrImageBlock).not.toContain('real.decode(');
+		expect(hdrImageBlock.indexOf('content.element = placeholder')).toBeGreaterThanOrEqual(0);
+		expect(hdrImageBlock.indexOf('content.element = placeholder')).toBeLessThan(hdrImageBlock.indexOf("real.addEventListener('load'"));
+		expect(hdrImageBlock).toContain('placeholder.remove()');
+		expect(hdrImageBlock).toContain('content.element = real');
+		expect(hdrImageBlock).toContain("real.addEventListener('error', giveUp)");
+		expect(hdrImageBlock).toContain('window.setTimeout(giveUp, 30_000)');
+		expect(hdrImageBlock).toContain('if (real.complete) promote()');
 	});
 
 	it('keeps marker handoff targets focusable and lightbox-compatible', () => {

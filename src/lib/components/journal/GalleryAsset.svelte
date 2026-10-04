@@ -46,7 +46,7 @@
 	// hatch that skips this distinction entirely).
 	const avifCandidate = $derived(Boolean(resolvedHdrAvifSource && !promotedFailed && (HDR_FORCE_AVIF || (hdrDisplay && hdrGamut && avifGainMapSupported))));
 	const hdrCandidate = $derived(Boolean(!avifCandidate && resolvedHdrSource && hdrDisplay && hdrGamut && !promotedFailed));
-	const hdrPosterSource = $derived(hdrCandidate && !promotedFailed ? (resolvedFullsizeSource ?? resolvedThumbnailSource) : resolvedThumbnailSource);
+	const posterSource = $derived((hdrCandidate || avifCandidate) && !promotedFailed ? (resolvedFullsizeSource ?? resolvedThumbnailSource) : resolvedThumbnailSource);
 	const lightboxImageSource = $derived(avifCandidate ? resolvedHdrAvifSource : (fullsizeAvailable && !promotedFailed ? resolvedFullsizeSource : null));
 	const fallbackActive = $derived(resolution === 'thumbnail' && promotedFailed);
 	let lastResolutionDiagnostic = '';
@@ -202,7 +202,7 @@
 		</div>
 	{:else}
 		<div class="gallery-media-frame">
-			<a href={resolve(asset.thumbnail as any)} aria-label={label} data-media-source="thumbnail" data-lightbox-fallback="native-anchor" data-pswp-type={hdrCandidate ? 'video' : undefined} data-video-src={hdrCandidate ? resolvedHdrSource : undefined} data-video-poster={hdrCandidate ? hdrPosterSource : undefined} data-video-controls={hdrCandidate ? 'false' : undefined} data-pswp-src={!hdrCandidate ? (lightboxImageSource ?? undefined) : undefined} data-pswp-width={lightboxWidth} data-pswp-height={lightboxHeight}>
+			<a href={resolve(asset.thumbnail as any)} aria-label={label} data-media-source="thumbnail" data-lightbox-fallback="native-anchor" data-pswp-type={hdrCandidate ? 'video' : avifCandidate ? 'hdr-image' : undefined} data-video-src={hdrCandidate ? resolvedHdrSource : undefined} data-video-poster={hdrCandidate ? posterSource : undefined} data-video-controls={hdrCandidate ? 'false' : undefined} data-pswp-src={!hdrCandidate ? (lightboxImageSource ?? undefined) : undefined} data-pswp-poster={avifCandidate ? posterSource : undefined} data-pswp-width={lightboxWidth} data-pswp-height={lightboxHeight}>
 				<img src={mediaSource} alt={label} loading="lazy" width={lightboxWidth} height={lightboxHeight} data-media-source={resolution} bind:naturalWidth bind:naturalHeight onload={handleMediaLoad} onerror={handleMediaError} />
 			</a>
 		</div>

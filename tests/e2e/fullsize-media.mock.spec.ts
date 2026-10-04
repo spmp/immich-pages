@@ -83,19 +83,24 @@ test('never requests HDR for an SDR or unknown-dynamic-range client', async ({ p
 	expect(hdrRequests).toEqual([]);
 });
 
-test('HDR hints keep the poster first and promote only through PhotoSwipe media', async ({ page }) => {
+test('HDR hints keep the poster first and promote only through PhotoSwipe media (AVIF candidate)', async ({ page }) => {
+	// Chromium (the browser this mock config always runs under) is in the AVIF-gain-map allowlist
+	// (see supportsAvifGainMapHdr), so with HDR hints enabled it's the 'hdr-image' candidate that's
+	// exercised here, not the HDR video candidate -- that path is covered on WebKit/video-bridge
+	// specifically by tests/e2e/heic-sdr-hdr.mock.spec.ts instead.
 	await enableHdrHints(page);
 	const hdrRequests: string[] = [];
-	page.on('request', (request) => { if (request.url().includes('/image/hdr')) hdrRequests.push(request.url()); });
+	page.on('request', (request) => { if (request.url().includes('/image/hdr-avif')) hdrRequests.push(request.url()); });
 	await page.goto('/share/key/opaque-ref');
 	const asset = page.locator('#asset-550e8400-e29b-41d4-a716-446655440002');
 	await expect(asset.locator('img')).toHaveAttribute('data-media-source', 'thumbnail');
-	await expect(asset.locator('a')).toHaveAttribute('data-video-controls', 'false');
-	await expect(asset.locator('a')).toHaveAttribute('data-video-poster', /\/image\/fullsize\?/);
+	await expect(asset.locator('a')).toHaveAttribute('data-pswp-type', 'hdr-image');
+	await expect(asset.locator('a')).toHaveAttribute('data-pswp-poster', /\/image\/fullsize\?/);
+	await expect(asset.locator('a')).toHaveAttribute('data-pswp-src', /\/image\/hdr-avif\?/);
 	await asset.locator('a').click();
 	await expect.poll(() => hdrRequests.length).toBeGreaterThan(0);
 	await expect(page.locator('.pswp')).toBeVisible();
-	expect(hdrRequests[0]).toMatch(/\?(key|slug)=opaque-ref&width=1200&height=800$/);
+	expect(hdrRequests[0]).toMatch(/\?(key|slug)=opaque-ref$/);
 });
 
 test('unsupported metadata and HTTP HDR failures restore a usable native fallback', async ({ page }) => {

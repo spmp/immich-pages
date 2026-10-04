@@ -100,23 +100,79 @@
 				lightbox = instance;
 				instance.addFilter('itemData', (itemData: any) => {
 					const element = itemData.element as HTMLAnchorElement | undefined;
-					return element?.dataset.pswpType === 'video'
-						? { ...itemData, type: 'video', src: element.dataset.videoSrc, poster: element.dataset.videoPoster }
-						: element?.dataset.pswpSrc
-							? { ...itemData, src: element.dataset.pswpSrc }
-						: itemData;
+					if (element?.dataset.pswpType === 'video') return { ...itemData, type: 'video', src: element.dataset.videoSrc, poster: element.dataset.videoPoster };
+					if (element?.dataset.pswpType === 'hdr-image') return { ...itemData, type: 'hdr-image', src: element.dataset.pswpSrc, poster: element.dataset.pswpPoster };
+					return element?.dataset.pswpSrc ? { ...itemData, src: element.dataset.pswpSrc } : itemData;
 				});
-				// The HDR candidate is a disguised still image (single frame, muted, looped, no
-				// controls) wearing a <video> element only because this is the one representation
+				// The HDR video candidate is a disguised still image (single frame, muted, looped,
+				// no controls) wearing a <video> element only because this is the one representation
 				// that actually renders HDR on real devices (see .planning/spikes/). An ordinary
 				// authored video keeps PhotoSwipe's default non-zoomable video behavior -- pinch-zoom
-				// fighting with playback controls/seeking makes no sense there.
+				// fighting with playback controls/seeking makes no sense there. The 'hdr-image' type
+				// (AVIF gain-map candidate) also needs to opt in explicitly since it isn't PhotoSwipe's
+				// native 'image' type -- see the contentLoad handler below for why.
 				instance.addFilter('isContentZoomable', (isContentZoomable: boolean, content: any) => {
-					const isHdrCandidate = content?.data?.element?.dataset.videoControls === 'false';
-					return isHdrCandidate ? true : isContentZoomable;
+					const isHdrVideoCandidate = content?.data?.element?.dataset.videoControls === 'false';
+					const isHdrImageCandidate = content?.type === 'hdr-image';
+					return (isHdrVideoCandidate || isHdrImageCandidate) ? true : isContentZoomable;
 				});
 				instance.on('contentLoad', (event: any) => {
 					const { content } = event;
+					if (content.type === 'hdr-image') {
+						event.preventDefault();
+						const label = content.data.element?.getAttribute('aria-label') ?? 'Journey photograph';
+
+						// PhotoSwipe's native image pipeline gates DOM insertion behind HTMLImageElement.decode()
+						// on Safari (a workaround for a *different*, partial-rendering Safari bug) -- but decode()
+						// can take far longer than a plain load/complete check for a large AVIF with an embedded
+						// HDR gain map, especially on a cold/uncached first conversion. When decode() stalls,
+						// PhotoSwipe's own onload-driven state machine still marks the content "loaded" and
+						// removes the placeholder/spinner, leaving a blank slide with nothing ever appended --
+						// the real image is silently stuck behind decode() forever. Sidestep the native pipeline
+						// entirely for this content type, same approach already used for the HDR video candidate
+						// below: show the already-working SDR image until our own out-of-band load has actually
+						// finished, using only the plain load/error events -- never decode() -- since decode() is
+						// exactly the API that stalls.
+						const placeholder = document.createElement('img');
+						if (content.data.poster) placeholder.src = content.data.poster;
+						placeholder.alt = label;
+						placeholder.className = 'pswp__img';
+						content.element = placeholder;
+						content.state = 'loading';
+
+						const real = new Image();
+						real.alt = label;
+						real.className = 'pswp__img';
+
+						let settled = false;
+						let hdrTimeout: number | undefined;
+						const finish = () => {
+							if (hdrTimeout !== undefined) window.clearTimeout(hdrTimeout);
+							content.state = 'loaded';
+							content.instance?.dispatch?.('loadComplete', { slide: content.slide, content });
+						};
+						const giveUp = () => {
+							if (settled) return;
+							settled = true;
+							finish();
+							reportJournalDebug('media-failure', { category: 'image', status: 'unavailable', errorContext: 'image-load', failureCategory: 'decode' });
+							// The placeholder <img> is already the visible, correct content; nothing to swap.
+						};
+						const promote = () => {
+							if (settled) return;
+							settled = true;
+							finish();
+							placeholder.remove();
+							content.element = real;
+							content.slide?.container.appendChild(real);
+						};
+						real.addEventListener('error', giveUp);
+						real.addEventListener('load', promote, { once: true });
+						hdrTimeout = window.setTimeout(giveUp, 30_000);
+						real.src = content.data.src;
+						if (real.complete) promote();
+						return;
+					}
 					if (content.type !== 'video') return;
 					event.preventDefault();
 					const controlsDisabled = content.data.element?.dataset.videoControls === 'false';

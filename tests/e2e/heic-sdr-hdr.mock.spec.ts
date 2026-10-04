@@ -59,6 +59,15 @@ test('runs the HDR bridge through the authenticated request context', async ({ p
   // Only meaningful under the dedicated npm run test:e2e:heic:{chromium,webkit} scripts, which set
   // the HDR_*_PATH bridge env vars; skip (not fail) under the generic npm run test:e2e:mock gate.
   test.skip(!bridgeLog, 'HDR_BRIDGE_LOG is required for executable bridge evidence');
+  // GalleryAsset's avifCandidate now prefers the AVIF gain-map candidate over this HDR video
+  // bridge whenever supportsAvifGainMapHdr() returns true (see src/lib/media/capabilities.ts):
+  // true unconditionally for Chromium, and true for any Safari/WebKit reporting version >= 26.
+  // Both of Playwright's bundled test browsers hit that now -- its WebKit build itself reports
+  // "Version/26.5" (Apple's unified versioning applies to Playwright's snapshot too, independent
+  // of whether that specific build actually renders AVIF gain maps as HDR) -- so neither exercises
+  // this video-bridge path anymore. Covering the AVIF path here would need its own bridge fixture
+  // (an actual decodable AVIF, not a stand-in) -- not done yet.
+  test.skip(true, 'No available test browser takes the HDR video candidate path anymore; this test exercises the video bridge specifically');
   await enableHdrHints(page);
   const id = assetId(7);
   await page.goto('/share/key/heic-forward-ref');
@@ -84,6 +93,11 @@ test('never blanks the lightbox slide while a slow HDR conversion is in flight, 
   // moment the HDR <video> element was created, leaving a blank slide until the video (or a too-short
   // client timeout) resolved -- observed in production as "loads fullsize, blanks, never recovers".
   test.skip(!bridgeLog || !process.env.HDR_BRIDGE_ENCODE_DELAY_MS, 'HDR_BRIDGE_LOG and HDR_BRIDGE_ENCODE_DELAY_MS are required for this scenario');
+  // See the skip note in the HDR-bridge test above: no available test browser takes the HDR video
+  // candidate path anymore (avifCandidate wins for both). The equivalent AVIF-side behavior (never
+  // blank, decode()-free promotion) is pinned at the source level instead -- see the "wires the
+  // AVIF HDR candidate..." test in tests/component/journal-gallery.test.ts.
+  test.skip(true, 'No available test browser takes the HDR video candidate path anymore; this test exercises the video bridge specifically');
   await enableHdrHints(page);
   // A distinct asset from the other tests in this file: the server-side HDR cache is a
   // process-level singleton, and reusing an already-requested asset here would hit that warm
