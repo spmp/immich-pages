@@ -162,6 +162,14 @@
 							if (settled) return;
 							settled = true;
 							finish();
+							// PhotoSwipe sizes a content's element by setting explicit inline width/height
+							// on it directly (Content.setDisplayedSize -> setWidthHeight), keyed to whichever
+							// element is currently content.element -- swapping the reference to `real` here
+							// without copying that over leaves `real` unsized (shows at native pixel size,
+							// i.e. "fully zoomed in") since nothing re-triggers a resize just because the
+							// element reference changed. Copy the already-correct box straight across.
+							real.style.width = placeholder.style.width;
+							real.style.height = placeholder.style.height;
 							placeholder.remove();
 							content.element = real;
 							content.slide?.container.appendChild(real);

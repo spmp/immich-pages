@@ -11,13 +11,23 @@ export const HDR_COMPOSITOR_MAX_INPUT_BYTES = 100 * 1024 * 1024;
 export const HDR_COMPOSITOR_MAX_OUTPUT_BYTES = 64 * 1024 * 1024;
 export const HDR_FFMPEG_TIMEOUT_MS = positiveEnv('HDR_FFMPEG_TIMEOUT_MS', 8_000, 120_000);
 export const HDR_FFMPEG_MAX_OUTPUT_BYTES = 64 * 1024 * 1024;
-export const HDR_AVIF_DECODE_TIMEOUT_MS = positiveEnv('HDR_AVIF_DECODE_TIMEOUT_MS', 8_000, 120_000);
+// Full-resolution decode + a dense per-pixel gain-map reconstruction (not a single video frame)
+// legitimately takes longer than the HEVC path's 8s default, especially for real 48MP Apple
+// photos -- the original 8s default silently 502'd every photo whose native resolution pushed
+// either stage past it, which looked like "most photos work, a few just never convert."
+export const HDR_AVIF_DECODE_TIMEOUT_MS = positiveEnv('HDR_AVIF_DECODE_TIMEOUT_MS', 20_000, 120_000);
 // The decode stage's output is an uncompressed intermediate (SDR 8-bit RGBA + HDR 16-bit
-// half-float RGBA, ~109MB for a 4032x2268 photo) piped straight into the encode stage, never
-// stored or cached -- a generous bound here is fine.
-export const HDR_AVIF_DECODE_MAX_OUTPUT_BYTES = 256 * 1024 * 1024;
-export const HDR_AVIF_ENCODE_TIMEOUT_MS = positiveEnv('HDR_AVIF_ENCODE_TIMEOUT_MS', 8_000, 120_000);
-export const HDR_AVIF_ENCODE_MAX_OUTPUT_BYTES = 64 * 1024 * 1024;
+// half-float RGBA = 12 bytes/pixel), piped straight into the encode stage, never stored or
+// cached. hdr-avif-decode.cpp's own kMaxPixels (64 megapixels, comfortably above Apple's current
+// 48MP sensors) is the real ceiling; size this bound to match it exactly (64*1024*1024*12 bytes)
+// rather than an arbitrary round number that quietly truncates real full-resolution photos --
+// the original 256MB bound rejected anything above ~22 megapixels, which is exactly the "some
+// photos just never show HDR, reproducibly" symptom.
+export const HDR_AVIF_DECODE_MAX_OUTPUT_BYTES = 64 * 1024 * 1024 * 12;
+export const HDR_AVIF_ENCODE_TIMEOUT_MS = positiveEnv('HDR_AVIF_ENCODE_TIMEOUT_MS', 20_000, 120_000);
+// The final compressed AVIF, for the same largest-real-photo case above -- AVIF compresses well
+// even with a gain map, but 64MB was sized for the ~9-megapixel spike fixture, not a 48MP photo.
+export const HDR_AVIF_ENCODE_MAX_OUTPUT_BYTES = 128 * 1024 * 1024;
 export type NativeFailureReason = 'read' | 'primary-decode' | 'gain-map-missing' | 'gain-map-decode' | 'metadata-invalid' | 'ffmpeg' | 'compositor-timeout' | 'ffmpeg-timeout' | 'compositor-spawn' | 'ffmpeg-spawn' | 'compositor-exit' | 'ffmpeg-exit' | 'avif-decode-timeout' | 'avif-encode-timeout' | 'avif-decode-spawn' | 'avif-encode-spawn' | 'avif-decode-exit' | 'avif-encode-exit' | 'unknown';
 
 export async function composeHdr(input: Uint8Array, metadata: AppleHdrMetadata, options: { executable?: string; timeoutMs?: number; invocationId?: string } = {}): Promise<Uint8Array> {

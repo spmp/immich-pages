@@ -222,6 +222,11 @@ describe('journal gallery contract', () => {
 		expect(hdrImageBlock).not.toContain('real.decode(');
 		expect(hdrImageBlock.indexOf('content.element = placeholder')).toBeGreaterThanOrEqual(0);
 		expect(hdrImageBlock.indexOf('content.element = placeholder')).toBeLessThan(hdrImageBlock.indexOf("real.addEventListener('load'"));
+		// PhotoSwipe sizes a content's element via explicit inline width/height keyed to whichever
+		// element is currently content.element; swapping the reference without copying that over
+		// leaves the promoted image unsized ("loads at full/native zoom instead of fit-to-screen").
+		expect(hdrImageBlock.indexOf("real.style.width = placeholder.style.width")).toBeGreaterThanOrEqual(0);
+		expect(hdrImageBlock.indexOf("real.style.width = placeholder.style.width")).toBeLessThan(hdrImageBlock.indexOf('placeholder.remove()'));
 		expect(hdrImageBlock).toContain('placeholder.remove()');
 		expect(hdrImageBlock).toContain('content.element = real');
 		expect(hdrImageBlock).toContain("real.addEventListener('error', giveUp)");
