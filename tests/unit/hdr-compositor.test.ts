@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const { spawn } = vi.hoisted(() => ({ spawn: vi.fn() }));
 vi.mock('node:child_process', () => ({ spawn }));
 
-import { composeHdr, encodeHdrMp4 } from '../../src/lib/server/media/hdr-compositor';
+import { composeHdr, decodeHdrAvifStream, encodeHdrAvif, encodeHdrMp4 } from '../../src/lib/server/media/hdr-compositor';
 
 function childFor(output: string) {
 	const child = new EventEmitter() as EventEmitter & { stdin: EventEmitter & { end: (input: Uint8Array) => void }; stdout: EventEmitter; stderr: EventEmitter; kill: ReturnType<typeof vi.fn> };
@@ -34,6 +34,22 @@ describe('HDR native process contracts', () => {
 		const [, args] = spawn.mock.calls[0];
 		expect(args).toEqual(expect.arrayContaining(['-frames:v', '1', '-c:v', 'libx265', '-profile:v', 'main10', '-pix_fmt', 'yuv420p10le', '-color_primaries', 'bt2020', '-color_trc', 'smpte2084', '-colorspace', 'bt2020nc', '-movflags', 'frag_keyframe+empty_moov+default_base_moof', '-f', 'mp4', 'pipe:1']));
 		expect(args.join(' ')).not.toContain('h=-2');
+	});
+
+	it('decodes to a gain-map stream with the fixed Apple metadata CLI contract', async () => {
+		spawn.mockReturnValue(childFor('stream'));
+		await expect(decodeHdrAvifStream(new Uint8Array([1]), metadata)).resolves.toEqual(Buffer.from('stream'));
+		const [executable, args] = spawn.mock.calls[0];
+		expect(executable).toBe('/usr/local/bin/hdr-avif-decode');
+		expect(args).toEqual(['--mode', 'gainmap', '--hdr-version', '1.0', '--maker-note-33', '0.8', '--maker-note-48', '0.4', '--source-profile', 'display-p3', '--source-transfer', 'srgb', '--orientation', '1']);
+	});
+
+	it('encodes the decoded stream with only the source color contract, preserving P3', async () => {
+		spawn.mockReturnValue(childFor('avif'));
+		await expect(encodeHdrAvif(new Uint8Array([1, 2, 3]), metadata)).resolves.toEqual(Buffer.from('avif'));
+		const [executable, args] = spawn.mock.calls[0];
+		expect(executable).toBe('/usr/local/bin/hdr-avif-encode');
+		expect(args).toEqual(['--source-profile', 'display-p3', '--source-transfer', 'srgb']);
 	});
 
 	it('keeps Apple metadata and native pixel invariants visible in source', () => {

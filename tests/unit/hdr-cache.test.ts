@@ -16,6 +16,13 @@ describe('HDR media cache', () => {
 		expect(create).toHaveBeenCalledTimes(1);
 	});
 
+	it('caches an AVIF gain-map representation alongside the HEVC/MP4 one', async () => {
+		const create = vi.fn(async () => ({ body: new Uint8Array([1]), contentType: 'image/avif' }));
+		await getOrCreateHdr('avif-asset', create);
+		await getOrCreateHdr('avif-asset', create);
+		expect(create).toHaveBeenCalledTimes(1);
+	});
+
 	it('does not cache an unvalidated representation', async () => {
 		const create = vi.fn(async () => ({ body: new Uint8Array([1]), contentType: 'image/jpeg' }));
 		await getOrCreateHdr('invalid', create);

@@ -3,9 +3,10 @@
 	import type { NormalizedAsset } from '$server/presentation/model';
 	import { onMount } from 'svelte';
 	import { chooseResolution, requiredWidth, selectTargetResolution } from '$lib/media/resolution';
-	import { probeImageDecode, supportsHdrDisplay, supportsWideColorGamut } from '$lib/media/capabilities';
+	import { HDR_FORCE_AVIF, probeImageDecode, supportsAvifGainMapHdr, supportsHdrDisplay, supportsWideColorGamut } from '$lib/media/capabilities';
 	import { journalDebugEnabled, reportJournalDebug } from './journal-debug';
 	let { asset, layoutWidth, layoutHeight, layoutMeasured = false }: { asset: NormalizedAsset & { width?: number | null; height?: number | null; videoHref?: string; fullWidth?: boolean }; layoutWidth?: number; layoutHeight?: number; layoutMeasured?: boolean } = $props();
+	let avifGainMapSupported = $state(false);
 	let failed = $state(false);
 	let naturalWidth = $state(0);
 	let naturalHeight = $state(0);
@@ -36,9 +37,17 @@
 	const resolvedThumbnailSource = $derived(resolve(asset.thumbnail as any));
 	const resolvedFullsizeSource = $derived(asset.fullsize ? resolve(asset.fullsize as any) : null);
 	const resolvedHdrSource = $derived(asset.hdrHref ? addResolutionQuery(resolve(asset.hdrHref as any), hdrTarget) : null);
+	const resolvedHdrAvifSource = $derived(asset.hdrAvifHref ? resolve(asset.hdrAvifHref as any) : null);
 	const fullsizeAvailable = $derived(Boolean(asset.fullsize));
-	const hdrCandidate = $derived(Boolean(resolvedHdrSource && hdrDisplay && hdrGamut && !promotedFailed));
+	// AVIF is preferred whenever it's known (or forced) to render as real HDR -- its gain map
+	// degrades to a correct, identical-looking SDR image on any decoder that ignores it, so the
+	// video candidate is only needed for the specific gap of an HDR-capable display paired with an
+	// AVIF decoder that doesn't honor the gain map (see HDR_FORCE_AVIF doc comment for the escape
+	// hatch that skips this distinction entirely).
+	const avifCandidate = $derived(Boolean(resolvedHdrAvifSource && !promotedFailed && (HDR_FORCE_AVIF || (hdrDisplay && hdrGamut && avifGainMapSupported))));
+	const hdrCandidate = $derived(Boolean(!avifCandidate && resolvedHdrSource && hdrDisplay && hdrGamut && !promotedFailed));
 	const hdrPosterSource = $derived(hdrCandidate && !promotedFailed ? (resolvedFullsizeSource ?? resolvedThumbnailSource) : resolvedThumbnailSource);
+	const lightboxImageSource = $derived(avifCandidate ? resolvedHdrAvifSource : (fullsizeAvailable && !promotedFailed ? resolvedFullsizeSource : null));
 	const fallbackActive = $derived(resolution === 'thumbnail' && promotedFailed);
 	let lastResolutionDiagnostic = '';
 	function addResolutionQuery(source: string, target: { width: number; height: number } | null) {
@@ -164,6 +173,7 @@
 		dpr = typeof window.devicePixelRatio === 'number' && window.devicePixelRatio > 0 ? window.devicePixelRatio : 1;
 		hdrDisplay = supportsHdrDisplay();
 		hdrGamut = supportsWideColorGamut();
+		avifGainMapSupported = supportsAvifGainMapHdr();
 		measured = true;
 	});
 	let probedFullsizeSource = '';
@@ -192,7 +202,7 @@
 		</div>
 	{:else}
 		<div class="gallery-media-frame">
-			<a href={resolve(asset.thumbnail as any)} aria-label={label} data-media-source="thumbnail" data-lightbox-fallback="native-anchor" data-pswp-type={hdrCandidate ? 'video' : undefined} data-video-src={hdrCandidate ? resolvedHdrSource : undefined} data-video-poster={hdrCandidate ? hdrPosterSource : undefined} data-video-controls={hdrCandidate ? 'false' : undefined} data-pswp-src={!hdrCandidate && fullsizeAvailable && !promotedFailed ? resolvedFullsizeSource : undefined} data-pswp-width={lightboxWidth} data-pswp-height={lightboxHeight}>
+			<a href={resolve(asset.thumbnail as any)} aria-label={label} data-media-source="thumbnail" data-lightbox-fallback="native-anchor" data-pswp-type={hdrCandidate ? 'video' : undefined} data-video-src={hdrCandidate ? resolvedHdrSource : undefined} data-video-poster={hdrCandidate ? hdrPosterSource : undefined} data-video-controls={hdrCandidate ? 'false' : undefined} data-pswp-src={!hdrCandidate ? (lightboxImageSource ?? undefined) : undefined} data-pswp-width={lightboxWidth} data-pswp-height={lightboxHeight}>
 				<img src={mediaSource} alt={label} loading="lazy" width={lightboxWidth} height={lightboxHeight} data-media-source={resolution} bind:naturalWidth bind:naturalHeight onload={handleMediaLoad} onerror={handleMediaError} />
 			</a>
 		</div>

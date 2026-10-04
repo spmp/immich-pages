@@ -50,7 +50,7 @@ async function assemblePageModel(provider: ImmichProvider, context: AuthContext,
 			id: asset.id, type: asset.type,
 			thumbnail: `${mediaPath(asset.id)}/thumbnail${shareQuery}`
 			, ...(asset.type !== 'VIDEO' ? { fullsize: `${mediaPath(asset.id)}/image/fullsize${shareQuery}` } : {})
-			, ...(mayContainHdr ? { hdrHref: `${mediaPath(asset.id)}/image/hdr${shareQuery}` } : {})
+			, ...(mayContainHdr ? { hdrHref: `${mediaPath(asset.id)}/image/hdr${shareQuery}`, hdrAvifHref: `${mediaPath(asset.id)}/image/hdr-avif${shareQuery}` } : {})
 			, ...(asset.originalMimeType?.startsWith('image/') ? { sourceMimeType: asset.originalMimeType } : {})
 		};
 		return {

@@ -1,3 +1,35 @@
+import { env } from '$env/dynamic/public';
+
+/** Escape hatch for the heuristic below: when set, every HDR-eligible asset serves the AVIF
+ * gain-map candidate regardless of display/engine, relying entirely on the format's own
+ * automatic SDR degrade on decoders that don't understand the gain map. Useful for gathering
+ * real-world results across devices faster than the allowlist below can be hand-maintained. */
+export const HDR_FORCE_AVIF = env.PUBLIC_HDR_FORCE_AVIF === 'true';
+
+/** No browser API reports "this decoder honors AVIF gain maps as real HDR" -- a standards-
+ * compliant AVIF decoder that ignores the gain map still decodes successfully, just flat/SDR, so
+ * decode-success probing (see probeImageDecode below) can't distinguish the two cases either.
+ * This is therefore a hand-maintained allowlist based on direct real-device observation:
+ * Chromium (desktop, confirmed) renders the gain map correctly; Safari's support threshold is
+ * still being pinned down (WebKit 18.6 confirmed NOT to show real HDR; iOS 26 is the first
+ * version under live test). Update AVIF_GAINMAP_MIN_SAFARI_VERSION once that result is in. */
+const AVIF_GAINMAP_MIN_SAFARI_VERSION = 26;
+
+function safariVersion(ua: string): number | null {
+	if (!/Safari\//.test(ua) || /Chrome\/|Chromium\/|CriOS\/|FxiOS\/|EdgiOS\//.test(ua)) return null;
+	const match = ua.match(/Version\/(\d+)/);
+	return match ? Number(match[1]) : null;
+}
+
+export function supportsAvifGainMapHdr(): boolean {
+	if (HDR_FORCE_AVIF) return true;
+	if (typeof navigator === 'undefined') return false;
+	const ua = navigator.userAgent;
+	if (/Chrome\/|Chromium\//.test(ua) && !/Edg\//.test(ua)) return true;
+	const safari = safariVersion(ua);
+	return safari !== null && safari >= AVIF_GAINMAP_MIN_SAFARI_VERSION;
+}
+
 /** Browser-only capability checks. They are presentation hints, never auth decisions. */
 export function supportsHdrDisplay(): boolean {
 	return typeof window !== 'undefined' && typeof window.matchMedia === 'function' && window.matchMedia('(dynamic-range: high)').matches;

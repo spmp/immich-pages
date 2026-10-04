@@ -61,7 +61,7 @@ export function getCachedHdr(key: string, now = Date.now()): CachedMedia | undef
 
 function cacheSuccessful(key: string, value: CachedMedia): CachedMedia {
 	if (!(value.body instanceof Uint8Array) || value.body.byteLength === 0 || value.body.byteLength > HDR_CACHE_MAX_BYTES) return value;
-	if (!/^video\/mp4$/i.test(value.contentType)) return value;
+	if (!/^(video\/mp4|image\/avif)$/i.test(value.contentType)) return value;
 	const old = entries.get(key);
 	if (old) totalBytes -= old.bytes;
 	entries.delete(key);
