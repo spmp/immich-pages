@@ -45,6 +45,10 @@ body { font-family: system-ui, sans-serif; margin: 1rem; }
 .pane img, .pane video { display: block; width: 100%; height: auto; }
 .pane figcaption { font-size: 0.85rem; margin-bottom: 0.25rem; font-weight: bold; }
 p.note { font-size: 0.85rem; color: #555; }
+@media (max-width: 800px) {
+	.compare { flex-direction: column; }
+	.pane { max-width: 100%; }
+}
 </style>
 </head>
 <body>
