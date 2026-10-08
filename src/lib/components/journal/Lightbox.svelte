@@ -4,6 +4,13 @@
 	import { reportJournalDebug } from './journal-debug';
 	let { galleryId }: { galleryId: string } = $props();
 	let status = $state<'loading' | 'ready' | 'failed'>('loading');
+	// Visible, no-devtools-needed answer to "is what's currently showing actually the promoted
+	// HDR media, or still the SDR placeholder/a failure?" -- requested after the zoom-button tint
+	// alone wasn't enough to tell "detected as HDR" apart from "this specific slide's media never
+	// promoted." Guarded by a content-identity check wherever it's set so a background/preloaded
+	// neighboring slide's late network result can't overwrite the text for whatever is actually
+	// on screen now.
+	let hdrStatus = $state('');
 
 	onMount(() => {
 		let lightbox: any;
@@ -32,6 +39,19 @@
 				const content = lightbox?.pswp?.currSlide?.content;
 				const isHdrCandidate = content?.type === 'hdr-image' || (content?.type === 'video' && content?.data?.element?.dataset.videoControls === 'false');
 				root?.toggleAttribute('data-pswp-hdr-active', Boolean(isHdrCandidate));
+				// Reset on every slide change; the content-identity-guarded setHdrStatus calls inside
+				// the contentLoad handlers below will promptly repopulate it for whichever slide is
+				// now current. (A slide that already fully resolved in the background while it was a
+				// preloaded neighbor, not yet current, won't have its text restored here -- a known,
+				// low-stakes gap for the rapid-preloaded-swiping case, not the single-photo-view case
+				// this was built to answer.)
+				if (!isHdrCandidate) hdrStatus = '';
+			};
+			// Only applied if `content` is still the actively-displayed slide at the moment it
+			// resolves -- a late network result for a background/preloaded neighboring slide must not
+			// overwrite the status text for whatever the viewer is actually looking at right now.
+			const setHdrStatus = (content: any, text: string) => {
+				if (content === lightbox?.pswp?.currSlide?.content) hdrStatus = text;
 			};
 		const onKeydown = (event: KeyboardEvent) => {
 			const root = document.querySelector<HTMLElement>('.pswp--open');
@@ -149,6 +169,7 @@
 						placeholder.className = 'pswp__img';
 						content.element = placeholder;
 						content.state = 'loading';
+						setHdrStatus(content, 'AVIF HDR image: loading…');
 
 						const real = new Image();
 						real.alt = label;
@@ -165,6 +186,7 @@
 							if (settled) return;
 							settled = true;
 							finish();
+							setHdrStatus(content, 'AVIF HDR image: failed, showing SDR photo');
 							reportJournalDebug('media-failure', { category: 'image', status: 'unavailable', errorContext: 'image-load', failureCategory: 'decode' });
 							// The placeholder <img> is already the visible, correct content; nothing to swap.
 						};
@@ -172,6 +194,7 @@
 							if (settled) return;
 							settled = true;
 							finish();
+							setHdrStatus(content, 'AVIF HDR image: loaded');
 							// PhotoSwipe sizes a content's element by setting explicit inline width/height
 							// on it directly (Content.setDisplayedSize -> setWidthHeight), keyed to whichever
 							// element is currently content.element -- swapping the reference to `real` here
@@ -225,6 +248,7 @@
 					placeholder.alt = label;
 					placeholder.className = 'pswp__img';
 					content.element = placeholder;
+					setHdrStatus(content, 'HDR video: loading…');
 
 					const video = document.createElement('video');
 					video.src = content.data.src;
@@ -250,6 +274,7 @@
 						video.pause();
 						video.removeAttribute('src');
 						video.load();
+						setHdrStatus(content, errorContext === 'video-playback' ? 'HDR video: failed to play, showing SDR photo' : 'HDR video: failed to load, showing SDR photo');
 						reportJournalDebug('media-failure', { category: 'video', status: 'unavailable', errorContext, failureCategory: errorContext === 'video-playback' ? 'playback' : 'decode' });
 						// The placeholder <img> is already the visible, correct content; nothing to swap.
 					};
@@ -257,6 +282,7 @@
 						if (settled || content.type !== 'video') return;
 						settled = true;
 						if (hdrTimeout !== undefined) window.clearTimeout(hdrTimeout);
+						setHdrStatus(content, 'HDR video: playing');
 						// content.load()/content.append() are one-shot (guarded by content.isAttached,
 						// already set true when the placeholder was attached) and will not re-run content
 						// creation for an already-attached slide; PhotoSwipe's own Content.append() does
@@ -364,6 +390,8 @@
 
 <p class="sr-only" aria-live="polite" data-pswp-announcement data-lightbox-status={status}>Images open in the full-screen viewer. Use Escape to close. <span aria-label="Close full-screen viewer"></span></p>
 
+{#if hdrStatus}<p class="hdr-status" data-pswp-hdr-status>{hdrStatus}</p>{/if}
+
 <style>
 	.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
 	:global(.pswp) {
@@ -378,8 +406,29 @@
 	:global(.pswp__video) { display: block; max-width: 100%; max-height: 100%; width: auto; height: auto; object-fit: contain; }
 	/* Diagnostic only: identifies a slide pages has detected as carrying a real Apple gain map,
 	   independent of whether this device/browser actually renders it as HDR. The zoom icon's
-	   fill comes from the --pswp-icon-color custom property (photoswipe.css), not plain `color`
-	   -- only its inner crosshair bars use currentColor, so overriding `color` alone would leave
-	   the outer magnifying-glass shape un-tinted. */
-	:global(.pswp[data-pswp-hdr-active] .pswp__button--zoom) { --pswp-icon-color: lightblue; --pswp-icon-color-secondary: lightblue; }
+	   fill comes from the --pswp-icon-color custom property (photoswipe.css); only its inner
+	   crosshair bars use currentColor (bound to --pswp-icon-color-secondary), which defaults to
+	   a dark grey that gives the "+" contrast against the white glass shape -- overriding both
+	   to the same light blue erased that contrast, making the "+" invisible against itself.
+	   Only tint the glass shape; leave the secondary color at its default for contrast. */
+	:global(.pswp[data-pswp-hdr-active] .pswp__button--zoom) { --pswp-icon-color: lightblue; }
+	/* Diagnostic only, same purpose as the zoom-button tint above: a plain-language, no-devtools-
+	   needed answer to "is what's on screen right now actually the promoted HDR media, or still
+	   the SDR placeholder/a failure." Only rendered while non-empty (i.e. only while a lightbox
+	   slide with a real gain map is loading/resolved), so it's invisible the rest of the time. */
+	.hdr-status {
+		position: fixed;
+		z-index: 100000;
+		top: max(8px, env(safe-area-inset-top));
+		left: 50%;
+		transform: translateX(-50%);
+		margin: 0;
+		padding: 4px 10px;
+		font-size: 13px;
+		line-height: 1.4;
+		color: #fff;
+		background: rgba(0, 0, 0, 0.7);
+		border-radius: 6px;
+		pointer-events: none;
+	}
 </style>

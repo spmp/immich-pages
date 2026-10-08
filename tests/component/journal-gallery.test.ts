@@ -239,8 +239,26 @@ describe('journal gallery contract', () => {
 		expect(lightbox).toContain("content?.type === 'hdr-image' || (content?.type === 'video' && content?.data?.element?.dataset.videoControls === 'false')");
 		expect(lightbox).toContain("root?.toggleAttribute('data-pswp-hdr-active', Boolean(isHdrCandidate))");
 		expect(lightbox).toContain("instance.on('change', () => { announce(); updateHdrIndicator(); })");
-		// The zoom icon's fill comes from the --pswp-icon-color custom property, not plain `color`.
-		expect(lightbox).toContain(':global(.pswp[data-pswp-hdr-active] .pswp__button--zoom) { --pswp-icon-color: lightblue; --pswp-icon-color-secondary: lightblue; }');
+		// The zoom icon's fill comes from the --pswp-icon-color custom property, not plain `color`
+		// -- and only that one, not --pswp-icon-color-secondary (the "+" bars' color), or the "+"
+		// becomes invisible against an identically-tinted glass shape.
+		expect(lightbox).toContain(':global(.pswp[data-pswp-hdr-active] .pswp__button--zoom) { --pswp-icon-color: lightblue; }');
+		expect(lightbox).not.toContain('--pswp-icon-color-secondary: lightblue');
+	});
+
+	it('shows a plain-language, no-devtools status for whichever HDR media is actually on screen', () => {
+		const lightbox = source('Lightbox');
+		expect(lightbox).toContain("let hdrStatus = $state('')");
+		expect(lightbox).toContain('{#if hdrStatus}<p class="hdr-status" data-pswp-hdr-status>{hdrStatus}</p>{/if}');
+		// Guarded by content identity so a late result for a background/preloaded neighboring
+		// slide can't overwrite the text for whatever is actually being displayed right now.
+		expect(lightbox).toContain('if (content === lightbox?.pswp?.currSlide?.content) hdrStatus = text;');
+		expect(lightbox).toContain("setHdrStatus(content, 'HDR video: loading…')");
+		expect(lightbox).toContain("setHdrStatus(content, 'HDR video: playing')");
+		expect(lightbox).toContain("errorContext === 'video-playback' ? 'HDR video: failed to play, showing SDR photo' : 'HDR video: failed to load, showing SDR photo'");
+		expect(lightbox).toContain("setHdrStatus(content, 'AVIF HDR image: loading…')");
+		expect(lightbox).toContain("setHdrStatus(content, 'AVIF HDR image: loaded')");
+		expect(lightbox).toContain("setHdrStatus(content, 'AVIF HDR image: failed, showing SDR photo')");
 	});
 
 	it('keeps marker handoff targets focusable and lightbox-compatible', () => {
