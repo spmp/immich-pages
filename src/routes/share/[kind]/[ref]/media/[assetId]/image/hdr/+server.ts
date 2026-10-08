@@ -118,6 +118,11 @@ export const GET: RequestHandler = async ({ params, request, cookies, fetch }) =
 			const cacheKey = buildHdrCacheKey({ assetId: params.assetId, sourceIdentity, width: requestedWidth, height: requestedHeight });
 			output = await getOrCreateHdr(cacheKey, async () => {
 				return withHdrConcurrency(async () => {
+					// Only "success"/"failure" were ever logged, both after the fact -- a request stuck
+					// mid-pipeline (queued vs. actively compositing vs. actively encoding vs. genuinely
+					// hung) was indistinguishable from the outside. This line plus the eventual
+					// success/failure line lets elapsed time at each stage be read directly from logs.
+					console.info(JSON.stringify({ event: 'direct-share.hdr-video-start', assetId: params.assetId }));
 					const compositorPpm = bridgeEnabled
 						? await composeHdr(input, metadata, { executable: process.env.HDR_COMPOSITOR_PATH, invocationId: params.assetId })
 						: await composeHdr(input, metadata);

@@ -76,6 +76,12 @@ export const GET: RequestHandler = async ({ params, request, cookies, fetch }) =
 			const cacheKey = buildHdrCacheKey({ assetId: params.assetId, sourceIdentity, outputContract: 'avif-gainmap-p3' });
 			output = await getOrCreateHdr(cacheKey, async () => {
 				return withHdrConcurrency(async () => {
+					// Only "success"/"failure" were ever logged, both after the fact -- a request
+					// stuck mid-pipeline (queued vs. actively decoding vs. actively encoding vs.
+					// genuinely hung) was indistinguishable from the outside. This line plus the
+					// eventual success/failure line lets elapsed time at each stage be read directly
+					// from logs.
+					console.info(JSON.stringify({ event: 'direct-share.hdr-avif-start', assetId: params.assetId }));
 					const stream = bridgeEnabled
 						? await decodeHdrAvifStream(input, metadata, { executable: process.env.HDR_AVIF_DECODE_PATH, invocationId: params.assetId })
 						: await decodeHdrAvifStream(input, metadata);

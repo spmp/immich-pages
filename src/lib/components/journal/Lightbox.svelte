@@ -43,6 +43,16 @@
 			const item = lightbox?.pswp?.currSlide?.data;
 			if (announcement && item) announcement.textContent = `${(lightbox.pswp.currIndex ?? 0) + 1} / ${lightbox.pswp.getNumItems()} — ${item.element?.getAttribute('aria-label') ?? 'Image'}`;
 		};
+		// Tells JournalGallery's background HDR prewarm scheduler which photo the viewer is
+		// actually looking at right now, so it can reprioritize to continue sequentially from here
+		// instead of wherever the initial front-to-back scan happened to be -- without this, a
+		// request a few photos into a browsing session could sit queued behind many already-
+		// scheduled prewarm fetches for photos nobody's looking at anymore.
+		const notifyActiveAsset = () => {
+			const anchor = lightbox?.pswp?.currSlide?.content?.data?.element as HTMLElement | undefined;
+			const figureId = anchor?.closest('figure')?.id;
+			if (figureId) document.dispatchEvent(new CustomEvent('pages:active-asset', { detail: { figureId } }));
+		};
 			// Visual-only diagnostic: tints the zoom button for whichever slide pages has identified
 			// as carrying a real Apple gain map (the HDR video candidate or the AVIF HDR candidate),
 			// independent of whether the current device/browser actually renders it as HDR -- lets
@@ -437,6 +447,7 @@
 					const root = document.querySelector<HTMLElement>('.pswp');
 					root?.setAttribute('data-pswp-modal', 'true');
 					updateHdrIndicator();
+					notifyActiveAsset();
 					setTimeout(() => {
 						const openRoot = document.querySelector<HTMLElement>('.pswp--open');
 						(openRoot?.querySelector<HTMLElement>('button[aria-label*="Close"], button[title*="Close"], .pswp__button') ?? openRoot)?.focus();
@@ -444,7 +455,7 @@
 						setTimeout(() => openRoot?.querySelector<HTMLElement>('.pswp__button--close, button[aria-label*="Close"], button[title*="Close"]')?.focus(), 0);
 					}, 0);
 				});
-				instance.on('change', () => { announce(); updateHdrIndicator(); });
+				instance.on('change', () => { announce(); updateHdrIndicator(); notifyActiveAsset(); });
 				instance.on('close', () => {
 					const shouldGoBack = modalHistory && !closingFromPopstate;
 					modalHistory = false;

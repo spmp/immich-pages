@@ -41,13 +41,25 @@
 		// huge galleries for not starving whatever the viewer opens next.
 		const maxRequests = 8;
 		const maxConcurrent = 2;
+		// No bound on how long a single prewarm fetch could hang -- a stalled connection (real risk
+		// on a flaky mobile network, which is exactly the device class this exists for) would
+		// permanently occupy one of only `maxConcurrent` client-side slots for the rest of the
+		// session, silently halting all further prewarming with no visible symptom at all.
+		const prewarmFetchTimeoutMs = 90_000;
+		// Default: natural gallery order (first photo, then sequentially) -- querySelectorAll
+		// already returns elements in document order, so no sort needed. If the viewer opens a
+		// specific photo in the lightbox, pages:active-asset (dispatched by Lightbox.svelte)
+		// rotates this so prewarming continues sequentially from that photo instead of wherever
+		// the original front-to-back scan happened to be.
+		let preferredStartFigureId: string | null = null;
 		const schedule = () => {
 			if (stopped || document.visibilityState !== 'visible') return;
 			const candidates = Array.from(document.querySelectorAll<HTMLElement>('[data-hdr-prewarm]'))
-				.map((element) => ({ element, url: element.dataset.hdrPrewarm }))
-				.filter((item): item is { element: HTMLElement; url: string } => Boolean(item.url && !completed.has(item.url)))
-				.sort((a, b) => Math.abs(a.element.getBoundingClientRect().top) - Math.abs(b.element.getBoundingClientRect().top));
-			queue = candidates.slice(0, maxRequests).map((item) => item.url);
+				.map((element) => ({ url: element.dataset.hdrPrewarm, figureId: element.closest('figure')?.id }))
+				.filter((item): item is { url: string; figureId: string | undefined } => Boolean(item.url && !completed.has(item.url)));
+			const startIndex = preferredStartFigureId ? candidates.findIndex((item) => item.figureId === preferredStartFigureId) : -1;
+			const ordered = startIndex > 0 ? [...candidates.slice(startIndex), ...candidates.slice(0, startIndex)] : candidates;
+			queue = ordered.slice(0, maxRequests).map((item) => item.url);
 			pump();
 		};
 		const pump = () => {
@@ -58,12 +70,20 @@
 				running += 1;
 				const controller = new AbortController();
 				controllers.add(controller);
+				const giveUpTimer = window.setTimeout(() => controller.abort(), prewarmFetchTimeoutMs);
 				void fetch(url, { credentials: 'same-origin', signal: controller.signal, headers: { accept: 'video/mp4' } })
 					.then((response) => response.ok ? response.arrayBuffer() : undefined)
 					.catch(() => undefined)
-					.finally(() => { controllers.delete(controller); running -= 1; pump(); });
+					.finally(() => { window.clearTimeout(giveUpTimer); controllers.delete(controller); running -= 1; pump(); });
 			}
 		};
+		const onActiveAsset = (event: Event) => {
+			const figureId = (event as CustomEvent<{ figureId?: string }>).detail?.figureId;
+			if (!figureId || figureId === preferredStartFigureId) return;
+			preferredStartFigureId = figureId;
+			schedule();
+		};
+		document.addEventListener('pages:active-asset', onActiveAsset);
 		const onVisibilityChange = () => {
 			if (document.visibilityState === 'hidden') {
 				for (const controller of controllers) controller.abort();
@@ -77,6 +97,7 @@
 		return () => {
 			stopped = true;
 			document.removeEventListener('visibilitychange', onVisibilityChange);
+			document.removeEventListener('pages:active-asset', onActiveAsset);
 			for (const controller of controllers) controller.abort();
 			if (usedIdleCallback && idleWindow.cancelIdleCallback) idleWindow.cancelIdleCallback(idle);
 			else window.clearTimeout(idle);

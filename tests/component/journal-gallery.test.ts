@@ -179,6 +179,24 @@ describe('journal gallery contract', () => {
 		expect(gallery).toContain("document.visibilityState === 'visible'");
 	});
 
+	it('prewarms HDR videos in gallery order by default, reprioritized to continue from whichever photo the viewer opens', () => {
+		const gallery = source('JournalGallery');
+		const lightbox = source('Lightbox');
+		// querySelectorAll already returns elements in document order -- no sort needed for the
+		// "first photo, then sequentially" default.
+		expect(gallery).not.toContain('getBoundingClientRect');
+		expect(gallery).toContain("document.addEventListener('pages:active-asset', onActiveAsset)");
+		expect(gallery).toContain('const startIndex = preferredStartFigureId ? candidates.findIndex((item) => item.figureId === preferredStartFigureId) : -1;');
+		expect(gallery).toContain('const ordered = startIndex > 0 ? [...candidates.slice(startIndex), ...candidates.slice(0, startIndex)] : candidates;');
+		// A stalled fetch (real risk on the flaky mobile connections this exists for) used to be
+		// able to permanently occupy one of only `maxConcurrent` slots forever, silently halting
+		// all further prewarming with no visible symptom.
+		expect(gallery).toContain('const giveUpTimer = window.setTimeout(() => controller.abort(), prewarmFetchTimeoutMs);');
+		expect(gallery).toContain('window.clearTimeout(giveUpTimer);');
+		expect(lightbox).toContain("document.dispatchEvent(new CustomEvent('pages:active-asset', { detail: { figureId } }))");
+		expect(lightbox).toContain('notifyActiveAsset();');
+	});
+
 	it('wires authorized video tiles into the PhotoSwipe custom content hook', () => {
 		const asset = source('GalleryAsset');
 		const lightbox = source('Lightbox');
@@ -240,7 +258,7 @@ describe('journal gallery contract', () => {
 		expect(lightbox).toContain("content?.type === 'hdr-image' || (content?.type === 'video' && content?.data?.element?.dataset.videoControls === 'false')");
 		expect(lightbox).toContain("if (!hdrDebugEnabled) { root?.removeAttribute('data-pswp-hdr-state'); return; }");
 		expect(lightbox).toContain("root?.setAttribute('data-pswp-hdr-state', content.__hdrPromoted ? 'loaded' : 'pending')");
-		expect(lightbox).toContain("instance.on('change', () => { announce(); updateHdrIndicator(); })");
+		expect(lightbox).toContain("instance.on('change', () => { announce(); updateHdrIndicator(); notifyActiveAsset(); })");
 		// The zoom icon's fill comes from the --pswp-icon-color custom property, not plain `color`
 		// -- and only that one, not --pswp-icon-color-secondary (the "+" bars' color), or the "+"
 		// becomes invisible against an identically-tinted glass shape.
