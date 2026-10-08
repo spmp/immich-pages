@@ -259,6 +259,10 @@ describe('journal gallery contract', () => {
 		expect(lightbox).toContain("setHdrStatus(content, 'AVIF HDR image: loading…')");
 		expect(lightbox).toContain("setHdrStatus(content, 'AVIF HDR image: loaded')");
 		expect(lightbox).toContain("setHdrStatus(content, 'AVIF HDR image: failed, showing SDR photo')");
+		// PhotoSwipe's own root (.pswp) uses --pswp-root-z-index: 100000 and is appended to the DOM
+		// after this badge -- an equal z-index would tie, and document order would put the
+		// lightbox's opaque backdrop on top, hiding the badge completely despite it being "there."
+		expect(lightbox).toContain('z-index: 100001;');
 	});
 
 	it('keeps marker handoff targets focusable and lightbox-compatible', () => {

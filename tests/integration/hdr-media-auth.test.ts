@@ -40,6 +40,39 @@ describe('share HDR media boundary', () => {
 		extract.mockRestore();
 	});
 
+	it('honors Range requests -- Safari/WebKit refuses to play a <video src> that only ever answers 200 to a probe', async () => {
+		const source = new Uint8Array([0, 0, 0, 0, 102, 116, 121, 112, 104, 101, 105, 99]);
+		const encoded = new Uint8Array([10, 11, 12, 13, 14, 15, 16, 17]);
+		const fetchMock = vi.fn(async (input: URL | RequestInfo) => new Response(new URL(input.toString()).pathname.endsWith('/me') ? JSON.stringify(v3) : source, { headers: { 'content-type': 'image/heic' } }));
+		const compositor = await import('../../src/lib/server/media/hdr-compositor');
+		const metadata = await import('../../src/lib/server/media/hdr-metadata');
+		const compose = vi.spyOn(compositor, 'composeHdr').mockResolvedValue(new Uint8Array([1, 2]));
+		const encode = vi.spyOn(compositor, 'encodeHdrMp4').mockResolvedValue(encoded);
+		const extract = vi.spyOn(metadata, 'extractAppleHdrMetadata').mockResolvedValue({ version: '1.0', auxiliaryType: 'urn:com:apple:photo:2020:aux:hdrgainmap', makerNote33: 0.8, makerNote48: 0.4, headroom: 1.8, hdrGain: 1.25, sourceProfile: 'display-p3', sourceTransfer: 'srgb', orientation: 1 });
+
+		const full = await GET({ params, request: new Request('https://pages.example/share/key/opaque-ref'), cookies: { get: vi.fn(), set: vi.fn() }, fetch: fetchMock } as never);
+		expect(full.headers.get('accept-ranges')).toBe('bytes');
+
+		const partial = await GET({ params, request: new Request('https://pages.example/share/key/opaque-ref', { headers: { range: 'bytes=2-4' } }), cookies: { get: vi.fn(), set: vi.fn() }, fetch: fetchMock } as never);
+		expect(partial.status).toBe(206);
+		expect(partial.headers.get('content-range')).toBe('bytes 2-4/8');
+		expect(partial.headers.get('content-length')).toBe('3');
+		expect(new Uint8Array(await partial.arrayBuffer())).toEqual(new Uint8Array([12, 13, 14]));
+
+		const openEnded = await GET({ params, request: new Request('https://pages.example/share/key/opaque-ref', { headers: { range: 'bytes=5-' } }), cookies: { get: vi.fn(), set: vi.fn() }, fetch: fetchMock } as never);
+		expect(openEnded.status).toBe(206);
+		expect(openEnded.headers.get('content-range')).toBe('bytes 5-7/8');
+		expect(new Uint8Array(await openEnded.arrayBuffer())).toEqual(new Uint8Array([15, 16, 17]));
+
+		const unsatisfiable = await GET({ params, request: new Request('https://pages.example/share/key/opaque-ref', { headers: { range: 'bytes=100-200' } }), cookies: { get: vi.fn(), set: vi.fn() }, fetch: fetchMock } as never);
+		expect(unsatisfiable.status).toBe(416);
+		expect(unsatisfiable.headers.get('content-range')).toBe('bytes */8');
+
+		compose.mockRestore();
+		encode.mockRestore();
+		extract.mockRestore();
+	});
+
 	it('keeps SDR fallback when Apple metadata is absent', async () => {
 		const source = new Uint8Array([0, 0, 0, 0, 102, 116, 121, 112, 104, 101, 105, 99]);
 		const fetchMock = vi.fn(async (input: URL | RequestInfo) => new Response(new URL(input.toString()).pathname.endsWith('/me') ? JSON.stringify(v3) : source, { headers: { 'content-type': 'image/heic' } }));

@@ -418,7 +418,12 @@
 	   slide with a real gain map is loading/resolved), so it's invisible the rest of the time. */
 	.hdr-status {
 		position: fixed;
-		z-index: 100000;
+		/* PhotoSwipe's own root (.pswp, dynamically appended later in the DOM) uses
+		   --pswp-root-z-index: 100000. Equal z-index ties resolve by document order, so at
+		   100000 this sibling element painted *underneath* the lightbox's opaque backdrop --
+		   invisible the entire time, not a logic bug. One higher clears its whole stacking
+		   context (including all of its children's z-indices, which are capped within it). */
+		z-index: 100001;
 		top: max(8px, env(safe-area-inset-top));
 		left: 50%;
 		transform: translateX(-50%);

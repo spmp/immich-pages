@@ -14,6 +14,34 @@ import { buildHdrMetadataCacheKey, getCachedHdrMetadata, getOrExtractHdrMetadata
 const noStore = { 'cache-control': 'private, no-store' };
 const unavailable = () => new Response('HDR unavailable', { status: 404, headers: noStore });
 
+// Safari/WebKit's native <video> element is markedly stricter than Chromium about a server
+// actually honoring Range requests before it will play a source at all -- it commonly probes
+// with a Range request to establish seekability/duration before starting playback, and a plain
+// 200-with-full-body response to that probe can make it refuse to ever start. The whole HDR
+// video is already fully buffered in memory by the time this runs, so honoring Range here is
+// just slicing that buffer, not proxying/coordinating with anything upstream.
+function hdrVideoResponse(body: Uint8Array, rangeHeader: string | null): Response {
+	const total = body.byteLength;
+	const headers = { 'content-type': 'video/mp4', 'accept-ranges': 'bytes', ...noStore };
+	if (!rangeHeader) {
+		// body.buffer is a view into Node's shared pool slab for small allocations, not just
+		// these bytes -- slice() copies exactly this view's own byte range into a fresh ArrayBuffer.
+		return new Response(body.buffer.slice(body.byteOffset, body.byteOffset + body.byteLength) as ArrayBuffer, { headers: { ...headers, 'content-length': String(total) } });
+	}
+	const match = /^bytes=(\d+)-(\d+)?$/.exec(rangeHeader);
+	const start = match ? Number(match[1]) : NaN;
+	const end = match ? (match[2] !== undefined ? Number(match[2]) : total - 1) : NaN;
+	if (!match || !Number.isSafeInteger(start) || !Number.isSafeInteger(end) || start > end || start >= total) {
+		return new Response(null, { status: 416, headers: { ...headers, 'content-range': `bytes */${total}` } });
+	}
+	const boundedEnd = Math.min(end, total - 1);
+	const slice = body.subarray(start, boundedEnd + 1);
+	return new Response(slice.buffer.slice(slice.byteOffset, slice.byteOffset + slice.byteLength) as ArrayBuffer, {
+		status: 206,
+		headers: { ...headers, 'content-length': String(slice.byteLength), 'content-range': `bytes ${start}-${boundedEnd}/${total}` }
+	});
+}
+
 export const GET: RequestHandler = async ({ params, request, cookies, fetch }) => {
 	const shareRef = parseSharedLinkRef(params.kind, params.ref);
 	if (!shareRef || !z.uuidv4().safeParse(params.assetId).success) return new Response('Media not found', { status: 404, headers: noStore });
@@ -95,10 +123,7 @@ export const GET: RequestHandler = async ({ params, request, cookies, fetch }) =
 			return new Response('HDR conversion unavailable', { status: 502, headers: noStore });
 		}
 		logShareMediaStatus({ media: 'fullsize', status: 'success', contentType: output.contentType, byteLength: output.body.byteLength });
-		// output.body is a Buffer; for small allocations .buffer is a view into Node's shared
-		// pool slab (leaking unrelated adjacent memory), not just these bytes. slice() copies
-		// exactly this view's own byte range into a fresh ArrayBuffer.
-		return new Response(output.body.buffer.slice(output.body.byteOffset, output.body.byteOffset + output.body.byteLength) as ArrayBuffer, { headers: { 'content-type': output.contentType, 'content-length': String(output.body.byteLength), ...noStore } });
+		return hdrVideoResponse(output.body, request.headers.get('range'));
 	} catch { logShareMediaStatus({ media: 'fullsize', status: 'failure', failureCategory: 'upstream' }); return unavailable(); }
 	};
 
