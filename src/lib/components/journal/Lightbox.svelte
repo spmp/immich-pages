@@ -256,6 +256,13 @@
 					setHdrStatus(content, 'HDR video: loading…');
 
 					const video = document.createElement('video');
+					// Zero-cost, zero-network diagnostic: ask the browser's own canPlayType directly
+					// which part of the encode it claims to support, *before* even attempting to load
+					// the real file -- narrows "format unsupported" down to HEVC itself vs. the 10-bit
+					// profile vs. the HDR (BT.2020/PQ) signaling, without needing devtools access.
+					// Folded into the final status text (not shown on its own) since it would
+					// otherwise just flash and be overwritten the instant load/error fires.
+					const canPlayDiagnostic = `8bit:"${video.canPlayType('video/mp4; codecs="hvc1.1.6.L153.B0"')}" 10bit:"${video.canPlayType('video/mp4; codecs="hvc1.2.4.L153.B0"')}" hev1:"${video.canPlayType('video/mp4; codecs="hev1.2.4.L153.B0"')}"`;
 					video.src = content.data.src;
 					video.poster = content.data.poster;
 					video.controls = false;
@@ -289,7 +296,7 @@
 						video.pause();
 						video.removeAttribute('src');
 						video.load();
-						setHdrStatus(content, `HDR video: failed to ${errorContext === 'video-playback' ? 'play' : 'load'} (${reason}), showing SDR photo`);
+						setHdrStatus(content, `HDR video: failed to ${errorContext === 'video-playback' ? 'play' : 'load'} (${reason}), showing SDR photo [canPlayType ${canPlayDiagnostic}]`);
 						reportJournalDebug('media-failure', { category: 'video', status: 'unavailable', errorContext, failureCategory: errorContext === 'video-playback' ? 'playback' : 'decode' });
 						// The placeholder <img> is already the visible, correct content; nothing to swap.
 					};

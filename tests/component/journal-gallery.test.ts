@@ -259,7 +259,12 @@ describe('journal gallery contract', () => {
 		// single most direct signal available without devtools access, so it's shown on screen.
 		expect(lightbox).toContain('const mediaErrorLabel: Record<number, string> = { 1: \'aborted\', 2: \'network\', 3: \'decode\', 4: \'format unsupported\' };');
 		expect(lightbox).toContain('const code = video.error?.code;');
-		expect(lightbox).toContain("`HDR video: failed to ${errorContext === 'video-playback' ? 'play' : 'load'} (${reason}), showing SDR photo`");
+		// canPlayType costs nothing (no network) and narrows "format unsupported" down to HEVC
+		// itself vs. the 10-bit profile vs. the HDR (hev1 tag) signaling -- folded into the final
+		// message rather than shown standalone, since standalone it would just flash and be
+		// overwritten the instant load/error fires.
+		expect(lightbox).toContain("const canPlayDiagnostic = `8bit:\"${video.canPlayType('video/mp4; codecs=\"hvc1.1.6.L153.B0\"')}\" 10bit:\"${video.canPlayType('video/mp4; codecs=\"hvc1.2.4.L153.B0\"')}\" hev1:\"${video.canPlayType('video/mp4; codecs=\"hev1.2.4.L153.B0\"')}\"`");
+		expect(lightbox).toContain("`HDR video: failed to ${errorContext === 'video-playback' ? 'play' : 'load'} (${reason}), showing SDR photo [canPlayType ${canPlayDiagnostic}]`");
 		expect(lightbox).toContain("setHdrStatus(content, 'AVIF HDR image: loading…')");
 		expect(lightbox).toContain("setHdrStatus(content, 'AVIF HDR image: loaded')");
 		expect(lightbox).toContain("setHdrStatus(content, 'AVIF HDR image: failed, showing SDR photo')");
