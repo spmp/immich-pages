@@ -255,7 +255,11 @@ describe('journal gallery contract', () => {
 		expect(lightbox).toContain('if (content === lightbox?.pswp?.currSlide?.content) hdrStatus = text;');
 		expect(lightbox).toContain("setHdrStatus(content, 'HDR video: loading…')");
 		expect(lightbox).toContain("setHdrStatus(content, 'HDR video: playing')");
-		expect(lightbox).toContain("errorContext === 'video-playback' ? 'HDR video: failed to play, showing SDR photo' : 'HDR video: failed to load, showing SDR photo'");
+		// The native MediaError code (1=ABORTED, 2=NETWORK, 3=DECODE, 4=SRC_NOT_SUPPORTED) is the
+		// single most direct signal available without devtools access, so it's shown on screen.
+		expect(lightbox).toContain('const mediaErrorLabel: Record<number, string> = { 1: \'aborted\', 2: \'network\', 3: \'decode\', 4: \'format unsupported\' };');
+		expect(lightbox).toContain('const code = video.error?.code;');
+		expect(lightbox).toContain("`HDR video: failed to ${errorContext === 'video-playback' ? 'play' : 'load'} (${reason}), showing SDR photo`");
 		expect(lightbox).toContain("setHdrStatus(content, 'AVIF HDR image: loading…')");
 		expect(lightbox).toContain("setHdrStatus(content, 'AVIF HDR image: loaded')");
 		expect(lightbox).toContain("setHdrStatus(content, 'AVIF HDR image: failed, showing SDR photo')");

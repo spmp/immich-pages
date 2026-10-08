@@ -272,14 +272,24 @@
 
 					let settled = false;
 					let hdrTimeout: number | undefined;
+					// MediaError.code, straight from the browser's own native video pipeline: 1=ABORTED,
+					// 2=NETWORK, 3=DECODE, 4=SRC_NOT_SUPPORTED. Server-side everything has checked out
+					// clean (right bytes, right container structure, zero errors logged) while this
+					// still fails client-side with no visible reason why -- this is the single most
+					// direct signal available without devtools access, so surface it on screen rather
+					// than only in the (also devtools-only) console.
+					const mediaErrorLabel: Record<number, string> = { 1: 'aborted', 2: 'network', 3: 'decode', 4: 'format unsupported' };
 					const giveUp = (errorContext: 'video-load' | 'video-playback') => {
 						if (settled) return;
 						settled = true;
 						if (hdrTimeout !== undefined) window.clearTimeout(hdrTimeout);
+						// Must read video.error before removeAttribute('src')/load() below, which clear it.
+						const code = video.error?.code;
+						const reason = code !== undefined ? (mediaErrorLabel[code] ?? `code ${code}`) : 'timed out';
 						video.pause();
 						video.removeAttribute('src');
 						video.load();
-						setHdrStatus(content, errorContext === 'video-playback' ? 'HDR video: failed to play, showing SDR photo' : 'HDR video: failed to load, showing SDR photo');
+						setHdrStatus(content, `HDR video: failed to ${errorContext === 'video-playback' ? 'play' : 'load'} (${reason}), showing SDR photo`);
 						reportJournalDebug('media-failure', { category: 'video', status: 'unavailable', errorContext, failureCategory: errorContext === 'video-playback' ? 'playback' : 'decode' });
 						// The placeholder <img> is already the visible, correct content; nothing to swap.
 					};

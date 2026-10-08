@@ -23,7 +23,14 @@ const unavailable = () => new Response('HDR unavailable', { status: 404, headers
 function hdrVideoResponse(body: Uint8Array, rangeHeader: string | null): Response {
 	const total = body.byteLength;
 	const headers = { 'content-type': 'video/mp4', 'accept-ranges': 'bytes', ...noStore };
+	// Diagnostic only: everything server-side has checked out clean (correct bytes, correct
+	// container structure) while the client still reports the video failing to load, with no
+	// client-visible reason why. Logging exactly what was asked for and what was answered turns
+	// the next report from a guess into a fact -- bounded/sanitized the same way the rest of this
+	// module's request-scoped diagnostics are.
+	const logHdrVideoResponse = (status: number, contentRange?: string) => console.info(JSON.stringify({ event: 'direct-share.hdr-video-response', status, range: rangeHeader?.slice(0, 64) ?? null, contentRange, totalBytes: total }));
 	if (!rangeHeader) {
+		logHdrVideoResponse(200);
 		// body.buffer is a view into Node's shared pool slab for small allocations, not just
 		// these bytes -- slice() copies exactly this view's own byte range into a fresh ArrayBuffer.
 		return new Response(body.buffer.slice(body.byteOffset, body.byteOffset + body.byteLength) as ArrayBuffer, { headers: { ...headers, 'content-length': String(total) } });
@@ -32,13 +39,16 @@ function hdrVideoResponse(body: Uint8Array, rangeHeader: string | null): Respons
 	const start = match ? Number(match[1]) : NaN;
 	const end = match ? (match[2] !== undefined ? Number(match[2]) : total - 1) : NaN;
 	if (!match || !Number.isSafeInteger(start) || !Number.isSafeInteger(end) || start > end || start >= total) {
+		logHdrVideoResponse(416, `bytes */${total}`);
 		return new Response(null, { status: 416, headers: { ...headers, 'content-range': `bytes */${total}` } });
 	}
 	const boundedEnd = Math.min(end, total - 1);
 	const slice = body.subarray(start, boundedEnd + 1);
+	const contentRange = `bytes ${start}-${boundedEnd}/${total}`;
+	logHdrVideoResponse(206, contentRange);
 	return new Response(slice.buffer.slice(slice.byteOffset, slice.byteOffset + slice.byteLength) as ArrayBuffer, {
 		status: 206,
-		headers: { ...headers, 'content-length': String(slice.byteLength), 'content-range': `bytes ${start}-${boundedEnd}/${total}` }
+		headers: { ...headers, 'content-length': String(slice.byteLength), 'content-range': contentRange }
 	});
 }
 
