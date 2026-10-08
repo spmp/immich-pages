@@ -249,22 +249,39 @@ describe('journal gallery contract', () => {
 		expect(lightbox).not.toContain('--pswp-icon-color-secondary: lightblue');
 	});
 
-	it('marks content.__hdrPromoted and skips promotion entirely once PhotoSwipe has recycled the slide', () => {
+	it('marks content.__hdrPromoted, and clears content.element on recycling so a revisit retries instead of being silently blocked forever', () => {
 		// The real cause of "video/image available but inconsistently not displayed": PhotoSwipe
 		// destroys (content.remove()'d, content.isAttached = false) a slide's content when it's
 		// swiped far enough away to fall out of the 3-slide holder window, but nothing cancels an
-		// in-flight HDR conversion already underway for it. Without this check, a slow conversion
-		// that finally resolves after the viewer has moved on inserts the real media into a
-		// container that's already been removed from the DOM -- it genuinely loads, but nobody
-		// ever sees it, which looked exactly like an unexplained, inconsistent failure.
+		// in-flight HDR conversion already underway for it, AND PhotoSwipe's ContentLoader caches
+		// Content objects by index and hands the same one back on revisit. Content.load() refuses
+		// to dispatch 'contentLoad' again as long as content.element is still set, so a revisit of
+		// an abandoned slide would silently keep showing the stale placeholder forever -- no
+		// spinner, no retry -- unless content.element is explicitly cleared on abandonment.
 		const lightbox = source('Lightbox');
 		const contentLoad = lightbox.slice(lightbox.indexOf("instance.on('contentLoad'"), lightbox.indexOf("instance.on('loadError'"));
-		const avifPromote = contentLoad.slice(contentLoad.indexOf('const promote = ()'), contentLoad.indexOf("if (content.type !== 'video') return;"));
-		expect(avifPromote).toContain('if (settled || !content.isAttached) return;');
-		expect(avifPromote).toContain('content.__hdrPromoted = true;');
-		const videoPromote = contentLoad.slice(contentLoad.lastIndexOf('const promote = ()'));
-		expect(videoPromote).toContain("if (settled || content.type !== 'video' || !content.isAttached) return;");
-		expect(videoPromote).toContain('content.__hdrPromoted = true;');
+		const avifBlock = contentLoad.slice(contentLoad.indexOf('const finish = ()'), contentLoad.indexOf("if (content.type !== 'video') return;"));
+		expect(avifBlock).toContain('const abandonStaleAttempt = () => {');
+		expect(avifBlock).toContain('content.element = undefined;');
+		expect(avifBlock).toContain("if (!content.isAttached) { abandonStaleAttempt(); return; }");
+		expect(avifBlock).toContain('content.__hdrPromoted = true;');
+		const videoBlock = contentLoad.slice(contentLoad.indexOf('const abandonStaleAttempt = ()', contentLoad.indexOf("if (content.type !== 'video') return;")));
+		expect(videoBlock).toContain('const abandonStaleAttempt = () => {');
+		expect(videoBlock).toContain('content.element = undefined;');
+		expect(videoBlock).toContain("if (!content.isAttached) { abandonStaleAttempt(); return; }");
+		expect(videoBlock).toContain('content.__hdrPromoted = true;');
+	});
+
+	it('drives the native PhotoSwipe preloader spinner for the HDR video candidate, not just the AVIF one', () => {
+		// content.state = 'loading'/'loaded' is what Content.isLoading() actually checks
+		// (independent of content type) -- missing for the video path the whole time, unlike AVIF
+		// which has always set it. Not noticeable when conversions were fast; impossible to miss
+		// once they started taking 10-30s+ with no spinner for that whole wait.
+		const lightbox = source('Lightbox');
+		const contentLoad = lightbox.slice(lightbox.indexOf("instance.on('contentLoad'"), lightbox.indexOf("instance.on('loadError'"));
+		const videoBlock = contentLoad.slice(contentLoad.indexOf("if (content.type !== 'video') return;"));
+		expect(videoBlock).toContain("content.state = 'loading';");
+		expect(videoBlock).toContain("content.state = 'loaded';");
 	});
 
 	it('shows a plain-language, no-devtools status for whichever HDR media is actually on screen', () => {

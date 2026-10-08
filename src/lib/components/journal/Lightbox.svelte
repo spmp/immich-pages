@@ -199,8 +199,24 @@
 							content.state = 'loaded';
 							content.instance?.dispatch?.('loadComplete', { slide: content.slide, content });
 						};
+						// Recycled while this was waiting: nobody's looking at this slide anymore, and
+						// PhotoSwipe's ContentLoader caches Content objects by index and will hand this
+						// exact same object back if the viewer revisits. Content.load() refuses to
+						// dispatch 'contentLoad' again as long as content.element is still set ("if
+						// (this.element && !reload) return"), so without clearing it here, a revisit
+						// would silently keep showing the stale placeholder forever -- no spinner, no
+						// retry, ever -- indistinguishable from "broken" even though the underlying
+						// asset is fine. Clearing it lets a future revisit start a genuinely fresh
+						// attempt.
+						const abandonStaleAttempt = () => {
+							settled = true;
+							if (hdrTimeout !== undefined) window.clearTimeout(hdrTimeout);
+							content.element = undefined;
+							content.state = 'loaded';
+						};
 						const giveUp = () => {
 							if (settled) return;
+							if (!content.isAttached) { abandonStaleAttempt(); return; }
 							settled = true;
 							finish();
 							setHdrStatus(content, 'AVIF HDR image: failed, showing SDR photo');
@@ -208,17 +224,8 @@
 							// The placeholder <img> is already the visible, correct content; nothing to swap.
 						};
 						const promote = () => {
-							// PhotoSwipe destroys content.remove()'d content when its slide is recycled
-							// (swiped far enough away that it falls out of the 3-slide holder window) --
-							// content.isAttached goes false at that point, but nothing cancels this
-							// in-flight load. Without this check, a slow conversion that finally resolves
-							// after the viewer has moved on inserts `real` into a container that's
-							// already been removed from the DOM: the element genuinely loads and "works"
-							// by every signal available to this code, but nobody ever sees it, and (before
-							// this check existed) immediately looked exactly like a silent, unexplained
-							// failure. This -- not timeout tuning, not server-side correctness -- was the
-							// real source of "available but not displayed, inconsistently."
-							if (settled || !content.isAttached) return;
+							if (settled) return;
+							if (!content.isAttached) { abandonStaleAttempt(); return; }
 							settled = true;
 							finish();
 							content.__hdrPromoted = true;
@@ -282,6 +289,11 @@
 					placeholder.alt = label;
 					placeholder.className = 'pswp__img';
 					content.element = placeholder;
+					// Drives PhotoSwipe's own built-in preloader spinner (isLoading() checks exactly
+					// this, independent of content type) -- missing here the whole time, unlike the AVIF
+					// path below which has always set it. Became impossible to miss once real conversions
+					// started taking 10-30s+: no spinner at all for that whole wait.
+					content.state = 'loading';
 					setHdrStatus(content, 'HDR video: loading…');
 
 					const video = document.createElement('video');
@@ -315,10 +327,27 @@
 					// direct signal available without devtools access, so surface it on screen rather
 					// than only in the (also devtools-only) console.
 					const mediaErrorLabel: Record<number, string> = { 1: 'aborted', 2: 'network', 3: 'decode', 4: 'format unsupported' };
-					const giveUp = (errorContext: 'video-load' | 'video-playback') => {
-						if (settled) return;
+					// Recycled while this was waiting (swiped far enough away to fall out of PhotoSwipe's
+					// 3-slide holder window): nobody's looking at this slide anymore, and more
+					// importantly, PhotoSwipe's ContentLoader caches Content objects by index and will
+					// hand this exact same object back if the viewer revisits. Content.load() refuses
+					// to dispatch 'contentLoad' again as long as content.element is still set ("if
+					// (this.element && !reload) return"), so without clearing it here, a revisit would
+					// silently keep showing the stale placeholder forever -- no spinner, no retry, ever
+					// -- which is indistinguishable from "broken" even though the underlying asset is
+					// fine. Clearing it lets a future revisit start a genuinely fresh attempt.
+					const abandonStaleAttempt = () => {
 						settled = true;
 						if (hdrTimeout !== undefined) window.clearTimeout(hdrTimeout);
+						content.element = undefined;
+						content.state = 'loaded';
+					};
+					const giveUp = (errorContext: 'video-load' | 'video-playback') => {
+						if (settled) return;
+						if (!content.isAttached) { abandonStaleAttempt(); return; }
+						settled = true;
+						if (hdrTimeout !== undefined) window.clearTimeout(hdrTimeout);
+						content.state = 'loaded';
 						// Must read video.error before removeAttribute('src')/load() below, which clear it.
 						const code = video.error?.code;
 						const reason = code !== undefined ? (mediaErrorLabel[code] ?? `code ${code}`) : 'timed out';
@@ -330,19 +359,11 @@
 						// The placeholder <img> is already the visible, correct content; nothing to swap.
 					};
 					const promote = () => {
-						// PhotoSwipe destroys content.remove()'d content when its slide is recycled
-						// (swiped far enough away that it falls out of the 3-slide holder window) --
-						// content.isAttached goes false at that point, but nothing cancels this in-flight
-						// load. Without this check, a slow conversion that finally resolves after the
-						// viewer has moved on inserts `video` into a container that's already been
-						// removed from the DOM: the element genuinely loads and plays by every signal
-						// available to this code, but nobody ever sees it, and (before this check
-						// existed) immediately looked exactly like a silent, unexplained failure. This --
-						// not timeout tuning, not server-side correctness -- was the real source of
-						// "available but not displayed, inconsistently."
-						if (settled || content.type !== 'video' || !content.isAttached) return;
+						if (settled || content.type !== 'video') return;
+						if (!content.isAttached) { abandonStaleAttempt(); return; }
 						settled = true;
 						if (hdrTimeout !== undefined) window.clearTimeout(hdrTimeout);
+						content.state = 'loaded';
 						content.__hdrPromoted = true;
 						setHdrStatus(content, 'HDR video: playing');
 						updateHdrIndicator();
