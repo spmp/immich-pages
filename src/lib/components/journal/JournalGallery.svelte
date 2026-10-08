@@ -3,6 +3,7 @@
 	import GalleryAsset from './GalleryAsset.svelte';
 	import Lightbox from './Lightbox.svelte';
 	import { onMount } from 'svelte';
+	import { env } from '$env/dynamic/public';
 	import { reportJournalDebug } from './journal-debug';
 	import { calculateJustifiedRows } from './justified-layout';
 	import { supportsHdrDisplay, supportsWideColorGamut } from '$lib/media/capabilities';
@@ -40,7 +41,13 @@
 		// with anything about the photo itself. Lower trades some "feels instant nearby" benefit on
 		// huge galleries for not starving whatever the viewer opens next.
 		const maxRequests = 8;
-		const maxConcurrent = 2;
+		// This is a separate, per-browser-tab limit on how many background prewarm *fetches* this
+		// one client issues in parallel -- unrelated to the server's own HDR_MAX_CONCURRENT (which
+		// bounds simultaneous native conversions across every client). Configurable for the same
+		// reason everything else here is: no reason to force a code change + redeploy to try a
+		// different value.
+		const parsedPrewarmConcurrency = Number(env.PUBLIC_HDR_PREWARM_CONCURRENCY);
+		const maxConcurrent = Number.isFinite(parsedPrewarmConcurrency) && parsedPrewarmConcurrency > 0 ? Math.min(Math.trunc(parsedPrewarmConcurrency), 16) : 2;
 		// No bound on how long a single prewarm fetch could hang -- a stalled connection (real risk
 		// on a flaky mobile network, which is exactly the device class this exists for) would
 		// permanently occupy one of only `maxConcurrent` client-side slots for the rest of the

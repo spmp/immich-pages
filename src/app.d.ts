@@ -20,6 +20,11 @@ declare global {
 		 * settling for the SDR photo. Defaults to 60000 if unset/invalid; clamped to 600000 (10min)
 		 * -- see hdrClientTimeoutMs in Lightbox.svelte. */
 		PUBLIC_HDR_CLIENT_TIMEOUT_MS: string;
+		/** How many background HDR prewarm fetches one browser tab issues in parallel. A
+		 * per-client limit, separate from the server's own HDR_MAX_CONCURRENT (which bounds
+		 * simultaneous native conversions across every client). Defaults to 2 if unset/invalid;
+		 * clamped to 16 -- see maxConcurrent in JournalGallery.svelte. */
+		PUBLIC_HDR_PREWARM_CONCURRENCY: string;
 	}
 }
 }

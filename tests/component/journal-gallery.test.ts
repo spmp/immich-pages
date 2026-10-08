@@ -175,7 +175,7 @@ describe('journal gallery contract', () => {
 		expect(asset).toContain('data-hdr-target-height');
 		expect(asset).toContain('data-hdr-bounded');
 		expect(gallery).toContain('maxRequests = 8');
-		expect(gallery).toContain('maxConcurrent = 2');
+		expect(gallery).toContain("Number.isFinite(parsedPrewarmConcurrency) && parsedPrewarmConcurrency > 0 ? Math.min(Math.trunc(parsedPrewarmConcurrency), 16) : 2");
 		expect(gallery).toContain("document.visibilityState === 'visible'");
 	});
 
