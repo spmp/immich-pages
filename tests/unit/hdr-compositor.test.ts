@@ -36,6 +36,18 @@ describe('HDR native process contracts', () => {
 		expect(args.join(' ')).not.toContain('h=-2');
 	});
 
+	it('tags mastering-display luminance and content light level, not just pixel format/colr', async () => {
+		// WebKit's native HDR video path (confirmed on iOS Safari < WebKit 26) silently renders a
+		// technically-correct-but-flat/SDR-looking video without MDCV/CLL SEI data -- color
+		// primaries/transfer/matrix tags alone aren't enough for it to actually tone-map as HDR.
+		spawn.mockReturnValue(childFor('mp4'));
+		await encodeHdrMp4(new Uint8Array([1, 2, 3]));
+		const [, args] = spawn.mock.calls[0];
+		const x265Params = args[args.indexOf('-x265-params') + 1];
+		expect(x265Params).toContain('master-display=G(8500,39850)B(6550,2300)R(35400,14600)WP(15635,16450)L(10000000,1)');
+		expect(x265Params).toContain('max-cll=1000,400');
+	});
+
 	it('decodes to a gain-map stream with the fixed Apple metadata CLI contract', async () => {
 		spawn.mockReturnValue(childFor('stream'));
 		await expect(decodeHdrAvifStream(new Uint8Array([1]), metadata)).resolves.toEqual(Buffer.from('stream'));

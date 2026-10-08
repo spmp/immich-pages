@@ -23,6 +23,16 @@
 			const item = lightbox?.pswp?.currSlide?.data;
 			if (announcement && item) announcement.textContent = `${(lightbox.pswp.currIndex ?? 0) + 1} / ${lightbox.pswp.getNumItems()} — ${item.element?.getAttribute('aria-label') ?? 'Image'}`;
 		};
+			// Visual-only diagnostic: tints the zoom button for whichever slide pages has identified
+			// as carrying a real Apple gain map (the HDR video candidate or the AVIF HDR candidate),
+			// independent of whether the current device/browser actually renders it as HDR -- lets
+			// "is this detected as HDR" and "is this device showing it as HDR" be checked separately.
+			const updateHdrIndicator = () => {
+				const root = document.querySelector<HTMLElement>('.pswp');
+				const content = lightbox?.pswp?.currSlide?.content;
+				const isHdrCandidate = content?.type === 'hdr-image' || (content?.type === 'video' && content?.data?.element?.dataset.videoControls === 'false');
+				root?.toggleAttribute('data-pswp-hdr-active', Boolean(isHdrCandidate));
+			};
 		const onKeydown = (event: KeyboardEvent) => {
 			const root = document.querySelector<HTMLElement>('.pswp--open');
 			if (!root) return;
@@ -303,6 +313,7 @@
 				instance.on('openingAnimationEnd', () => {
 					const root = document.querySelector<HTMLElement>('.pswp');
 					root?.setAttribute('data-pswp-modal', 'true');
+					updateHdrIndicator();
 					setTimeout(() => {
 						const openRoot = document.querySelector<HTMLElement>('.pswp--open');
 						(openRoot?.querySelector<HTMLElement>('button[aria-label*="Close"], button[title*="Close"], .pswp__button') ?? openRoot)?.focus();
@@ -310,7 +321,7 @@
 						setTimeout(() => openRoot?.querySelector<HTMLElement>('.pswp__button--close, button[aria-label*="Close"], button[title*="Close"]')?.focus(), 0);
 					}, 0);
 				});
-				instance.on('change', announce);
+				instance.on('change', () => { announce(); updateHdrIndicator(); });
 				instance.on('close', () => {
 					const shouldGoBack = modalHistory && !closingFromPopstate;
 					modalHistory = false;
@@ -365,4 +376,10 @@
 	:global(.pswp--open) { display: block; visibility: visible; }
 	:global(.pswp), :global(.pswp__bg) { --pswp-bg: var(--theme-overlay, #000); --pswp-bg-opacity: 1; background-color: var(--theme-overlay, #000); opacity: 1; }
 	:global(.pswp__video) { display: block; max-width: 100%; max-height: 100%; width: auto; height: auto; object-fit: contain; }
+	/* Diagnostic only: identifies a slide pages has detected as carrying a real Apple gain map,
+	   independent of whether this device/browser actually renders it as HDR. The zoom icon's
+	   fill comes from the --pswp-icon-color custom property (photoswipe.css), not plain `color`
+	   -- only its inner crosshair bars use currentColor, so overriding `color` alone would leave
+	   the outer magnifying-glass shape un-tinted. */
+	:global(.pswp[data-pswp-hdr-active] .pswp__button--zoom) { --pswp-icon-color: lightblue; --pswp-icon-color-secondary: lightblue; }
 </style>

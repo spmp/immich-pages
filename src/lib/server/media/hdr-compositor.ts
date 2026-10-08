@@ -47,7 +47,18 @@ export async function encodeHdrMp4(input: Uint8Array, options: { executable?: st
 	// measured ~QP 18 either way; preset slow (~2.5-5s under load) cut it too close against
 	// HDR_FFMPEG_TIMEOUT_MS's 8s default on a loaded host -- preset medium hits the same QP/quality
 	// in roughly half the time, so it's the safer choice for the same visual result.
-	const args = ['-hide_banner', '-loglevel', 'error', '-f', 'image2pipe', '-vcodec', 'ppm', '-i', 'pipe:0', '-frames:v', '1', '-an', '-c:v', 'libx265', '-preset', 'medium', '-crf', '16', '-profile:v', 'main10', '-pix_fmt', 'yuv420p10le', '-color_primaries', 'bt2020', '-color_trc', 'smpte2084', '-colorspace', 'bt2020nc', '-x265-params', 'colorprim=bt2020:transfer=smpte2084:colormatrix=bt2020nc', '-tag:v', 'hvc1', '-movflags', 'frag_keyframe+empty_moov+default_base_moof', '-f', 'mp4', 'pipe:1'];
+	// master-display/max-cll (MDCV/CLL SEI messages) were missing entirely: the pixel format and
+	// colr box (primaries/transfer/matrix) tagged this as HDR10, but WebKit's native HDR video
+	// path on iOS appears to additionally require the mastering-display luminance range before it
+	// will actually tone-map and display it as HDR -- without it, older WebKit (confirmed: iOS
+	// Safari on WebKit < 26) silently renders a technically-correct-but-visually-flat/SDR-looking
+	// video instead of refusing it outright, which is why this had no error to go on. Values below
+	// are the standard "no real mastering info available" Rec.2020/1000-nit boilerplate (full
+	// Rec.2020 primaries + D65 white point, matching this project's own "1000 nits" framing),
+	// not derived from any particular photo -- advisory metadata a decoder uses for tone-mapping,
+	// not a per-image measurement.
+	const x265Params = 'colorprim=bt2020:transfer=smpte2084:colormatrix=bt2020nc:master-display=G(8500,39850)B(6550,2300)R(35400,14600)WP(15635,16450)L(10000000,1):max-cll=1000,400';
+	const args = ['-hide_banner', '-loglevel', 'error', '-f', 'image2pipe', '-vcodec', 'ppm', '-i', 'pipe:0', '-frames:v', '1', '-an', '-c:v', 'libx265', '-preset', 'medium', '-crf', '16', '-profile:v', 'main10', '-pix_fmt', 'yuv420p10le', '-color_primaries', 'bt2020', '-color_trc', 'smpte2084', '-colorspace', 'bt2020nc', '-x265-params', x265Params, '-tag:v', 'hvc1', '-movflags', 'frag_keyframe+empty_moov+default_base_moof', '-f', 'mp4', 'pipe:1'];
 	return runBoundedProcess(executable, args, input, HDR_FFMPEG_MAX_OUTPUT_BYTES, options.timeoutMs ?? HDR_FFMPEG_TIMEOUT_MS, 'hdr-ffmpeg', options.invocationId);
 }
 

@@ -234,6 +234,15 @@ describe('journal gallery contract', () => {
 		expect(hdrImageBlock).toContain('if (real.complete) promote()');
 	});
 
+	it('tints the zoom button for whichever slide carries a real gain map, independent of whether this device renders it as HDR', () => {
+		const lightbox = source('Lightbox');
+		expect(lightbox).toContain("content?.type === 'hdr-image' || (content?.type === 'video' && content?.data?.element?.dataset.videoControls === 'false')");
+		expect(lightbox).toContain("root?.toggleAttribute('data-pswp-hdr-active', Boolean(isHdrCandidate))");
+		expect(lightbox).toContain("instance.on('change', () => { announce(); updateHdrIndicator(); })");
+		// The zoom icon's fill comes from the --pswp-icon-color custom property, not plain `color`.
+		expect(lightbox).toContain(':global(.pswp[data-pswp-hdr-active] .pswp__button--zoom) { --pswp-icon-color: lightblue; --pswp-icon-color-secondary: lightblue; }');
+	});
+
 	it('keeps marker handoff targets focusable and lightbox-compatible', () => {
 		const asset = source('GalleryAsset');
 		const page = source('JournalPage');
