@@ -203,7 +203,7 @@ describe('journal gallery contract', () => {
 		expect(contentLoad).toContain('placeholder.remove()');
 		expect(contentLoad).toContain('content.element = video');
 		expect(contentLoad).toContain("video.addEventListener('error', () => giveUp('video-load'))");
-		expect(contentLoad).toContain("window.setTimeout(() => giveUp('video-load'), 60_000)");
+		expect(contentLoad).toContain("window.setTimeout(() => giveUp('video-load'), hdrClientTimeoutMs)");
 	});
 
 	it('wires the AVIF HDR candidate into PhotoSwipe via a custom content type, bypassing native image decode()', () => {
@@ -230,7 +230,7 @@ describe('journal gallery contract', () => {
 		expect(hdrImageBlock).toContain('placeholder.remove()');
 		expect(hdrImageBlock).toContain('content.element = real');
 		expect(hdrImageBlock).toContain("real.addEventListener('error', giveUp)");
-		expect(hdrImageBlock).toContain('window.setTimeout(giveUp, 60_000)');
+		expect(hdrImageBlock).toContain('window.setTimeout(giveUp, hdrClientTimeoutMs)');
 		expect(hdrImageBlock).toContain('if (real.complete) promote()');
 	});
 
@@ -282,6 +282,16 @@ describe('journal gallery contract', () => {
 		const videoBlock = contentLoad.slice(contentLoad.indexOf("if (content.type !== 'video') return;"));
 		expect(videoBlock).toContain("content.state = 'loading';");
 		expect(videoBlock).toContain("content.state = 'loaded';");
+	});
+
+	it('makes the HDR give-up timeout configurable via PUBLIC_HDR_CLIENT_TIMEOUT_MS instead of another guessed hardcoded number', () => {
+		// Real conversions can legitimately take 20-40s+ server-side, and both HDR routes share one
+		// small concurrency pool with the gallery's own background prewarm fetches, so a request a
+		// few photos into a browsing session can queue behind several others. Rather than guess at
+		// yet another fixed number, this is tunable directly against what a real session needs.
+		const lightbox = source('Lightbox');
+		expect(lightbox).toContain('const parsedHdrClientTimeoutMs = Number(env.PUBLIC_HDR_CLIENT_TIMEOUT_MS);');
+		expect(lightbox).toContain('const hdrClientTimeoutMs = Number.isFinite(parsedHdrClientTimeoutMs) && parsedHdrClientTimeoutMs > 0 ? Math.min(parsedHdrClientTimeoutMs, 600_000) : 60_000;');
 	});
 
 	it('shows a plain-language, no-devtools status for whichever HDR media is actually on screen', () => {

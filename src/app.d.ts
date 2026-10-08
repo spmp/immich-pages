@@ -16,6 +16,10 @@ declare global {
 		 * whether its HDR media actually attached, not something a regular viewer should see. Off
 		 * by default -- see hdrDebugEnabled in Lightbox.svelte. */
 		PUBLIC_HDR_DEBUG: string;
+		/** Milliseconds the lightbox waits for an HDR video/AVIF conversion before giving up and
+		 * settling for the SDR photo. Defaults to 60000 if unset/invalid; clamped to 600000 (10min)
+		 * -- see hdrClientTimeoutMs in Lightbox.svelte. */
+		PUBLIC_HDR_CLIENT_TIMEOUT_MS: string;
 	}
 }
 }

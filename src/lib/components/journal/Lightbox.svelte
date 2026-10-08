@@ -9,6 +9,14 @@
 	// while root-causing why some HDR photos weren't rendering as HDR -- not something a regular
 	// viewer should see. Off by default; set PUBLIC_HDR_DEBUG=true to turn both back on.
 	const hdrDebugEnabled = env.PUBLIC_HDR_DEBUG === 'true';
+	// How long to wait for an HDR conversion before giving up and settling for the SDR photo.
+	// Real conversions can legitimately take 20-40s+ server-side, and both HDR routes share one
+	// small concurrency pool with the gallery's own background prewarm fetches, so a request a
+	// few photos into a browsing session can queue behind several others -- configurable rather
+	// than another guessed hardcoded number, so it can be tuned directly against what a real
+	// session actually needs without a code change each time.
+	const parsedHdrClientTimeoutMs = Number(env.PUBLIC_HDR_CLIENT_TIMEOUT_MS);
+	const hdrClientTimeoutMs = Number.isFinite(parsedHdrClientTimeoutMs) && parsedHdrClientTimeoutMs > 0 ? Math.min(parsedHdrClientTimeoutMs, 600_000) : 60_000;
 	// Visible, no-devtools-needed answer to "is what's currently showing actually the promoted
 	// HDR media, or still the SDR placeholder/a failure?" -- requested after the zoom-button tint
 	// alone wasn't enough to tell "detected as HDR" apart from "this specific slide's media never
@@ -250,7 +258,7 @@
 						// the gallery's own background prewarm fetches (JournalGallery.svelte) -- a request
 						// queued behind those can easily take another 20-40s before it even starts. 30s
 						// was giving up on perfectly good, still-in-progress conversions.
-						hdrTimeout = window.setTimeout(giveUp, 60_000);
+						hdrTimeout = window.setTimeout(giveUp, hdrClientTimeoutMs);
 						real.src = content.data.src;
 						if (real.complete) promote();
 						return;
@@ -381,7 +389,7 @@
 					// pool with the gallery's own background prewarm fetches -- a request queued behind
 					// those can take another 20-40s before it even starts. 30s was giving up on
 					// perfectly good, still-in-progress conversions.
-					hdrTimeout = window.setTimeout(() => giveUp('video-load'), 60_000);
+					hdrTimeout = window.setTimeout(() => giveUp('video-load'), hdrClientTimeoutMs);
 					video.addEventListener('loadeddata', () => {
 						void video.play().then(promote).catch(() => giveUp('video-playback'));
 					}, { once: true });
