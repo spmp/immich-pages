@@ -1,9 +1,14 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { env } from '$env/dynamic/public';
 	import 'photoswipe/style.css';
 	import { reportJournalDebug } from './journal-debug';
 	let { galleryId }: { galleryId: string } = $props();
 	let status = $state<'loading' | 'ready' | 'failed'>('loading');
+	// Both the zoom-button tint and the on-screen status line below are debugging aids built
+	// while root-causing why some HDR photos weren't rendering as HDR -- not something a regular
+	// viewer should see. Off by default; set PUBLIC_HDR_DEBUG=true to turn both back on.
+	const hdrDebugEnabled = env.PUBLIC_HDR_DEBUG === 'true';
 	// Visible, no-devtools-needed answer to "is what's currently showing actually the promoted
 	// HDR media, or still the SDR placeholder/a failure?" -- requested after the zoom-button tint
 	// alone wasn't enough to tell "detected as HDR" apart from "this specific slide's media never
@@ -34,23 +39,35 @@
 			// as carrying a real Apple gain map (the HDR video candidate or the AVIF HDR candidate),
 			// independent of whether the current device/browser actually renders it as HDR -- lets
 			// "is this detected as HDR" and "is this device showing it as HDR" be checked separately.
+			// Three states, not two: white (not an HDR candidate at all), khaki/yellow (candidate,
+			// still showing the SDR placeholder -- loading, or silently never promoted), blue
+			// (candidate, the real HDR media is actually attached and showing). The yellow state is
+			// what made the real bug below visible in the first place: content.__hdrPromoted set but
+			// never reflected is impossible, so a slide stuck yellow forever means attachment itself
+			// silently failed, not that it's merely slow.
 			const updateHdrIndicator = () => {
 				const root = document.querySelector<HTMLElement>('.pswp');
+				if (!hdrDebugEnabled) { root?.removeAttribute('data-pswp-hdr-state'); return; }
 				const content = lightbox?.pswp?.currSlide?.content;
 				const isHdrCandidate = content?.type === 'hdr-image' || (content?.type === 'video' && content?.data?.element?.dataset.videoControls === 'false');
-				root?.toggleAttribute('data-pswp-hdr-active', Boolean(isHdrCandidate));
-				// Reset on every slide change; the content-identity-guarded setHdrStatus calls inside
-				// the contentLoad handlers below will promptly repopulate it for whichever slide is
-				// now current. (A slide that already fully resolved in the background while it was a
-				// preloaded neighbor, not yet current, won't have its text restored here -- a known,
-				// low-stakes gap for the rapid-preloaded-swiping case, not the single-photo-view case
-				// this was built to answer.)
-				if (!isHdrCandidate) hdrStatus = '';
+				if (!isHdrCandidate) {
+					root?.removeAttribute('data-pswp-hdr-state');
+					// Reset on every slide change; the content-identity-guarded setHdrStatus calls
+					// inside the contentLoad handlers below will promptly repopulate it for whichever
+					// slide is now current. (A slide that already fully resolved in the background
+					// while it was a preloaded neighbor, not yet current, won't have its text restored
+					// here -- a known, low-stakes gap for the rapid-preloaded-swiping case, not the
+					// single-photo-view case this was built to answer.)
+					hdrStatus = '';
+					return;
+				}
+				root?.setAttribute('data-pswp-hdr-state', content.__hdrPromoted ? 'loaded' : 'pending');
 			};
 			// Only applied if `content` is still the actively-displayed slide at the moment it
 			// resolves -- a late network result for a background/preloaded neighboring slide must not
 			// overwrite the status text for whatever the viewer is actually looking at right now.
 			const setHdrStatus = (content: any, text: string) => {
+				if (!hdrDebugEnabled) return;
 				if (content === lightbox?.pswp?.currSlide?.content) hdrStatus = text;
 			};
 		const onKeydown = (event: KeyboardEvent) => {
@@ -191,10 +208,22 @@
 							// The placeholder <img> is already the visible, correct content; nothing to swap.
 						};
 						const promote = () => {
-							if (settled) return;
+							// PhotoSwipe destroys content.remove()'d content when its slide is recycled
+							// (swiped far enough away that it falls out of the 3-slide holder window) --
+							// content.isAttached goes false at that point, but nothing cancels this
+							// in-flight load. Without this check, a slow conversion that finally resolves
+							// after the viewer has moved on inserts `real` into a container that's
+							// already been removed from the DOM: the element genuinely loads and "works"
+							// by every signal available to this code, but nobody ever sees it, and (before
+							// this check existed) immediately looked exactly like a silent, unexplained
+							// failure. This -- not timeout tuning, not server-side correctness -- was the
+							// real source of "available but not displayed, inconsistently."
+							if (settled || !content.isAttached) return;
 							settled = true;
 							finish();
+							content.__hdrPromoted = true;
 							setHdrStatus(content, 'AVIF HDR image: loaded');
+							updateHdrIndicator();
 							// PhotoSwipe sizes a content's element by setting explicit inline width/height
 							// on it directly (Content.setDisplayedSize -> setWidthHeight), keyed to whichever
 							// element is currently content.element -- swapping the reference to `real` here
@@ -301,10 +330,22 @@
 						// The placeholder <img> is already the visible, correct content; nothing to swap.
 					};
 					const promote = () => {
-						if (settled || content.type !== 'video') return;
+						// PhotoSwipe destroys content.remove()'d content when its slide is recycled
+						// (swiped far enough away that it falls out of the 3-slide holder window) --
+						// content.isAttached goes false at that point, but nothing cancels this in-flight
+						// load. Without this check, a slow conversion that finally resolves after the
+						// viewer has moved on inserts `video` into a container that's already been
+						// removed from the DOM: the element genuinely loads and plays by every signal
+						// available to this code, but nobody ever sees it, and (before this check
+						// existed) immediately looked exactly like a silent, unexplained failure. This --
+						// not timeout tuning, not server-side correctness -- was the real source of
+						// "available but not displayed, inconsistently."
+						if (settled || content.type !== 'video' || !content.isAttached) return;
 						settled = true;
 						if (hdrTimeout !== undefined) window.clearTimeout(hdrTimeout);
+						content.__hdrPromoted = true;
 						setHdrStatus(content, 'HDR video: playing');
+						updateHdrIndicator();
 						// content.load()/content.append() are one-shot (guarded by content.isAttached,
 						// already set true when the placeholder was attached) and will not re-run content
 						// creation for an already-attached slide; PhotoSwipe's own Content.append() does
@@ -438,7 +479,8 @@
 	   a dark grey that gives the "+" contrast against the white glass shape -- overriding both
 	   to the same light blue erased that contrast, making the "+" invisible against itself.
 	   Only tint the glass shape; leave the secondary color at its default for contrast. */
-	:global(.pswp[data-pswp-hdr-active] .pswp__button--zoom) { --pswp-icon-color: lightblue; }
+	:global(.pswp[data-pswp-hdr-state="pending"] .pswp__button--zoom) { --pswp-icon-color: khaki; }
+	:global(.pswp[data-pswp-hdr-state="loaded"] .pswp__button--zoom) { --pswp-icon-color: lightblue; }
 	/* Diagnostic only, same purpose as the zoom-button tint above: a plain-language, no-devtools-
 	   needed answer to "is what's on screen right now actually the promoted HDR media, or still
 	   the SDR placeholder/a failure." Only rendered while non-empty (i.e. only while a lightbox

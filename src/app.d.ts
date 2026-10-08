@@ -11,6 +11,11 @@ declare global {
 		 * serves the AVIF HDR candidate for HDR-eligible assets -- see HDR_FORCE_AVIF in
 		 * $lib/media/capabilities.ts. */
 		PUBLIC_HDR_FORCE_AVIF: string;
+		/** When 'true', shows the lightbox zoom-button HDR tri-state tint (white/khaki/blue) and
+		 * the on-screen HDR status line -- debugging aids for whether a gain map was detected and
+		 * whether its HDR media actually attached, not something a regular viewer should see. Off
+		 * by default -- see hdrDebugEnabled in Lightbox.svelte. */
+		PUBLIC_HDR_DEBUG: string;
 	}
 }
 }

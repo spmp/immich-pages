@@ -234,16 +234,37 @@ describe('journal gallery contract', () => {
 		expect(hdrImageBlock).toContain('if (real.complete) promote()');
 	});
 
-	it('tints the zoom button for whichever slide carries a real gain map, independent of whether this device renders it as HDR', () => {
+	it('tints the zoom button three ways -- white, khaki/pending, blue/loaded -- gated behind PUBLIC_HDR_DEBUG, off by default', () => {
 		const lightbox = source('Lightbox');
+		expect(lightbox).toContain("const hdrDebugEnabled = env.PUBLIC_HDR_DEBUG === 'true';");
 		expect(lightbox).toContain("content?.type === 'hdr-image' || (content?.type === 'video' && content?.data?.element?.dataset.videoControls === 'false')");
-		expect(lightbox).toContain("root?.toggleAttribute('data-pswp-hdr-active', Boolean(isHdrCandidate))");
+		expect(lightbox).toContain("if (!hdrDebugEnabled) { root?.removeAttribute('data-pswp-hdr-state'); return; }");
+		expect(lightbox).toContain("root?.setAttribute('data-pswp-hdr-state', content.__hdrPromoted ? 'loaded' : 'pending')");
 		expect(lightbox).toContain("instance.on('change', () => { announce(); updateHdrIndicator(); })");
 		// The zoom icon's fill comes from the --pswp-icon-color custom property, not plain `color`
 		// -- and only that one, not --pswp-icon-color-secondary (the "+" bars' color), or the "+"
 		// becomes invisible against an identically-tinted glass shape.
-		expect(lightbox).toContain(':global(.pswp[data-pswp-hdr-active] .pswp__button--zoom) { --pswp-icon-color: lightblue; }');
+		expect(lightbox).toContain(':global(.pswp[data-pswp-hdr-state="pending"] .pswp__button--zoom) { --pswp-icon-color: khaki; }');
+		expect(lightbox).toContain(':global(.pswp[data-pswp-hdr-state="loaded"] .pswp__button--zoom) { --pswp-icon-color: lightblue; }');
 		expect(lightbox).not.toContain('--pswp-icon-color-secondary: lightblue');
+	});
+
+	it('marks content.__hdrPromoted and skips promotion entirely once PhotoSwipe has recycled the slide', () => {
+		// The real cause of "video/image available but inconsistently not displayed": PhotoSwipe
+		// destroys (content.remove()'d, content.isAttached = false) a slide's content when it's
+		// swiped far enough away to fall out of the 3-slide holder window, but nothing cancels an
+		// in-flight HDR conversion already underway for it. Without this check, a slow conversion
+		// that finally resolves after the viewer has moved on inserts the real media into a
+		// container that's already been removed from the DOM -- it genuinely loads, but nobody
+		// ever sees it, which looked exactly like an unexplained, inconsistent failure.
+		const lightbox = source('Lightbox');
+		const contentLoad = lightbox.slice(lightbox.indexOf("instance.on('contentLoad'"), lightbox.indexOf("instance.on('loadError'"));
+		const avifPromote = contentLoad.slice(contentLoad.indexOf('const promote = ()'), contentLoad.indexOf("if (content.type !== 'video') return;"));
+		expect(avifPromote).toContain('if (settled || !content.isAttached) return;');
+		expect(avifPromote).toContain('content.__hdrPromoted = true;');
+		const videoPromote = contentLoad.slice(contentLoad.lastIndexOf('const promote = ()'));
+		expect(videoPromote).toContain("if (settled || content.type !== 'video' || !content.isAttached) return;");
+		expect(videoPromote).toContain('content.__hdrPromoted = true;');
 	});
 
 	it('shows a plain-language, no-devtools status for whichever HDR media is actually on screen', () => {
