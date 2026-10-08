@@ -1,4 +1,8 @@
 import { spawn } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
+import { readFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import type { AppleHdrMetadata } from './hdr-metadata';
 
 function positiveEnv(name: string, fallback: number, maximum: number): number {
@@ -64,8 +68,23 @@ export async function encodeHdrMp4(input: Uint8Array, options: { executable?: st
 	// not derived from any particular photo -- advisory metadata a decoder uses for tone-mapping,
 	// not a per-image measurement.
 	const x265Params = 'colorprim=bt2020:transfer=smpte2084:colormatrix=bt2020nc:master-display=G(8500,39850)B(6550,2300)R(35400,14600)WP(15635,16450)L(10000000,1):max-cll=1000,400';
-	const args = ['-hide_banner', '-loglevel', 'error', '-f', 'image2pipe', '-vcodec', 'ppm', '-i', 'pipe:0', '-frames:v', '1', '-an', '-c:v', 'libx265', '-preset', 'medium', '-crf', '16', '-profile:v', 'main10', '-pix_fmt', 'yuv420p10le', '-color_primaries', 'bt2020', '-color_trc', 'smpte2084', '-colorspace', 'bt2020nc', '-x265-params', x265Params, '-tag:v', 'hvc1', '-movflags', 'frag_keyframe+empty_moov+default_base_moof', '-f', 'mp4', 'pipe:1'];
-	return runBoundedProcess(executable, args, input, HDR_FFMPEG_MAX_OUTPUT_BYTES, options.timeoutMs ?? HDR_FFMPEG_TIMEOUT_MS, 'hdr-ffmpeg', options.invocationId);
+	// Output used to go to pipe:1 as a fragmented MP4 (frag_keyframe+empty_moov+default_base_moof)
+	// because a true pipe can't be seeked back to finalize a standard moov-at-front file. That
+	// structure is designed for MSE-style incremental consumption, not a plain <video src>: real
+	// server logs showed the server succeeding and delivering the exact right bytes every single
+	// time (confirmed: zero failures, zero timeouts, correct byte count), yet WebKit's <video>
+	// element still fired its error event outright -- it never got far enough to even try playing
+	// it, consistent with rejecting the container structure itself before any tone-mapping would
+	// matter. Fix: let ffmpeg write to a real (temporary, immediately-deleted) file instead of a
+	// pipe, so it can seek back and produce a standard +faststart file (moov up front) -- the
+	// universally-compatible structure for direct <video src> playback.
+	const outputPath = join(tmpdir(), `hdr-${randomUUID()}.mp4`);
+	const args = ['-hide_banner', '-loglevel', 'error', '-f', 'image2pipe', '-vcodec', 'ppm', '-i', 'pipe:0', '-frames:v', '1', '-an', '-c:v', 'libx265', '-preset', 'medium', '-crf', '16', '-profile:v', 'main10', '-pix_fmt', 'yuv420p10le', '-color_primaries', 'bt2020', '-color_trc', 'smpte2084', '-colorspace', 'bt2020nc', '-x265-params', x265Params, '-tag:v', 'hvc1', '-movflags', '+faststart', '-f', 'mp4', '-y', outputPath];
+	try {
+		return await runBoundedProcessToFile(executable, args, input, outputPath, HDR_FFMPEG_MAX_OUTPUT_BYTES, options.timeoutMs ?? HDR_FFMPEG_TIMEOUT_MS, 'hdr-ffmpeg', options.invocationId);
+	} finally {
+		await rm(outputPath, { force: true }).catch(() => {});
+	}
 }
 
 /** Decode stage of the two-process AVIF gain-map pipeline (see scripts/hdr-avif-decode.cpp):
@@ -105,6 +124,39 @@ function runBoundedProcess(executable: string, args: string[], input: Uint8Array
 		child.stderr.on('data', (chunk: Buffer) => { stderrBytes += chunk.byteLength; if (stderr.length < 16 * 1024) stderr += chunk.toString('utf8').slice(0, 16 * 1024 - stderr.length); if (stderrBytes > 16 * 1024) child.stderr.destroy(); });
 		child.on('error', (error) => finish(new Error(`${failurePrefix}-spawn:${error.message}`)));
 		child.on('close', (code, signal) => code === 0 && bytes > 0 ? finish() : finish(new Error(`${failurePrefix}-failed:${classifyNativeFailure(stderr, failurePrefix, code, signal)}:${safeNativeDetail(stderr) || `exit-${code ?? signal ?? 'unknown'}`}`)));
+		child.stdin.on('error', (error) => finish(error));
+		child.stdin.end(input);
+	});
+}
+
+/** Same contract as runBoundedProcess, but for a process (ffmpeg producing +faststart MP4) that
+ * must write its output to a real, seekable file path rather than stdout -- a true pipe can't be
+ * seeked back to move the moov box to the front after muxing. Reads the file back once the
+ * process exits cleanly; the caller owns deleting it. */
+function runBoundedProcessToFile(executable: string, args: string[], input: Uint8Array, outputPath: string, maxOutputBytes: number, timeoutMs: number, failurePrefix: string, invocationId?: string): Promise<Uint8Array> {
+	return new Promise((resolve, reject) => {
+		const child = spawn(executable, args, { stdio: ['pipe', 'ignore', 'pipe'], windowsHide: true, shell: false, env: invocationId ? { ...process.env, HDR_BRIDGE_ASSET_ID: invocationId } : process.env });
+		let stderr = '';
+		let stderrBytes = 0;
+		let settled = false;
+		const finish = (error: Error | undefined, result?: Promise<Uint8Array>) => {
+			if (settled) return;
+			settled = true;
+			clearTimeout(timeout);
+			if (error) reject(error);
+			else resolve(result!);
+		};
+		const timeout = setTimeout(() => { child.kill('SIGKILL'); finish(new Error(`${failurePrefix}-timeout`)); }, timeoutMs);
+		child.stderr.on('data', (chunk: Buffer) => { stderrBytes += chunk.byteLength; if (stderr.length < 16 * 1024) stderr += chunk.toString('utf8').slice(0, 16 * 1024 - stderr.length); if (stderrBytes > 16 * 1024) child.stderr.destroy(); });
+		child.on('error', (error) => finish(new Error(`${failurePrefix}-spawn:${error.message}`)));
+		child.on('close', (code, signal) => {
+			if (code !== 0) { finish(new Error(`${failurePrefix}-failed:${classifyNativeFailure(stderr, failurePrefix, code, signal)}:${safeNativeDetail(stderr) || `exit-${code ?? signal ?? 'unknown'}`}`)); return; }
+			finish(undefined, readFile(outputPath).then((output) => {
+				if (output.byteLength === 0) throw new Error(`${failurePrefix}-failed:unknown:empty-output`);
+				if (output.byteLength > maxOutputBytes) throw new Error(`${failurePrefix}-output-limit`);
+				return output;
+			}));
+		});
 		child.stdin.on('error', (error) => finish(error));
 		child.stdin.end(input);
 	});
