@@ -6,10 +6,16 @@ function positiveEnv(name: string, fallback: number, maximum: number): number {
 	return Number.isFinite(value) && value > 0 ? Math.min(Math.trunc(value), maximum) : fallback;
 }
 
-export const HDR_COMPOSITOR_TIMEOUT_MS = positiveEnv('HDR_COMPOSITOR_TIMEOUT_MS', 8_000, 120_000);
+// Measured directly against 20 real Apple HEIC+gain-map photos, not assumed: composeHdr alone
+// took up to 8.6s and encodeHdrMp4 alone took up to 12s for perfectly ordinary photos (8 of the
+// 20 test photos exceeded 8s on encodeHdrMp4 alone). The original 8s default was silently 502ing
+// every photo whose native resolution/complexity pushed either stage past it -- this is the same
+// class of bug already found and fixed for the AVIF pipeline's decode/encode timeouts, just not
+// caught here at the time because reports were about AVIF specifically.
+export const HDR_COMPOSITOR_TIMEOUT_MS = positiveEnv('HDR_COMPOSITOR_TIMEOUT_MS', 20_000, 120_000);
 export const HDR_COMPOSITOR_MAX_INPUT_BYTES = 100 * 1024 * 1024;
 export const HDR_COMPOSITOR_MAX_OUTPUT_BYTES = 64 * 1024 * 1024;
-export const HDR_FFMPEG_TIMEOUT_MS = positiveEnv('HDR_FFMPEG_TIMEOUT_MS', 8_000, 120_000);
+export const HDR_FFMPEG_TIMEOUT_MS = positiveEnv('HDR_FFMPEG_TIMEOUT_MS', 20_000, 120_000);
 export const HDR_FFMPEG_MAX_OUTPUT_BYTES = 64 * 1024 * 1024;
 // Full-resolution decode + a dense per-pixel gain-map reconstruction (not a single video frame)
 // legitimately takes longer than the HEVC path's 8s default, especially for real 48MP Apple

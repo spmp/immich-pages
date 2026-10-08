@@ -32,7 +32,14 @@
 		let stopped = false;
 		let running = 0;
 		let queue: string[] = [];
-		const maxRequests = 24;
+		// Measured directly: a real HDR conversion takes up to ~20s server-side, and this queue
+		// shares the server's small HDR_MAX_CONCURRENT pool with whatever the lightbox itself is
+		// requesting. At the old 24, a large gallery's background prewarm alone could occupy that
+		// shared pool for minutes, starving the one conversion the viewer is actually waiting on --
+		// the actual, confirmed cause of "some photos never show HDR" reports that didn't correlate
+		// with anything about the photo itself. Lower trades some "feels instant nearby" benefit on
+		// huge galleries for not starving whatever the viewer opens next.
+		const maxRequests = 8;
 		const maxConcurrent = 2;
 		const schedule = () => {
 			if (stopped || document.visibilityState !== 'visible') return;

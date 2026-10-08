@@ -209,7 +209,12 @@
 						};
 						real.addEventListener('error', giveUp);
 						real.addEventListener('load', promote, { once: true });
-						hdrTimeout = window.setTimeout(giveUp, 30_000);
+						// Server-side compose/encode alone can take up to ~20s each for a real photo (see
+						// hdr-compositor.ts), and both HDR routes share one small concurrency pool with
+						// the gallery's own background prewarm fetches (JournalGallery.svelte) -- a request
+						// queued behind those can easily take another 20-40s before it even starts. 30s
+						// was giving up on perfectly good, still-in-progress conversions.
+						hdrTimeout = window.setTimeout(giveUp, 60_000);
 						real.src = content.data.src;
 						if (real.complete) promote();
 						return;
@@ -292,7 +297,12 @@
 						content.slide?.container.appendChild(video);
 					};
 					video.addEventListener('error', () => giveUp('video-load'));
-					hdrTimeout = window.setTimeout(() => giveUp('video-load'), 30_000);
+					// See the AVIF path's identical comment above: server-side compose/encode can take
+					// up to ~20s each for a real photo, and both HDR routes share one small concurrency
+					// pool with the gallery's own background prewarm fetches -- a request queued behind
+					// those can take another 20-40s before it even starts. 30s was giving up on
+					// perfectly good, still-in-progress conversions.
+					hdrTimeout = window.setTimeout(() => giveUp('video-load'), 60_000);
 					video.addEventListener('loadeddata', () => {
 						void video.play().then(promote).catch(() => giveUp('video-playback'));
 					}, { once: true });

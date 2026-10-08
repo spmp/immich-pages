@@ -174,7 +174,7 @@ describe('journal gallery contract', () => {
 		expect(asset).toContain('data-hdr-target-width');
 		expect(asset).toContain('data-hdr-target-height');
 		expect(asset).toContain('data-hdr-bounded');
-		expect(gallery).toContain('maxRequests = 24');
+		expect(gallery).toContain('maxRequests = 8');
 		expect(gallery).toContain('maxConcurrent = 2');
 		expect(gallery).toContain("document.visibilityState === 'visible'");
 	});
@@ -203,7 +203,7 @@ describe('journal gallery contract', () => {
 		expect(contentLoad).toContain('placeholder.remove()');
 		expect(contentLoad).toContain('content.element = video');
 		expect(contentLoad).toContain("video.addEventListener('error', () => giveUp('video-load'))");
-		expect(contentLoad).toContain('window.setTimeout(() => giveUp(');
+		expect(contentLoad).toContain("window.setTimeout(() => giveUp('video-load'), 60_000)");
 	});
 
 	it('wires the AVIF HDR candidate into PhotoSwipe via a custom content type, bypassing native image decode()', () => {
@@ -230,7 +230,7 @@ describe('journal gallery contract', () => {
 		expect(hdrImageBlock).toContain('placeholder.remove()');
 		expect(hdrImageBlock).toContain('content.element = real');
 		expect(hdrImageBlock).toContain("real.addEventListener('error', giveUp)");
-		expect(hdrImageBlock).toContain('window.setTimeout(giveUp, 30_000)');
+		expect(hdrImageBlock).toContain('window.setTimeout(giveUp, 60_000)');
 		expect(hdrImageBlock).toContain('if (real.complete) promote()');
 	});
 
