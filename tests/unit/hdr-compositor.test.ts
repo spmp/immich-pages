@@ -55,6 +55,22 @@ describe('HDR native process contracts', () => {
 		expect(rm).toHaveBeenCalledWith(outputPath, { force: true });
 	});
 
+	it('forces a low output frame rate so a single frame\'s size never implies a Level/Tier-violating bitrate', async () => {
+		// Confirmed on a real failing device: canPlayType() reported "probably" for this exact
+		// HEVC Main10 profile/level, yet the actual file was still rejected outright
+		// (MediaError.code 4, SRC_NOT_SUPPORTED) -- and lower-complexity photos played fine on the
+		// same device. ffmpeg's image2pipe demuxer defaults to 25fps with no explicit rate; HEVC's
+		// Level/Tier limits cap bitrate, and bitrate here is just frame-size / nominal-duration.
+		// At 25fps a real 1.78MB frame implied ~357Mbps, over even Level 5.1 High Tier's 160Mbps;
+		// at 1fps the same bytes imply ~14.3Mbps, safely under Main Tier Level 5.1 (the
+		// universally-supported baseline) -- zero quality/size cost, only the rate metadata changes.
+		spawn.mockReturnValue(childFor(''));
+		readFile.mockResolvedValue(Buffer.from('mp4'));
+		await encodeHdrMp4(new Uint8Array([1, 2, 3]));
+		const [, args] = spawn.mock.calls[0];
+		expect(args[args.indexOf('-r') + 1]).toBe('1');
+	});
+
 	it('tags mastering-display luminance and content light level, not just pixel format/colr', async () => {
 		// WebKit's native HDR video path (confirmed on iOS Safari < WebKit 26) silently renders a
 		// technically-correct-but-flat/SDR-looking video without MDCV/CLL SEI data -- color

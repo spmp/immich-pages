@@ -78,8 +78,19 @@ export async function encodeHdrMp4(input: Uint8Array, options: { executable?: st
 	// matter. Fix: let ffmpeg write to a real (temporary, immediately-deleted) file instead of a
 	// pipe, so it can seek back and produce a standard +faststart file (moov up front) -- the
 	// universally-compatible structure for direct <video src> playback.
+	// No explicit output frame rate meant ffmpeg's image2pipe default (25fps) applied to a single
+	// still frame standing in for a whole second-plus of real video: canPlayType() reported
+	// "probably" for this exact profile/level on the real failing device, yet the actual file was
+	// still rejected outright (MediaError SRC_NOT_SUPPORTED) -- and other, lower-complexity photos
+	// played fine on the same device. HEVC's Level/Tier limits cap *bitrate*, and bitrate here is
+	// just this one frame's size divided by its nominal duration: at 25fps, a 1.78MB frame implies
+	// ~357Mbps -- comfortably over even Level 5.1 High Tier's 160Mbps, let alone Main Tier's
+	// 40Mbps, which real hardware decoders do enforce even though ffmpeg/ffprobe never flagged it
+	// as non-compliant. At 1fps the exact same bytes imply ~14.3Mbps, safely under Main Tier Level
+	// 5.1 -- the universally-supported baseline -- with zero quality or file-size cost, since
+	// nothing about the actual encode changes, only the frame-rate metadata around it.
 	const outputPath = join(tmpdir(), `hdr-${randomUUID()}.mp4`);
-	const args = ['-hide_banner', '-loglevel', 'error', '-f', 'image2pipe', '-vcodec', 'ppm', '-i', 'pipe:0', '-frames:v', '1', '-an', '-c:v', 'libx265', '-preset', 'medium', '-crf', '16', '-profile:v', 'main10', '-pix_fmt', 'yuv420p10le', '-color_primaries', 'bt2020', '-color_trc', 'smpte2084', '-colorspace', 'bt2020nc', '-x265-params', x265Params, '-tag:v', 'hvc1', '-movflags', '+faststart', '-f', 'mp4', '-y', outputPath];
+	const args = ['-hide_banner', '-loglevel', 'error', '-f', 'image2pipe', '-vcodec', 'ppm', '-i', 'pipe:0', '-frames:v', '1', '-r', '1', '-an', '-c:v', 'libx265', '-preset', 'medium', '-crf', '16', '-profile:v', 'main10', '-pix_fmt', 'yuv420p10le', '-color_primaries', 'bt2020', '-color_trc', 'smpte2084', '-colorspace', 'bt2020nc', '-x265-params', x265Params, '-tag:v', 'hvc1', '-movflags', '+faststart', '-f', 'mp4', '-y', outputPath];
 	try {
 		return await runBoundedProcessToFile(executable, args, input, outputPath, HDR_FFMPEG_MAX_OUTPUT_BYTES, options.timeoutMs ?? HDR_FFMPEG_TIMEOUT_MS, 'hdr-ffmpeg', options.invocationId);
 	} finally {
