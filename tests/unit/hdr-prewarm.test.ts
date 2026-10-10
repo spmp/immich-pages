@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { HdrPrewarmCoordinator, type AuthorizedHdrProjection } from '../../src/lib/server/media/hdr-prewarm';
+import { redactHdrProgress, redactHdrProgressEvent } from '../../src/lib/server/media/hdr-progress';
 
 const projection = (generation = 0, sourceIdentity = 'etag-1'): AuthorizedHdrProjection => ({
 	generation,
@@ -37,5 +38,12 @@ describe('HDR prewarm coordinator', () => {
 		await vi.waitFor(() => expect(convert).toHaveBeenCalledTimes(2));
 		await vi.waitFor(() => expect(coordinator.snapshot().state).toBe('partial'));
 		expect(coordinator.inspectSourceBytes()).toBe(0);
+	});
+
+	it('redacts progress to bounded representation-specific aggregates and safe event IDs', () => {
+		const snapshot = redactHdrProgress({ generation: 99, representation: 'avif', state: 'ready', targeted: 1_000_000, queued: -1, running: 2, completed: 3, failed: 4, skipped: 5 });
+		expect(snapshot).toEqual({ generation: 99, representation: 'avif', state: 'ready', targeted: 100_000, queued: 0, running: 2, completed: 3, failed: 4, skipped: 5 });
+		expect(redactHdrProgressEvent('completed', 'avif', 'req-123')).toEqual({ category: 'completed', representation: 'avif', requestId: 'req-123' });
+		expect(redactHdrProgressEvent('failed', 'video', 'https://secret/share/key')).toEqual({ category: 'failed', representation: 'video' });
 	});
 });

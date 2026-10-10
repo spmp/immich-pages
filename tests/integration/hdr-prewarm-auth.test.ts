@@ -17,7 +17,7 @@ function event(body: unknown, fetch: typeof globalThis.fetch) {
 		request: new Request('https://pages.example/share/key/opaque-ref/prewarm', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }),
 		cookies: cookies(),
 		fetch
-	} as never;
+	};
 }
 
 describe('authorized HDR prewarm control plane', () => {
@@ -41,7 +41,7 @@ describe('authorized HDR prewarm control plane', () => {
 		const coordinator = getHdrInteractiveCoordinator();
 		const schedule = vi.spyOn(coordinator, 'schedule').mockReturnValue({ generation: coordinator.getGeneration(), representation: 'video', state: 'preparing', targeted: 1, queued: 1, running: 0, completed: 0, failed: 0, skipped: 0 });
 
-		const response = await POST(event({ activeAssetId, activePosition: 0, representation: 'video' }, fetchMock));
+		const response = await POST(event({ activeAssetId, activePosition: 0, representation: 'video' }, fetchMock) as never);
 		expect(response.status).toBe(200);
 		expect(response.headers.get('cache-control')).toBe('private, no-store');
 		expect(await response.json()).toEqual(expect.objectContaining({ representation: 'video', targeted: 1 }));
@@ -55,14 +55,25 @@ describe('authorized HDR prewarm control plane', () => {
 	it('rejects unauthorized shares, arbitrary IDs, and client asset lists before scheduling', async () => {
 		const schedule = vi.spyOn(getHdrInteractiveCoordinator(), 'schedule');
 		const unauthorizedFetch = vi.fn(async () => new Response(null, { status: 401 }));
-		const unauthorized = await POST(event({ activeAssetId, activePosition: 0, representation: 'video' }, unauthorizedFetch));
+		const unauthorized = await POST(event({ activeAssetId, activePosition: 0, representation: 'video' }, unauthorizedFetch) as never);
 		expect(unauthorized.status).toBe(403);
 		expect(schedule).not.toHaveBeenCalled();
 
 		const shareFetch = vi.fn(async (input: URL | RequestInfo) => new Response(new URL(input.toString()).pathname.endsWith('/me') ? JSON.stringify(v3) : new Uint8Array([1])));
-		const arbitrary = await POST(event({ activeAssetId: '66666666-6666-4666-8666-666666666666', activePosition: 0, representation: 'video', assetIds: [targetAssetId] }, shareFetch));
+		const arbitrary = await POST(event({ activeAssetId: '66666666-6666-4666-8666-666666666666', activePosition: 0, representation: 'video', assetIds: [targetAssetId] }, shareFetch) as never);
 		expect(arbitrary.status).toBe(400);
 		expect(schedule).not.toHaveBeenCalled();
 		schedule.mockRestore();
+	});
+
+	it('bounds malformed and oversized control bodies without touching the provider', async () => {
+		const fetchMock = vi.fn();
+		const malformed = await POST(event({ activeAssetId, activePosition: -1, representation: 'video' }, fetchMock) as never);
+		expect(malformed.status).toBe(400);
+		expect(fetchMock).not.toHaveBeenCalled();
+		const oversized = new Request('https://pages.example/share/key/opaque-ref/prewarm', { method: 'POST', headers: { 'content-length': '20000' }, body: '{}'.padEnd(20_000, 'x') });
+		const response = await POST({ ...event({}, fetchMock), request: oversized } as never);
+		expect(response.status).toBe(413);
+		expect(fetchMock).not.toHaveBeenCalled();
 	});
 });

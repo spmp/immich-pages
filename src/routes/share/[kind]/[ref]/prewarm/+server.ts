@@ -7,7 +7,7 @@ import { inferSafeImageMime, IMMICH_MAX_ORIGINAL_BYTES, readBoundedBytes } from 
 import { extractAppleHdrMetadata } from '$server/media/hdr-metadata';
 import { getHdrInteractiveCoordinator, type AuthorizedHdrAsset, type HdrProgressSnapshot } from '$server/media/hdr-prewarm';
 import { parseHdrLookahead, targetLookahead, type HdrProjectionAsset } from '$server/media/hdr-prewarm-policy';
-import { emptyHdrProgress, HDR_PREWARM_MAX_BODY_BYTES, HDR_PREWARM_MAX_GENERATION, HDR_PREWARM_MAX_POSITION, progressHeaders, redactHdrProgress } from '$server/media/hdr-progress';
+import { emptyHdrProgress, emitHdrProgressEvent, HDR_PREWARM_MAX_BODY_BYTES, HDR_PREWARM_MAX_GENERATION, HDR_PREWARM_MAX_POLL, HDR_PREWARM_MAX_POSITION, progressHeaders, redactHdrProgress } from '$server/media/hdr-progress';
 import { parseSharedLinkRef } from '$server/share/ref';
 import { extractImmichShareToken, PAGES_SESSION_COOKIE, sessionForShare } from '$server/share/session';
 
@@ -15,7 +15,8 @@ const CommandSchema = z.object({
 	activeAssetId: z.string().uuid().max(64),
 	activePosition: z.number().int().min(0).max(HDR_PREWARM_MAX_POSITION),
 	representation: z.enum(['video', 'avif']),
-	generation: z.number().int().min(0).max(HDR_PREWARM_MAX_GENERATION).optional()
+	generation: z.number().int().min(0).max(HDR_PREWARM_MAX_GENERATION).optional(),
+	poll: z.number().int().min(0).max(HDR_PREWARM_MAX_POLL).optional()
 }).strict();
 
 type EndpointEvent = Parameters<RequestHandler>[0];
@@ -75,6 +76,7 @@ async function authorizedAssets(event: EndpointEvent, command: z.infer<typeof Co
 	const assets: AuthorizedHdrAsset[] = [];
 	for (const target of targets) {
 		const source = await provider.getFullsizeImage(context, target.id);
+		if (source.status === 401 || source.status === 403) return { status: 403, generation };
 		if (!source.response?.ok) continue;
 		try {
 			const bytes = await readBoundedBytes(source.response, IMMICH_MAX_ORIGINAL_BYTES);
@@ -98,8 +100,8 @@ export const POST: RequestHandler = async (event) => {
 		const parsed = CommandSchema.safeParse(await readJson(event.request));
 		if (!parsed.success) return response(emptyHdrProgress(getHdrInteractiveCoordinator().getGeneration(), representation, 'partial'), 400);
 		command = parsed.data;
-	} catch {
-		return response(emptyHdrProgress(getHdrInteractiveCoordinator().getGeneration(), representation, 'partial'), 413);
+	} catch (error) {
+		return response(emptyHdrProgress(getHdrInteractiveCoordinator().getGeneration(), representation, 'partial'), error instanceof Error && error.message === 'body-too-large' ? 413 : 400);
 	}
 	const context = requestContext(event, shareRef);
 	const coordinator = getHdrInteractiveCoordinator();
@@ -111,6 +113,12 @@ export const POST: RequestHandler = async (event) => {
 		}
 		if (!result.assets?.length) return response(emptyHdrProgress(result.generation, command.representation));
 		const snapshot = coordinator.schedule({ assets: result.assets, activePosition: -1, lookahead: { kind: 'all' }, generation: result.generation }, command.representation, 'background');
+		const requestId = event.locals?.requestId;
+		if (snapshot.queued > 0) emitHdrProgressEvent('queued', command.representation, requestId);
+		if (snapshot.running > 0) emitHdrProgressEvent('started', command.representation, requestId);
+		if (snapshot.completed > 0) emitHdrProgressEvent('completed', command.representation, requestId);
+		if (snapshot.failed > 0) emitHdrProgressEvent('failed', command.representation, requestId);
+		if (snapshot.skipped > 0) emitHdrProgressEvent('skipped', command.representation, requestId);
 		return response(snapshot);
 	} catch {
 		return response(emptyHdrProgress(coordinator.getGeneration(), command.representation, 'partial'), 502);

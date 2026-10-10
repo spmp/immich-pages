@@ -3,6 +3,9 @@ import type { HdrProgressSnapshot, HdrRepresentation } from './hdr-prewarm';
 export const HDR_PREWARM_MAX_BODY_BYTES = 16 * 1024;
 export const HDR_PREWARM_MAX_POSITION = 100_000;
 export const HDR_PREWARM_MAX_GENERATION = 2 ** 31 - 1;
+export const HDR_PREWARM_MAX_POLL = 30;
+
+export type HdrProgressCategory = 'queued' | 'started' | 'completed' | 'skipped' | 'failed';
 
 const representations = new Set<HdrRepresentation>(['video', 'avif']);
 const states = new Set<HdrProgressSnapshot['state']>(['preparing', 'ready', 'partial']);
@@ -36,4 +39,14 @@ export function emptyHdrProgress(generation: number, representation: HdrRepresen
 
 export function progressHeaders(): Headers {
 	return new Headers({ 'cache-control': 'private, no-store', 'content-type': 'application/json; charset=utf-8', vary: 'Cookie, Authorization' });
+}
+
+export function redactHdrProgressEvent(category: HdrProgressCategory, representation: HdrRepresentation, requestId?: unknown): { category: HdrProgressCategory; representation: HdrRepresentation; requestId?: string } {
+	const safeRequestId = typeof requestId === 'string' && /^[A-Za-z0-9._:-]{1,64}$/.test(requestId) ? requestId : undefined;
+	return { category, representation, ...(safeRequestId ? { requestId: safeRequestId } : {}) };
+}
+
+/** Structured correlation contains no share refs, URLs, errors, credentials, or media facts. */
+export function emitHdrProgressEvent(category: HdrProgressCategory, representation: HdrRepresentation, requestId?: unknown): void {
+	console.info(JSON.stringify({ event: 'direct-share.hdr-progress', ...redactHdrProgressEvent(category, representation, requestId) }));
 }
