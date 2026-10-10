@@ -7,12 +7,16 @@ import {
 	type HdrConversionPriority
 } from './hdr-cache';
 import { targetLookahead, targetAllEligible, type HdrLookahead, type HdrProjectionAsset } from './hdr-prewarm-policy';
+import type { AppleHdrMetadata } from './hdr-metadata';
+import { composeHdr, decodeHdrAvifStream, encodeHdrAvif, encodeHdrMp4 } from './hdr-compositor';
 
 export type HdrRepresentation = 'video' | 'avif';
+export const HDR_OUTPUT_CONTRACT: Record<HdrRepresentation, string> = { video: 'mp4-hevc-main10-pq-bt2020', avif: 'avif-gainmap-p3' };
 export type HdrJobState = 'queued' | 'running' | 'succeeded' | 'failed' | 'skipped';
 
 export type AuthorizedHdrAsset = HdrProjectionAsset & {
 	sourceBytes: Uint8Array;
+	metadata?: AppleHdrMetadata;
 };
 
 export type AuthorizedHdrProjection = {
@@ -26,6 +30,7 @@ export type HdrConversionInput = {
 	assetId: string;
 	representation: HdrRepresentation;
 	sourceBytes: Uint8Array;
+	metadata?: AppleHdrMetadata;
 	width?: number;
 	height?: number;
 	cacheKey: string;
@@ -51,6 +56,7 @@ type Job = {
 	source: SourceBuffer;
 	error?: string;
 	abortController: AbortController;
+	result: Promise<CachedMedia>;
 };
 
 export type HdrProgressSnapshot = {
@@ -85,8 +91,7 @@ export class HdrPrewarmCoordinator {
 		for (const job of this.jobs.values()) {
 			if (job.state === 'queued' || job.state === 'running') {
 				job.abortController.abort();
-				job.state = 'skipped';
-				this.release(job);
+				this.finish(job, 'skipped');
 			}
 		}
 		return this.generation;
@@ -116,6 +121,11 @@ export class HdrPrewarmCoordinator {
 		return this.snapshot(generation, representation);
 	}
 
+	/** Submit one freshly-authorized representation and await the shared result. */
+	submitInteractive(asset: AuthorizedHdrAsset, representation: HdrRepresentation, generation = this.generation): Promise<CachedMedia> {
+		return this.enqueue(asset, representation, generation, 'interactive');
+	}
+
 	snapshot(generation = this.generation, representation: HdrRepresentation = 'video'): HdrProgressSnapshot {
 		const jobs = [...this.jobs.values()].filter((job) => job.generation === generation && job.representation === representation);
 		const completed = jobs.filter((job) => job.state === 'succeeded').length;
@@ -143,16 +153,24 @@ export class HdrPrewarmCoordinator {
 		return bytes;
 	}
 
-	private enqueue(asset: AuthorizedHdrAsset, representation: HdrRepresentation, generation: number, priority: HdrConversionPriority): void {
-		const key = buildHdrCacheKey({ assetId: asset.id, sourceIdentity: asset.sourceIdentity, width: asset.width, height: asset.height, outputContract: representation });
+	private enqueue(asset: AuthorizedHdrAsset, representation: HdrRepresentation, generation: number, priority: HdrConversionPriority): Promise<CachedMedia> {
+		const key = buildHdrCacheKey({ assetId: asset.id, sourceIdentity: asset.sourceIdentity, width: asset.width, height: asset.height, outputContract: HDR_OUTPUT_CONTRACT[representation] });
 		const existing = this.jobs.get(key);
-		if (existing && existing.generation === generation && existing.state !== 'failed' && existing.state !== 'skipped') {
+		if (existing && existing.generation === generation && existing.state !== 'failed' && existing.state !== 'skipped' && (existing.state !== 'succeeded' || getCachedHdr(existing.key))) {
 			if (priority === 'interactive') existing.priority = priority;
-			return;
+			return existing.result;
 		}
-		const job: Job = { key, asset, representation, generation, priority, attempts: 0, state: 'queued', source: { bytes: asset.sourceBytes, released: false }, abortController: new AbortController() };
+		let resolveResult!: (value: CachedMedia) => void;
+		let rejectResult!: (error: unknown) => void;
+		const result = new Promise<CachedMedia>((resolve, reject) => { resolveResult = resolve; rejectResult = reject; });
+		// Background schedule() calls intentionally do not await individual jobs.
+		result.catch(() => {});
+		const job: Job = { key, asset, representation, generation, priority, attempts: 0, state: 'queued', source: { bytes: asset.sourceBytes, released: false }, abortController: new AbortController(), result };
+		(job as Job & { resolveResult: typeof resolveResult; rejectResult: typeof rejectResult }).resolveResult = resolveResult;
+		(job as Job & { resolveResult: typeof resolveResult; rejectResult: typeof rejectResult }).rejectResult = rejectResult;
 		this.jobs.set(key, job);
 		void this.run(job);
+		return result;
 	}
 
 	private async run(job: Job): Promise<void> {
@@ -180,12 +198,23 @@ export class HdrPrewarmCoordinator {
 
 	private async convert(job: Job, signal?: AbortSignal): Promise<CachedMedia> {
 		if (job.generation !== this.generation) throw new Error('stale-generation');
-		return this.options.convert({ assetId: job.asset.id, representation: job.representation, sourceBytes: job.source.bytes, width: job.asset.width, height: job.asset.height, cacheKey: job.key, signal: signal ?? job.abortController.signal });
+		// Native adapters receive a short-lived view, while the coordinator-owned source buffer is
+		// cleared independently on every terminal path. This also prevents a native adapter or test
+		// diagnostic from retaining the queue's authoritative buffer after disposal.
+		return this.options.convert({ assetId: job.asset.id, representation: job.representation, sourceBytes: job.source.bytes.slice(), metadata: job.asset.metadata, width: job.asset.width, height: job.asset.height, cacheKey: job.key, signal: signal ?? job.abortController.signal });
 	}
 
 	private finish(job: Job, state: Extract<HdrJobState, 'succeeded' | 'failed' | 'skipped'>): void {
+		if (job.state === 'succeeded' || job.state === 'failed' || job.state === 'skipped') return;
 		job.state = state;
 		this.release(job);
+		const deferred = job as Job & { resolveResult: (value: CachedMedia) => void; rejectResult: (error: unknown) => void };
+		if (state === 'succeeded') {
+			// The cache is the canonical result store; the conversion promise is only request-scoped.
+			const cached = getCachedHdr(job.key);
+			if (cached) deferred.resolveResult(cached);
+			else deferred.rejectResult(new Error('hdr-result-missing'));
+		} else deferred.rejectResult(new Error(`hdr-${state}`));
 		this.options.onComplete?.(this.snapshot(job.generation, job.representation));
 	}
 
@@ -199,4 +228,24 @@ export class HdrPrewarmCoordinator {
 
 export function createHdrPrewarmCoordinator(options: HdrPrewarmOptions): HdrPrewarmCoordinator {
 	return new HdrPrewarmCoordinator(options);
+}
+
+const interactiveCoordinator = createHdrPrewarmCoordinator({
+	convert: async ({ assetId, representation, sourceBytes, metadata, signal }) => {
+		if (!metadata) throw new Error('hdr-metadata-invalid');
+		if (representation === 'video') {
+			const bridge = Boolean(process.env.HDR_COMPOSITOR_PATH || process.env.HDR_FFMPEG_PATH);
+			const ppm = await composeHdr(sourceBytes, metadata, { executable: bridge ? process.env.HDR_COMPOSITOR_PATH : undefined, invocationId: bridge ? assetId : undefined, signal });
+			const body = await encodeHdrMp4(ppm, { executable: bridge ? process.env.HDR_FFMPEG_PATH : undefined, invocationId: bridge ? assetId : undefined, signal });
+			return { body, contentType: 'video/mp4' };
+		}
+		const bridge = Boolean(process.env.HDR_AVIF_DECODE_PATH || process.env.HDR_AVIF_ENCODE_PATH);
+		const stream = await decodeHdrAvifStream(sourceBytes, metadata, { executable: bridge ? process.env.HDR_AVIF_DECODE_PATH : undefined, invocationId: bridge ? assetId : undefined, signal });
+		const body = await encodeHdrAvif(stream, metadata, { executable: bridge ? process.env.HDR_AVIF_ENCODE_PATH : undefined, invocationId: bridge ? assetId : undefined, signal });
+		return { body, contentType: 'image/avif' };
+	}
+});
+
+export function getHdrInteractiveCoordinator(): HdrPrewarmCoordinator {
+	return interactiveCoordinator;
 }

@@ -40,15 +40,15 @@ export const HDR_AVIF_ENCODE_TIMEOUT_MS = positiveEnv('HDR_AVIF_ENCODE_TIMEOUT_M
 export const HDR_AVIF_ENCODE_MAX_OUTPUT_BYTES = 128 * 1024 * 1024;
 export type NativeFailureReason = 'read' | 'primary-decode' | 'gain-map-missing' | 'gain-map-decode' | 'metadata-invalid' | 'ffmpeg' | 'compositor-timeout' | 'ffmpeg-timeout' | 'compositor-spawn' | 'ffmpeg-spawn' | 'compositor-exit' | 'ffmpeg-exit' | 'avif-decode-timeout' | 'avif-encode-timeout' | 'avif-decode-spawn' | 'avif-encode-spawn' | 'avif-decode-exit' | 'avif-encode-exit' | 'unknown';
 
-export async function composeHdr(input: Uint8Array, metadata: AppleHdrMetadata, options: { executable?: string; timeoutMs?: number; invocationId?: string } = {}): Promise<Uint8Array> {
+export async function composeHdr(input: Uint8Array, metadata: AppleHdrMetadata, options: { executable?: string; timeoutMs?: number; invocationId?: string; signal?: AbortSignal } = {}): Promise<Uint8Array> {
 	if (input.byteLength === 0 || input.byteLength > HDR_COMPOSITOR_MAX_INPUT_BYTES) throw new Error('hdr-input-limit');
 	if (!metadata || metadata.auxiliaryType !== 'urn:com:apple:photo:2020:aux:hdrgainmap' || !Number.isFinite(metadata.makerNote33) || !Number.isFinite(metadata.makerNote48)) throw new Error('hdr-metadata-invalid');
 	const executable = options.executable ?? process.env.HDR_COMPOSITOR_PATH ?? '/usr/local/bin/hdr-gainmap-compositor';
 	const args = ['--hdr-version', metadata.version, '--maker-note-33', String(metadata.makerNote33), '--maker-note-48', String(metadata.makerNote48), '--source-profile', metadata.sourceProfile, '--source-transfer', metadata.sourceTransfer, '--orientation', String(metadata.orientation)];
-	return runBoundedProcess(executable, args, input, HDR_COMPOSITOR_MAX_OUTPUT_BYTES, options.timeoutMs ?? HDR_COMPOSITOR_TIMEOUT_MS, 'hdr-compositor', options.invocationId);
+	return runBoundedProcess(executable, args, input, HDR_COMPOSITOR_MAX_OUTPUT_BYTES, options.timeoutMs ?? HDR_COMPOSITOR_TIMEOUT_MS, 'hdr-compositor', options.invocationId, options.signal);
 }
 
-export async function encodeHdrMp4(input: Uint8Array, options: { executable?: string; timeoutMs?: number; invocationId?: string } = {}): Promise<Uint8Array> {
+export async function encodeHdrMp4(input: Uint8Array, options: { executable?: string; timeoutMs?: number; invocationId?: string; signal?: AbortSignal } = {}): Promise<Uint8Array> {
 	if (input.byteLength === 0 || input.byteLength > HDR_COMPOSITOR_MAX_OUTPUT_BYTES) throw new Error('hdr-input-limit');
 	const executable = options.executable ?? process.env.HDR_FFMPEG_PATH ?? '/usr/bin/ffmpeg';
 	// This is one still frame standing in for a full-size photo, not streaming video -- file size
@@ -92,7 +92,7 @@ export async function encodeHdrMp4(input: Uint8Array, options: { executable?: st
 	const outputPath = join(tmpdir(), `hdr-${randomUUID()}.mp4`);
 	const args = ['-hide_banner', '-loglevel', 'error', '-f', 'image2pipe', '-vcodec', 'ppm', '-i', 'pipe:0', '-frames:v', '1', '-r', '1', '-an', '-c:v', 'libx265', '-preset', 'medium', '-crf', '16', '-profile:v', 'main10', '-pix_fmt', 'yuv420p10le', '-color_primaries', 'bt2020', '-color_trc', 'smpte2084', '-colorspace', 'bt2020nc', '-x265-params', x265Params, '-tag:v', 'hvc1', '-movflags', '+faststart', '-f', 'mp4', '-y', outputPath];
 	try {
-		return await runBoundedProcessToFile(executable, args, input, outputPath, HDR_FFMPEG_MAX_OUTPUT_BYTES, options.timeoutMs ?? HDR_FFMPEG_TIMEOUT_MS, 'hdr-ffmpeg', options.invocationId);
+		return await runBoundedProcessToFile(executable, args, input, outputPath, HDR_FFMPEG_MAX_OUTPUT_BYTES, options.timeoutMs ?? HDR_FFMPEG_TIMEOUT_MS, 'hdr-ffmpeg', options.invocationId, options.signal);
 	} finally {
 		await rm(outputPath, { force: true }).catch(() => {});
 	}
@@ -103,25 +103,25 @@ export async function encodeHdrMp4(input: Uint8Array, options: { executable?: st
  * metadata, and emits a raw RGBA(+half-float) stream for hdr-avif-encode to consume. Links only
  * libheif; the encode stage links only libavif -- kept as two single-library binaries for the
  * same one-native-contract-per-concern reason composeHdr/encodeHdrMp4 already are. */
-export async function decodeHdrAvifStream(input: Uint8Array, metadata: AppleHdrMetadata, options: { executable?: string; timeoutMs?: number; invocationId?: string } = {}): Promise<Uint8Array> {
+export async function decodeHdrAvifStream(input: Uint8Array, metadata: AppleHdrMetadata, options: { executable?: string; timeoutMs?: number; invocationId?: string; signal?: AbortSignal } = {}): Promise<Uint8Array> {
 	if (input.byteLength === 0 || input.byteLength > HDR_COMPOSITOR_MAX_INPUT_BYTES) throw new Error('hdr-input-limit');
 	if (!metadata || metadata.auxiliaryType !== 'urn:com:apple:photo:2020:aux:hdrgainmap' || !Number.isFinite(metadata.makerNote33) || !Number.isFinite(metadata.makerNote48)) throw new Error('hdr-metadata-invalid');
 	const executable = options.executable ?? process.env.HDR_AVIF_DECODE_PATH ?? '/usr/local/bin/hdr-avif-decode';
 	const args = ['--mode', 'gainmap', '--hdr-version', metadata.version, '--maker-note-33', String(metadata.makerNote33), '--maker-note-48', String(metadata.makerNote48), '--source-profile', metadata.sourceProfile, '--source-transfer', metadata.sourceTransfer, '--orientation', String(metadata.orientation)];
-	return runBoundedProcess(executable, args, input, HDR_AVIF_DECODE_MAX_OUTPUT_BYTES, options.timeoutMs ?? HDR_AVIF_DECODE_TIMEOUT_MS, 'hdr-avif-decode', options.invocationId);
+	return runBoundedProcess(executable, args, input, HDR_AVIF_DECODE_MAX_OUTPUT_BYTES, options.timeoutMs ?? HDR_AVIF_DECODE_TIMEOUT_MS, 'hdr-avif-decode', options.invocationId, options.signal);
 }
 
 /** Encode stage: consumes hdr-avif-decode's stream and produces a single Display-P3-preserving
  * AVIF with a real ISO 21496-1-style gain map, gracefully SDR-degrading on any decoder that
  * doesn't understand the gain map (see scripts/hdr-avif-encode.cpp header comment). */
-export async function encodeHdrAvif(stream: Uint8Array, metadata: AppleHdrMetadata, options: { executable?: string; timeoutMs?: number; invocationId?: string } = {}): Promise<Uint8Array> {
+export async function encodeHdrAvif(stream: Uint8Array, metadata: AppleHdrMetadata, options: { executable?: string; timeoutMs?: number; invocationId?: string; signal?: AbortSignal } = {}): Promise<Uint8Array> {
 	if (stream.byteLength === 0 || stream.byteLength > HDR_AVIF_DECODE_MAX_OUTPUT_BYTES) throw new Error('hdr-input-limit');
 	const executable = options.executable ?? process.env.HDR_AVIF_ENCODE_PATH ?? '/usr/local/bin/hdr-avif-encode';
 	const args = ['--source-profile', metadata.sourceProfile, '--source-transfer', metadata.sourceTransfer];
-	return runBoundedProcess(executable, args, stream, HDR_AVIF_ENCODE_MAX_OUTPUT_BYTES, options.timeoutMs ?? HDR_AVIF_ENCODE_TIMEOUT_MS, 'hdr-avif-encode', options.invocationId);
+	return runBoundedProcess(executable, args, stream, HDR_AVIF_ENCODE_MAX_OUTPUT_BYTES, options.timeoutMs ?? HDR_AVIF_ENCODE_TIMEOUT_MS, 'hdr-avif-encode', options.invocationId, options.signal);
 }
 
-function runBoundedProcess(executable: string, args: string[], input: Uint8Array, maxOutputBytes: number, timeoutMs: number, failurePrefix: string, invocationId?: string): Promise<Uint8Array> {
+function runBoundedProcess(executable: string, args: string[], input: Uint8Array, maxOutputBytes: number, timeoutMs: number, failurePrefix: string, invocationId?: string, signal?: AbortSignal): Promise<Uint8Array> {
 	return new Promise((resolve, reject) => {
 		const child = spawn(executable, args, { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true, shell: false, env: invocationId ? { ...process.env, HDR_BRIDGE_ASSET_ID: invocationId } : process.env });
 		const chunks: Buffer[] = [];
@@ -129,8 +129,12 @@ function runBoundedProcess(executable: string, args: string[], input: Uint8Array
 		let stderr = '';
 		let stderrBytes = 0;
 		let settled = false;
-		const finish = (error?: Error) => { if (settled) return; settled = true; clearTimeout(timeout); if (error) reject(error); else resolve(Buffer.concat(chunks)); };
-		const timeout = setTimeout(() => { child.kill('SIGKILL'); finish(new Error(`${failurePrefix}-timeout`)); }, timeoutMs);
+		let timeout: ReturnType<typeof setTimeout> | undefined;
+		const finish = (error?: Error) => { if (settled) return; settled = true; if (timeout) clearTimeout(timeout); signal?.removeEventListener('abort', abort); if (error) reject(error); else resolve(Buffer.concat(chunks)); };
+		const abort = () => { child.kill('SIGKILL'); finish(new DOMException('The HDR native task was cancelled', 'AbortError')); };
+		if (signal?.aborted) return abort();
+		signal?.addEventListener('abort', abort, { once: true });
+		timeout = setTimeout(() => { child.kill('SIGKILL'); finish(new Error(`${failurePrefix}-timeout`)); }, timeoutMs);
 		child.stdout.on('data', (chunk: Buffer) => { bytes += chunk.byteLength; if (bytes > maxOutputBytes) { child.kill('SIGKILL'); finish(new Error(`${failurePrefix}-output-limit`)); return; } chunks.push(chunk); });
 		child.stderr.on('data', (chunk: Buffer) => { stderrBytes += chunk.byteLength; if (stderr.length < 16 * 1024) stderr += chunk.toString('utf8').slice(0, 16 * 1024 - stderr.length); if (stderrBytes > 16 * 1024) child.stderr.destroy(); });
 		child.on('error', (error) => finish(new Error(`${failurePrefix}-spawn:${error.message}`)));
@@ -144,20 +148,25 @@ function runBoundedProcess(executable: string, args: string[], input: Uint8Array
  * must write its output to a real, seekable file path rather than stdout -- a true pipe can't be
  * seeked back to move the moov box to the front after muxing. Reads the file back once the
  * process exits cleanly; the caller owns deleting it. */
-function runBoundedProcessToFile(executable: string, args: string[], input: Uint8Array, outputPath: string, maxOutputBytes: number, timeoutMs: number, failurePrefix: string, invocationId?: string): Promise<Uint8Array> {
+function runBoundedProcessToFile(executable: string, args: string[], input: Uint8Array, outputPath: string, maxOutputBytes: number, timeoutMs: number, failurePrefix: string, invocationId?: string, signal?: AbortSignal): Promise<Uint8Array> {
 	return new Promise((resolve, reject) => {
 		const child = spawn(executable, args, { stdio: ['pipe', 'ignore', 'pipe'], windowsHide: true, shell: false, env: invocationId ? { ...process.env, HDR_BRIDGE_ASSET_ID: invocationId } : process.env });
 		let stderr = '';
 		let stderrBytes = 0;
 		let settled = false;
+		let timeout: ReturnType<typeof setTimeout> | undefined;
 		const finish = (error: Error | undefined, result?: Promise<Uint8Array>) => {
 			if (settled) return;
 			settled = true;
-			clearTimeout(timeout);
+			if (timeout) clearTimeout(timeout);
+			signal?.removeEventListener('abort', abort);
 			if (error) reject(error);
 			else resolve(result!);
 		};
-		const timeout = setTimeout(() => { child.kill('SIGKILL'); finish(new Error(`${failurePrefix}-timeout`)); }, timeoutMs);
+		const abort = () => { child.kill('SIGKILL'); finish(new DOMException('The HDR native task was cancelled', 'AbortError')); };
+		if (signal?.aborted) return abort();
+		signal?.addEventListener('abort', abort, { once: true });
+		timeout = setTimeout(() => { child.kill('SIGKILL'); finish(new Error(`${failurePrefix}-timeout`)); }, timeoutMs);
 		child.stderr.on('data', (chunk: Buffer) => { stderrBytes += chunk.byteLength; if (stderr.length < 16 * 1024) stderr += chunk.toString('utf8').slice(0, 16 * 1024 - stderr.length); if (stderrBytes > 16 * 1024) child.stderr.destroy(); });
 		child.on('error', (error) => finish(new Error(`${failurePrefix}-spawn:${error.message}`)));
 		child.on('close', (code, signal) => {

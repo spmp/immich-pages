@@ -6,8 +6,9 @@ import { parseSharedLinkRef } from '$server/share/ref';
 import { z } from 'zod';
 import { extractImmichShareToken, PAGES_SESSION_COOKIE, sessionForShare } from '$server/share/session';
 import { logHdrDiagnostic, logShareMediaStatus } from '$server/share/diagnostics';
-import { composeHdr, encodeHdrMp4, nativeFailureDetail, nativeFailureReason } from '$server/media/hdr-compositor';
-import { buildHdrCacheKey, getCachedHdr, getHdrCacheState, getOrCreateHdr, withHdrConcurrency, HDR_CACHE_TTL_MS } from '$server/media/hdr-cache';
+import { nativeFailureDetail, nativeFailureReason } from '$server/media/hdr-compositor';
+import { buildHdrCacheKey, getCachedHdr, HDR_CACHE_TTL_MS } from '$server/media/hdr-cache';
+import { getHdrInteractiveCoordinator } from '$server/media/hdr-prewarm';
 import { extractAppleHdrMetadata } from '$server/media/hdr-metadata';
 import { buildHdrMetadataCacheKey, getCachedHdrMetadata, getOrExtractHdrMetadata } from '$server/media/hdr-metadata-cache';
 
@@ -93,7 +94,6 @@ export const GET: RequestHandler = async ({ params, request, cookies, fetch, loc
 	const requestUrl = new URL(request.url);
 	const requestedWidth = boundedDimension(requestUrl.searchParams.get('width'));
 	const requestedHeight = boundedDimension(requestUrl.searchParams.get('height'));
-	const conversionPriority = requestUrl.searchParams.get('priority') === 'interactive' ? 'interactive' : 'background';
 	logHdrDiagnostic({ event: 'request', assetId: params.assetId, requestId, phase: 'lookup', status: 'started', range: request.headers.get('range'), width: requestedWidth, height: requestedHeight });
 	// A revisit of a photo whose HDR video is already cached was paying for the ENTIRE original
 	// download (up to 100MB) and a full read into memory on every single request -- including a
@@ -152,23 +152,7 @@ export const GET: RequestHandler = async ({ params, request, cookies, fetch, loc
 				metadata.sourceTransfer,
 				metadata.orientation
 			].filter(Boolean).join('|') || `bytes-${input.byteLength}`;
-			const cacheKey = buildHdrCacheKey({ assetId: params.assetId, sourceIdentity, width: requestedWidth, height: requestedHeight });
-			output = await getOrCreateHdr(cacheKey, async () => {
-				logHdrDiagnostic({ event: 'conversion', assetId: params.assetId, requestId, phase: 'queued', source: 'conversion', status: 'started', queueDepth: getHdrCacheState().waitingConversions, activeConversions: getHdrCacheState().activeConversions });
-				return withHdrConcurrency(async () => {
-					const conversionStartedAt = Date.now();
-					logHdrDiagnostic({ event: 'conversion', assetId: params.assetId, requestId, phase: 'started', source: 'conversion', status: 'started', queueDepth: getHdrCacheState().waitingConversions, activeConversions: getHdrCacheState().activeConversions });
-					const compositorPpm = bridgeEnabled
-						? await composeHdr(input, metadata, { executable: process.env.HDR_COMPOSITOR_PATH, invocationId: params.assetId })
-						: await composeHdr(input, metadata);
-					logHdrDiagnostic({ event: 'conversion', assetId: params.assetId, requestId, phase: 'compositor', source: 'conversion', status: 'success', durationMs: Date.now() - conversionStartedAt });
-					const body = bridgeEnabled
-						? await encodeHdrMp4(compositorPpm, { executable: process.env.HDR_FFMPEG_PATH, invocationId: params.assetId })
-						: await encodeHdrMp4(compositorPpm);
-					logHdrDiagnostic({ event: 'conversion', assetId: params.assetId, requestId, phase: 'encoder', source: 'conversion', status: 'success', byteLength: body.byteLength, durationMs: Date.now() - conversionStartedAt });
-					return { body, contentType: 'video/mp4' };
-				}, { priority: conversionPriority, queueKey: cacheKey });
-			}, Date.now(), conversionPriority);
+			output = await getHdrInteractiveCoordinator().submitInteractive({ id: params.assetId, eligible: true, position: 0, sourceIdentity, sourceBytes: input.slice(), metadata, width: requestedWidth, height: requestedHeight }, 'video');
 		} catch (error) {
 			const failureReason = nativeFailureReason(error);
 			logHdrDiagnostic({ event: 'conversion', assetId: params.assetId, requestId, phase: 'failed', source: 'conversion', status: 'failure', reason: nativeFailureDetail(error), durationMs: Date.now() - requestStartedAt });

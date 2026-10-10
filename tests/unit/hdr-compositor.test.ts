@@ -93,6 +93,17 @@ describe('HDR native process contracts', () => {
 		expect(readFile).not.toHaveBeenCalled();
 	});
 
+	it('kills native work when the coordinator aborts the shared signal', async () => {
+		const child = childFor('');
+		child.stdin.end = vi.fn();
+		spawn.mockReturnValue(child);
+		const controller = new AbortController();
+		const pending = composeHdr(new Uint8Array([1]), metadata, { signal: controller.signal });
+		controller.abort();
+		await expect(pending).rejects.toMatchObject({ name: 'AbortError' });
+		expect(child.kill).toHaveBeenCalledWith('SIGKILL');
+	});
+
 	it('decodes to a gain-map stream with the fixed Apple metadata CLI contract', async () => {
 		spawn.mockReturnValue(childFor('stream'));
 		await expect(decodeHdrAvifStream(new Uint8Array([1]), metadata)).resolves.toEqual(Buffer.from('stream'));
