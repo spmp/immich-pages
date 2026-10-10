@@ -37,6 +37,11 @@
 					headers: { 'content-type': 'application/json', 'x-hdr-representation': 'video' },
 					body: JSON.stringify({ activeAssetId, activePosition })
 				});
+				if (!response.ok) {
+					readinessState = 'partial';
+					progress = { ...progress, state: 'partial' };
+					return;
+				}
 				const value: unknown = await response.json();
 				if (isProgress(value)) {
 					progress = value;
@@ -58,7 +63,7 @@
 </script>
 
 {#if enabled && activeAssetId && progress.targeted !== 0}
-	<div class="readiness" class:partial={readinessState === 'partial'} class:ready={readinessState === 'ready'} role="status" aria-live="polite" aria-label={label} title={label}>
+	<div class="readiness" class:partial={readinessState === 'partial'} class:ready={readinessState === 'ready'} role="status" aria-live="polite" aria-busy={readinessState === 'preparing'} aria-label={label} title={label}>
 		<span class="indicator" aria-hidden="true"></span>
 		<span class="sr-only">{label}</span>
 	</div>

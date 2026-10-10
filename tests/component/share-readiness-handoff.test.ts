@@ -36,5 +36,8 @@ describe('share readiness handoff', () => {
 		expect(indicator).toContain('{#if enabled && activeAssetId && progress.targeted !== 0}');
 		expect(indicator).toContain('aria-live="polite"');
 		expect(indicator).toContain('role="status"');
+		expect(indicator).toContain('aria-busy={readinessState === \'preparing\'}');
+		expect(indicator).toContain('if (!response.ok)');
+		expect(indicator).not.toMatch(/sourceIdentity|sourceBytes|cookie|authorization|requestId/);
 	});
 });
