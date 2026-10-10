@@ -1,8 +1,12 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { SvelteMap } from 'svelte/reactivity';
 	import { env } from '$env/dynamic/public';
 	import 'photoswipe/style.css';
 	import { reportJournalDebug } from './journal-debug';
+	import { beginHdrUpgrade, isHdrUpgradeLoading } from '$lib/media/hdr-upgrade';
+	import { markHdrUpgradePromoted } from '$lib/media/hdr-upgrade';
+	import { HdrMediaCache } from '$lib/media/hdr-media-cache';
 	let { galleryId }: { galleryId: string } = $props();
 	let status = $state<'loading' | 'ready' | 'failed'>('loading');
 	// Both the zoom-button tint and the on-screen status line below are debugging aids built
@@ -35,6 +39,27 @@
 		let pendingHistoryTraversal = false;
 		let pendingAnchor: HTMLAnchorElement | null = null;
 		let activeViewer: any;
+		// Every promoted HDR video, across however many slides currently hold one -- a slide
+		// several photos away is still "cached" (not destroyed) by PhotoSwipe's ContentLoader, and
+		// nothing about navigating away from it ever paused the <video> it already promoted. With
+		// autoplay+loop set at promote time and never revisited, each one just keeps decoding and
+		// looping in the background indefinitely. On a resource-constrained device, two or three of
+		// those running at once was enough to stall a *new* video's decode past its own timeout --
+		// the conversion had already landed server-side, but the client never got to play() it.
+		// Single-frame content, so pausing changes nothing about what's visible; only the active
+		// decode/display pipeline (which is what some platforms gate real HDR tone-mapping behind)
+		// needs to be limited to the one slide actually on screen.
+		const hdrVideos: HTMLVideoElement[] = [];
+		const hdrVideoLoaders = new SvelteMap<any, () => void>();
+		const hdrVideoPromoters = new SvelteMap<any, () => void>();
+		const promotedHdrMedia = new HdrMediaCache();
+		const syncHdrVideoPlayback = () => {
+			const currentVideo = lightbox?.pswp?.currSlide?.content?.element as HTMLVideoElement | undefined;
+			for (const video of hdrVideos) {
+				if (video === currentVideo) { if (video.paused) void video.play().catch(() => {}); }
+				else if (!video.paused) video.pause();
+			}
+		};
 		const previousOverflow = document.body.style.overflow;
 		const getGallery = () => document.querySelector<HTMLElement>(`#${galleryId}`);
 		const announcement = document.querySelector<HTMLElement>('[data-pswp-announcement]');
@@ -88,6 +113,29 @@
 				if (!hdrDebugEnabled) return;
 				if (content === lightbox?.pswp?.currSlide?.content) hdrStatus = text;
 			};
+			// PhotoSwipe's built-in preloader does not poll; it re-reads content.isLoading() only
+			// when told to -- on 'change', on 'loadComplete', or through this method, which
+			// ui/loading-indicator.js publishes with an explicit `// expose the method` for exactly
+			// the case of a content type that loads outside PhotoSwipe's own image pipeline. Both
+			// HDR paths are that case, so both must call this on both edges of their loading state;
+			// announcing only the start is what previously left a spinner running forever over an
+			// HDR video that had actually loaded fine.
+			//
+			// Deliberately goes through lightbox.pswp rather than the Content's own `instance`: a
+			// Content created during the pre-open preload window belongs to the PhotoSwipeLightbox,
+			// which has no preloader subscribed and no currSlide to match against, so nudging it
+			// there is silently a no-op. Before the viewer exists there is simply no spinner to
+			// update, and the 'change' PhotoSwipe dispatches as it opens (photoswipe.js:413) re-reads
+			// the state anyway.
+		const refreshSpinner = () => lightbox?.pswp?.ui?.updatePreloaderVisibility?.();
+		const reportSlide = (status: 'opened' | 'closed' | 'changed') => {
+			const pswp = lightbox?.pswp;
+			const content = pswp?.currSlide?.content;
+			const anchor = content?.data?.element as HTMLElement | undefined;
+			const anchors = getGallery()?.querySelectorAll('a');
+			const assetIndex = anchor && anchors ? Array.from(anchors).indexOf(anchor as HTMLAnchorElement) : -1;
+			reportJournalDebug('lightbox', { status, assetIndex: assetIndex >= 0 ? assetIndex : undefined, assetTotal: anchors?.length, slideIndex: typeof pswp?.currIndex === 'number' ? pswp.currIndex : undefined, slideTotal: typeof pswp?.getNumItems === 'function' ? pswp.getNumItems() : undefined, photoSwipeType: content?.type === 'hdr-image' || content?.type === 'video' || content?.type === 'image' ? content.type : undefined, srcKind: content?.type === 'hdr-image' ? 'hdr-avif' : content?.data?.element?.dataset.videoControls === 'false' ? 'hdr-video' : content?.data?.src ? 'fullsize' : 'unknown' });
+		};
 		const onKeydown = (event: KeyboardEvent) => {
 			const root = document.querySelector<HTMLElement>('.pswp--open');
 			if (!root) return;
@@ -181,11 +229,28 @@
 					const isHdrImageCandidate = content?.type === 'hdr-image';
 					return (isHdrVideoCandidate || isHdrImageCandidate) ? true : isContentZoomable;
 				});
+				// The sanctioned way to report a custom content type's loading state: PhotoSwipe asks
+				// (Content.isLoading applies this filter) rather than the app writing content.state
+				// behind its back. That matters because content.state is PhotoSwipe's own field --
+				// keeping a second, hand-maintained copy of "am I loading" is what let the real state
+				// and the spinner disagree. OR-ed with the incoming value so every content type this
+				// app doesn't manage keeps PhotoSwipe's own answer.
+				instance.addFilter('isContentLoading', (isContentLoading: boolean, content: any) => isHdrUpgradeLoading(content) || isContentLoading);
 				instance.on('contentLoad', (event: any) => {
 					const { content } = event;
 					if (content.type === 'hdr-image') {
 						event.preventDefault();
+						reportJournalDebug('hdr-media', { status: 'loading', spinner: 'start', photoSwipeType: 'hdr-image', srcKind: 'hdr-avif' });
 						const label = content.data.element?.getAttribute('aria-label') ?? 'Journey photograph';
+						const cached = promotedHdrMedia.get(content.data.src);
+						if (cached) {
+							content.element = cached;
+							markHdrUpgradePromoted(content);
+							setHdrStatus(content, 'AVIF HDR image: loaded');
+							updateHdrIndicator();
+							reportJournalDebug('hdr-media', { status: 'promoted', hdrReason: 'cached', cacheReuse: true, spinner: 'stop', photoSwipeType: 'hdr-image', srcKind: 'hdr-avif' });
+							return;
+						}
 
 						// PhotoSwipe's native image pipeline gates DOM insertion behind HTMLImageElement.decode()
 						// on Safari (a workaround for a *different*, partial-rendering Safari bug) -- but decode()
@@ -203,74 +268,57 @@
 						placeholder.alt = label;
 						placeholder.className = 'pswp__img';
 						content.element = placeholder;
-						content.state = 'loading';
 						setHdrStatus(content, 'AVIF HDR image: loading…');
 
 						const real = new Image();
 						real.alt = label;
 						real.className = 'pswp__img';
+						const reportAvifLifecycle = (status: 'loading' | 'ready' | 'failure', requestPhase: 'start' | 'end', spinner: 'start' | 'stop') =>
+							reportJournalDebug('hdr-media', { status, requestPhase, spinner, photoSwipeType: 'hdr-image', srcKind: 'hdr-avif' });
+						real.addEventListener('loadstart', () => reportAvifLifecycle('loading', 'start', 'start'));
+						real.addEventListener('load', () => reportAvifLifecycle('ready', 'end', 'stop'));
 
-						let settled = false;
-						let hdrTimeout: number | undefined;
-						const finish = () => {
-							if (hdrTimeout !== undefined) window.clearTimeout(hdrTimeout);
-							content.state = 'loaded';
-							content.instance?.dispatch?.('loadComplete', { slide: content.slide, content });
-						};
-						// Recycled while this was waiting: nobody's looking at this slide anymore, and
-						// PhotoSwipe's ContentLoader caches Content objects by index and will hand this
-						// exact same object back if the viewer revisits. Content.load() refuses to
-						// dispatch 'contentLoad' again as long as content.element is still set ("if
-						// (this.element && !reload) return"), so without clearing it here, a revisit
-						// would silently keep showing the stale placeholder forever -- no spinner, no
-						// retry, ever -- indistinguishable from "broken" even though the underlying
-						// asset is fine. Clearing it lets a future revisit start a genuinely fresh
-						// attempt.
-						const abandonStaleAttempt = () => {
-							settled = true;
-							if (hdrTimeout !== undefined) window.clearTimeout(hdrTimeout);
-							content.element = undefined;
-							content.state = 'loaded';
-						};
-						const giveUp = () => {
-							if (settled) return;
-							if (!content.isAttached) { abandonStaleAttempt(); return; }
-							settled = true;
-							finish();
-							setHdrStatus(content, 'AVIF HDR image: failed, showing SDR photo');
-							reportJournalDebug('media-failure', { category: 'image', status: 'unavailable', errorContext: 'image-load', failureCategory: 'decode' });
-							// The placeholder <img> is already the visible, correct content; nothing to swap.
-						};
-						const promote = () => {
-							if (settled) return;
-							if (!content.isAttached) { abandonStaleAttempt(); return; }
-							settled = true;
-							finish();
-							content.__hdrPromoted = true;
-							setHdrStatus(content, 'AVIF HDR image: loaded');
-							updateHdrIndicator();
-							// PhotoSwipe sizes a content's element by setting explicit inline width/height
-							// on it directly (Content.setDisplayedSize -> setWidthHeight), keyed to whichever
-							// element is currently content.element -- swapping the reference to `real` here
-							// without copying that over leaves `real` unsized (shows at native pixel size,
-							// i.e. "fully zoomed in") since nothing re-triggers a resize just because the
-							// element reference changed. Copy the already-correct box straight across.
-							real.style.width = placeholder.style.width;
-							real.style.height = placeholder.style.height;
-							placeholder.remove();
-							content.element = real;
-							content.slide?.container.appendChild(real);
-						};
-						real.addEventListener('error', giveUp);
-						real.addEventListener('load', promote, { once: true });
 						// Server-side compose/encode alone can take up to ~20s each for a real photo (see
 						// hdr-compositor.ts), and both HDR routes share one small concurrency pool with
 						// the gallery's own background prewarm fetches (JournalGallery.svelte) -- a request
 						// queued behind those can easily take another 20-40s before it even starts. 30s
 						// was giving up on perfectly good, still-in-progress conversions.
-						hdrTimeout = window.setTimeout(giveUp, hdrClientTimeoutMs);
+						const upgrade = beginHdrUpgrade({
+							content,
+							placeholder,
+							real,
+							timeoutMs: hdrClientTimeoutMs,
+							refreshSpinner,
+							beforeSwap: () => {
+								// PhotoSwipe sizes a content's element by setting explicit inline width/height
+								// on it directly (Content.setDisplayedSize -> setWidthHeight), keyed to whichever
+								// element is currently content.element -- swapping the reference to `real`
+								// without copying that over leaves `real` unsized (shows at native pixel size,
+								// i.e. "fully zoomed in") since nothing re-triggers a resize just because the
+								// element reference changed. Copy the already-correct box straight across.
+								real.style.width = placeholder.style.width;
+								real.style.height = placeholder.style.height;
+							},
+							onSettled: (outcome) => {
+								if (outcome === 'promoted') {
+									promotedHdrMedia.set(content.data.src, real);
+									setHdrStatus(content, 'AVIF HDR image: loaded');
+									updateHdrIndicator();
+									reportJournalDebug('hdr-media', { status: 'promoted', spinner: 'stop', photoSwipeType: 'hdr-image', srcKind: 'hdr-avif' });
+									return;
+								}
+								setHdrStatus(content, 'AVIF HDR image: failed, showing SDR photo');
+								reportJournalDebug('hdr-media', { status: 'given-up', hdrReason: 'image-load', spinner: 'stop', photoSwipeType: 'hdr-image', srcKind: 'hdr-avif' });
+								reportJournalDebug('media-failure', { category: 'image', status: 'unavailable', errorContext: 'image-load', failureCategory: 'decode' });
+							}
+						});
+						real.addEventListener('error', () => {
+							reportAvifLifecycle('failure', 'end', 'stop');
+							upgrade.giveUp('image-load');
+						});
+						real.addEventListener('load', () => upgrade.promote(), { once: true });
 						real.src = content.data.src;
-						if (real.complete) promote();
+						if (real.complete) upgrade.promote();
 						return;
 					}
 					if (content.type !== 'video') return;
@@ -289,11 +337,21 @@
 						video.preload = 'metadata';
 						video.className = 'pswp__video';
 						video.setAttribute('aria-label', label);
-						video.addEventListener('error', () => reportJournalDebug('media-failure', { category: 'video', status: 'unavailable', errorContext: 'video-load', failureCategory: 'decode' }));
+						video.addEventListener('error', () => reportJournalDebug('media-failure', { category: 'video', status: 'unavailable', errorContext: 'video-load', failureCategory: 'decode', nativeErrorCode: video.error?.code ?? null }));
 						const track = document.createElement('track');
 						track.kind = 'captions';
 						video.appendChild(track);
 						content.element = video;
+						return;
+					}
+
+					const cached = promotedHdrMedia.get(content.data.src);
+					if (cached instanceof HTMLVideoElement) {
+						content.element = cached;
+						markHdrUpgradePromoted(content);
+						if (!hdrVideos.includes(cached)) hdrVideos.push(cached);
+						setHdrStatus(content, 'HDR video: playing');
+						updateHdrIndicator();
 						return;
 					}
 
@@ -307,12 +365,8 @@
 					placeholder.alt = label;
 					placeholder.className = 'pswp__img';
 					content.element = placeholder;
-					// Drives PhotoSwipe's own built-in preloader spinner (isLoading() checks exactly
-					// this, independent of content type) -- missing here the whole time, unlike the AVIF
-					// path below which has always set it. Became impossible to miss once real conversions
-					// started taking 10-30s+: no spinner at all for that whole wait.
-					content.state = 'loading';
 					setHdrStatus(content, 'HDR video: loading…');
+					reportJournalDebug('hdr-media', { status: 'loading', spinner: 'start', photoSwipeType: 'video', srcKind: 'hdr-video' });
 
 					const video = document.createElement('video');
 					// Zero-cost, zero-network diagnostic: ask the browser's own canPlayType directly
@@ -326,8 +380,8 @@
 					video.poster = content.data.poster;
 					video.controls = false;
 					video.playsInline = true;
-					video.preload = 'auto';
-					video.autoplay = true;
+					video.preload = 'none';
+					video.autoplay = false;
 					video.muted = true;
 					video.loop = true;
 					video.className = 'pswp__video';
@@ -336,8 +390,6 @@
 					track.kind = 'captions';
 					video.appendChild(track);
 
-					let settled = false;
-					let hdrTimeout: number | undefined;
 					// MediaError.code, straight from the browser's own native video pipeline: 1=ABORTED,
 					// 2=NETWORK, 3=DECODE, 4=SRC_NOT_SUPPORTED. Server-side everything has checked out
 					// clean (right bytes, right container structure, zero errors logged) while this
@@ -345,64 +397,90 @@
 					// direct signal available without devtools access, so surface it on screen rather
 					// than only in the (also devtools-only) console.
 					const mediaErrorLabel: Record<number, string> = { 1: 'aborted', 2: 'network', 3: 'decode', 4: 'format unsupported' };
-					// Recycled while this was waiting (swiped far enough away to fall out of PhotoSwipe's
-					// 3-slide holder window): nobody's looking at this slide anymore, and more
-					// importantly, PhotoSwipe's ContentLoader caches Content objects by index and will
-					// hand this exact same object back if the viewer revisits. Content.load() refuses
-					// to dispatch 'contentLoad' again as long as content.element is still set ("if
-					// (this.element && !reload) return"), so without clearing it here, a revisit would
-					// silently keep showing the stale placeholder forever -- no spinner, no retry, ever
-					// -- which is indistinguishable from "broken" even though the underlying asset is
-					// fine. Clearing it lets a future revisit start a genuinely fresh attempt.
-					const abandonStaleAttempt = () => {
-						settled = true;
-						if (hdrTimeout !== undefined) window.clearTimeout(hdrTimeout);
-						content.element = undefined;
-						content.state = 'loaded';
-					};
-					const giveUp = (errorContext: 'video-load' | 'video-playback') => {
-						if (settled) return;
-						if (!content.isAttached) { abandonStaleAttempt(); return; }
-						settled = true;
-						if (hdrTimeout !== undefined) window.clearTimeout(hdrTimeout);
-						content.state = 'loaded';
-						// Must read video.error before removeAttribute('src')/load() below, which clear it.
-						const code = video.error?.code;
-						const reason = code !== undefined ? (mediaErrorLabel[code] ?? `code ${code}`) : 'timed out';
-						video.pause();
-						video.removeAttribute('src');
+					const reportVideoLifecycle = (status: 'loading' | 'ready' | 'temporary' | 'failure', requestPhase?: 'start' | 'end', spinner?: 'start' | 'stop', nativeErrorCode?: number | null) =>
+						reportJournalDebug('hdr-media', { status, requestPhase, spinner, nativeErrorCode, photoSwipeType: 'video', srcKind: 'hdr-video' });
+					video.addEventListener('loadstart', () => reportVideoLifecycle('loading', 'start', 'start'));
+					video.addEventListener('loadedmetadata', () => reportVideoLifecycle('ready'));
+					video.addEventListener('canplay', () => reportVideoLifecycle('ready'));
+					video.addEventListener('waiting', () => reportVideoLifecycle('loading', undefined, 'start'));
+					video.addEventListener('stalled', () => reportVideoLifecycle('temporary'));
+					video.addEventListener('suspend', () => reportVideoLifecycle('temporary'));
+					video.addEventListener('abort', () => reportVideoLifecycle('failure', 'end', 'stop'));
+					video.addEventListener('progress', () => reportVideoLifecycle('loading'));
+					let videoReady = false;
+					let upgrade: ReturnType<typeof beginHdrUpgrade>;
+					let videoStarted = false;
+					const startVideo = () => {
+						if (videoStarted) return;
+						videoStarted = true;
+						video.preload = 'auto';
 						video.load();
-						setHdrStatus(content, `HDR video: failed to ${errorContext === 'video-playback' ? 'play' : 'load'} (${reason}), showing SDR photo [canPlayType ${canPlayDiagnostic}]`);
-						reportJournalDebug('media-failure', { category: 'video', status: 'unavailable', errorContext, failureCategory: errorContext === 'video-playback' ? 'playback' : 'decode' });
-						// The placeholder <img> is already the visible, correct content; nothing to swap.
 					};
-					const promote = () => {
-						if (settled || content.type !== 'video') return;
-						if (!content.isAttached) { abandonStaleAttempt(); return; }
-						settled = true;
-						if (hdrTimeout !== undefined) window.clearTimeout(hdrTimeout);
-						content.state = 'loaded';
-						content.__hdrPromoted = true;
-						setHdrStatus(content, 'HDR video: playing');
-						updateHdrIndicator();
-						// content.load()/content.append() are one-shot (guarded by content.isAttached,
-						// already set true when the placeholder was attached) and will not re-run content
-						// creation for an already-attached slide; PhotoSwipe's own Content.append() does
-						// exactly this direct DOM insertion for non-image content, so do the same here.
-						placeholder.remove();
-						content.element = video;
-						content.slide?.container.appendChild(video);
+					const tryPromote = () => {
+						if (!videoReady || content !== lightbox?.pswp?.currSlide?.content || !upgrade || upgrade.settled) return;
+						// WebKit can leave the play() promise pending even after canplay has proved that
+						// the first frame is decodable. Do not hold the visible HDR handoff hostage to
+						// that promise; playback is best-effort once the real element is attached.
+						void video.play().catch(() => {});
+						upgrade.promote();
 					};
-					video.addEventListener('error', () => giveUp('video-load'));
+					hdrVideoLoaders.set(content, startVideo);
+					hdrVideoPromoters.set(content, tryPromote);
+					if (content === lightbox?.pswp?.currSlide?.content) startVideo();
+					video.addEventListener('loadeddata', () => {
+						videoReady = true;
+						reportVideoLifecycle('ready', 'end', 'stop');
+						tryPromote();
+					});
+					video.addEventListener('canplay', () => {
+						videoReady = true;
+						tryPromote();
+					});
 					// See the AVIF path's identical comment above: server-side compose/encode can take
 					// up to ~20s each for a real photo, and both HDR routes share one small concurrency
 					// pool with the gallery's own background prewarm fetches -- a request queued behind
 					// those can take another 20-40s before it even starts. 30s was giving up on
 					// perfectly good, still-in-progress conversions.
-					hdrTimeout = window.setTimeout(() => giveUp('video-load'), hdrClientTimeoutMs);
-					video.addEventListener('loadeddata', () => {
-						void video.play().then(promote).catch(() => giveUp('video-playback'));
-					}, { once: true });
+					upgrade = beginHdrUpgrade({
+						content,
+						placeholder,
+						real: video,
+						timeoutMs: hdrClientTimeoutMs,
+						refreshSpinner,
+						// Only runs when the upgrade loses; frees the decoder for a video nothing will
+						// ever show. beginHdrUpgrade reports the outcome before calling this, because
+						// removeAttribute('src')/load() clear the MediaError that outcome reads.
+						releaseReal: () => { video.pause(); video.removeAttribute('src'); video.load(); },
+						onSettled: (outcome, reason) => {
+							if (outcome === 'promoted') {
+								promotedHdrMedia.set(content.data.src, video);
+								if (!hdrVideos.includes(video)) hdrVideos.push(video);
+								// Don't wait for the next 'change' -- a preloaded neighboring slide can
+								// promote while a different slide is current, and its autoplay has
+								// already started by the time loadeddata fired.
+								syncHdrVideoPlayback();
+								setHdrStatus(content, 'HDR video: playing');
+								updateHdrIndicator();
+								reportJournalDebug('hdr-media', { status: 'promoted', spinner: 'stop', photoSwipeType: 'video', srcKind: 'hdr-video' });
+								return;
+							}
+							const code = video.error?.code;
+							const detail = code !== undefined ? (mediaErrorLabel[code] ?? `code ${code}`) : 'timed out';
+							setHdrStatus(content, `HDR video: failed to ${reason === 'video-playback' ? 'play' : 'load'} (${detail}), showing SDR photo [canPlayType ${canPlayDiagnostic}]`);
+							reportJournalDebug('hdr-media', { status: 'given-up', hdrReason: reason === 'video-playback' ? 'video-playback' : 'video-load', spinner: 'stop', nativeErrorCode: code ?? null, photoSwipeType: 'video', srcKind: 'hdr-video' });
+							reportJournalDebug('media-failure', { category: 'video', status: 'unavailable', errorContext: reason === 'video-playback' ? 'video-playback' : 'video-load', failureCategory: reason === 'video-playback' ? 'playback' : 'decode' });
+							// The placeholder <img> is already the visible, correct content; nothing to swap.
+						}
+					});
+					video.addEventListener('error', () => {
+						const nativeErrorCode = video.error?.code ?? null;
+						reportVideoLifecycle('failure', 'end', 'stop', nativeErrorCode);
+						upgrade.giveUp('video-load');
+					});
+					if (video.readyState >= HTMLMediaElement.HAVE_FUTURE_DATA) {
+						videoReady = true;
+						tryPromote();
+					}
 				});
 				instance.on('loadError', (event: any) => {
 					const { content } = event;
@@ -420,9 +498,10 @@
 					opener = document.activeElement as HTMLElement;
 					document.body.style.overflow = 'hidden';
 					if (!modalHistory) { history.pushState({ immichPagesLightbox: true }, '', location.href); modalHistory = true; }
-					reportJournalDebug('lightbox', { status: 'opened' });
+					reportSlide('opened');
 				});
 				instance.on('afterInit', () => {
+					hdrVideoLoaders.get(lightbox?.pswp?.currSlide?.content)?.();
 					const focusClose = () => {
 						const root = document.querySelector<HTMLElement>('.pswp');
 						const close = root?.querySelector<HTMLElement>('button[aria-label*="Close"], button[title*="Close"], .pswp__button');
@@ -445,9 +524,10 @@
 				});
 				instance.on('openingAnimationEnd', () => {
 					const root = document.querySelector<HTMLElement>('.pswp');
-					root?.setAttribute('data-pswp-modal', 'true');
+			root?.setAttribute('data-pswp-modal', 'true');
 					updateHdrIndicator();
 					notifyActiveAsset();
+					hdrVideoLoaders.get(lightbox?.pswp?.currSlide?.content)?.();
 					setTimeout(() => {
 						const openRoot = document.querySelector<HTMLElement>('.pswp--open');
 						(openRoot?.querySelector<HTMLElement>('button[aria-label*="Close"], button[title*="Close"], .pswp__button') ?? openRoot)?.focus();
@@ -455,7 +535,15 @@
 						setTimeout(() => openRoot?.querySelector<HTMLElement>('.pswp__button--close, button[aria-label*="Close"], button[title*="Close"]')?.focus(), 0);
 					}, 0);
 				});
-				instance.on('change', () => { announce(); updateHdrIndicator(); notifyActiveAsset(); });
+				instance.on('change', () => {
+					announce();
+					updateHdrIndicator();
+					notifyActiveAsset();
+					hdrVideoLoaders.get(lightbox?.pswp?.currSlide?.content)?.();
+					hdrVideoPromoters.get(lightbox?.pswp?.currSlide?.content)?.();
+					syncHdrVideoPlayback();
+					reportSlide('changed');
+				});
 				instance.on('close', () => {
 					const shouldGoBack = modalHistory && !closingFromPopstate;
 					modalHistory = false;
@@ -464,7 +552,11 @@
 					document.body.style.overflow = previousOverflow;
 					opener?.focus(); opener = null;
 					activeViewer = undefined;
-					reportJournalDebug('lightbox', { status: 'closed' });
+					for (const video of hdrVideos) video.pause();
+					hdrVideos.length = 0;
+					hdrVideoLoaders.clear();
+					hdrVideoPromoters.clear();
+					reportSlide('closed');
 					if (shouldGoBack) history.back();
 				});
 				instance.init();
@@ -485,14 +577,15 @@
 				reportJournalDebug('lightbox', { status: 'failure', errorContext: 'lightbox-load' });
 			}
 		})();
-		return () => {
+						return () => {
 			destroyed = true; ready = false;
 			document.removeEventListener('click', onReadyClick, true);
 			document.removeEventListener('keydown', onKeydown);
 			window.removeEventListener('popstate', onPopstate, true);
 			document.body.style.overflow = previousOverflow;
-			lightbox?.destroy();
-		};
+							lightbox?.destroy();
+						promotedHdrMedia.clear();
+					};
 	});
 </script>
 

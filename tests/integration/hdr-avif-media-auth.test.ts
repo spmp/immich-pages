@@ -32,7 +32,10 @@ describe('share HDR AVIF media boundary', () => {
 		const response = await GET({ params, request: new Request('https://pages.example/share/key/opaque-ref'), cookies: { get: vi.fn(), set: vi.fn() }, fetch: fetchMock } as never);
 		expect(response.status).toBe(200);
 		expect(response.headers.get('content-type')).toBe('image/avif');
-		expect(response.headers.get('cache-control')).toBe('private, no-store');
+		// Decided tradeoff (see .planning/debug/hdr-lightbox-state-regression.md): successful
+		// media may be cached by the browser itself -- never a shared/proxy cache -- for as long
+		// as the server's own result cache promises identical bytes.
+		expect(response.headers.get('cache-control')).toBe('private, max-age=600');
 		expect(decode).toHaveBeenCalledWith(source, expect.objectContaining({ makerNote33: 0.8, makerNote48: 0.4 }));
 		expect(encode).toHaveBeenCalledWith(new Uint8Array([1, 2]), expect.objectContaining({ sourceProfile: 'display-p3' }));
 		decode.mockRestore();

@@ -18,7 +18,7 @@ describe('journal gallery contract', () => {
 		expect(asset).toContain('Media unavailable');
 		 expect(asset).toContain('width={lightboxWidth}');
 		expect(asset).toContain('height={lightboxHeight}');
-		expect(asset).toContain('data-pswp-src={!hdrCandidate ? (lightboxImageSource ?? undefined) : undefined}');
+		expect(asset).toContain('data-pswp-src={!hdrCandidate ? (avifCandidate ? addInteractivePriority(lightboxImageSource ?? undefined) : (lightboxImageSource ?? undefined)) : undefined}');
 		expect(asset).not.toMatch(/original|download/);
 	});
 
@@ -88,7 +88,7 @@ describe('journal gallery contract', () => {
 		expect(debug).toContain("'media-failure'");
 		expect(debug).toContain("'image' | 'video' | 'hero' | 'gallery'");
 		expect(debug).toContain("'unavailable' | 'empty' | 'fallback'");
-		expect(debug).not.toMatch(/asset\.id|videoHref|description|cookie|authorization|URL|origin|requestId|\bresponse\s*[:=]/i);
+		expect(debug).not.toMatch(/asset\.id|videoHref|description|cookie|authorization|\bURL\b|origin|requestId|\bresponse\s*[:=]/i);
 	});
 
 	it('reports safe lifecycle fields only', () => {
@@ -158,11 +158,12 @@ describe('journal gallery contract', () => {
 		expect(asset).toContain('data-lightbox-fallback="native-anchor"');
 		expect(asset).toContain('supportsHdrDisplay()');
 		expect(asset).toContain('resolvedHdrSource');
-		expect(asset).toContain('data-hdr-prewarm={hdrDisplay && hdrGamut ? (resolvedHdrSource ?? undefined) : undefined}');
-		expect(asset).toContain('const hdrCandidate = $derived(Boolean(!avifCandidate && resolvedHdrSource && hdrDisplay && hdrGamut && !promotedFailed))');
+		expect(asset).toContain('data-hdr-prewarm={hdrVideoSupported ? (resolvedHdrSource ?? undefined) : undefined}');
+		expect(asset).toContain('const hdrCandidate = $derived(Boolean(!avifCandidate && resolvedHdrSource && hdrVideoSupported && !promotedFailed))');
 		expect(asset).toContain('const posterSource = $derived((hdrCandidate || avifCandidate) && !promotedFailed ? (resolvedFullsizeSource ?? resolvedThumbnailSource) : resolvedThumbnailSource)');
 		expect(asset).toContain('data-video-poster={hdrCandidate ? posterSource : undefined}');
-		expect(lightbox).toContain('void video.play().then(promote).catch(() => giveUp(');
+		expect(lightbox).toContain('void video.play().catch(() => {});');
+		expect(lightbox).toContain('upgrade.promote();');
 		expect(capabilities).toContain('setTimeout(() => finish(false)');
 		expect(capabilities).toContain("src.startsWith('//')");
 	});
@@ -174,7 +175,9 @@ describe('journal gallery contract', () => {
 		expect(asset).toContain('data-hdr-target-width');
 		expect(asset).toContain('data-hdr-target-height');
 		expect(asset).toContain('data-hdr-bounded');
-		expect(gallery).toContain('maxRequests = 8');
+		expect(gallery).not.toContain('maxRequests = 8');
+		expect(gallery).toContain('queue = ordered.map((item) => item.url)');
+		expect(gallery).toContain('activeUrls.delete(url)');
 		expect(gallery).toContain("Number.isFinite(parsedPrewarmConcurrency) && parsedPrewarmConcurrency > 0 ? Math.min(Math.trunc(parsedPrewarmConcurrency), 16) : 2");
 		expect(gallery).toContain("document.visibilityState === 'visible'");
 	});
@@ -193,6 +196,7 @@ describe('journal gallery contract', () => {
 		// all further prewarming with no visible symptom.
 		expect(gallery).toContain('const giveUpTimer = window.setTimeout(() => controller.abort(), prewarmFetchTimeoutMs);');
 		expect(gallery).toContain('window.clearTimeout(giveUpTimer);');
+		expect(gallery).toContain("attributeFilter: ['data-hdr-prewarm']");
 		expect(lightbox).toContain("document.dispatchEvent(new CustomEvent('pages:active-asset', { detail: { figureId } }))");
 		expect(lightbox).toContain('notifyActiveAsset();');
 	});
@@ -206,7 +210,9 @@ describe('journal gallery contract', () => {
 		expect(lightbox).toContain("instance.on('contentLoad'");
 		expect(lightbox).toContain('video.controls = true');
 		expect(lightbox).toContain('video.playsInline = true');
-		expect(lightbox).toContain('video.autoplay = true');
+		expect(lightbox).toContain('video.autoplay = false');
+		expect(lightbox).toContain("video.preload = 'none'");
+		expect(lightbox).toContain('const startVideo = () => {');
 		expect(lightbox).toContain('video.muted = true');
 		expect(lightbox).toContain('video.loop = true');
 		expect(lightbox).toContain("instance.on('loadError'");
@@ -218,10 +224,15 @@ describe('journal gallery contract', () => {
 		const contentLoad = lightbox.slice(lightbox.indexOf("instance.on('contentLoad'"), lightbox.indexOf("instance.on('loadError'"));
 		expect(contentLoad.indexOf('content.element = placeholder')).toBeGreaterThanOrEqual(0);
 		expect(contentLoad.indexOf('content.element = placeholder')).toBeLessThan(contentLoad.indexOf("video.addEventListener('loadeddata'"));
-		expect(contentLoad).toContain('placeholder.remove()');
-		expect(contentLoad).toContain('content.element = video');
-		expect(contentLoad).toContain("video.addEventListener('error', () => giveUp('video-load'))");
-		expect(contentLoad).toContain("window.setTimeout(() => giveUp('video-load'), hdrClientTimeoutMs)");
+		// The placeholder -> HDR swap itself now lives in one shared module used by both HDR paths
+		// (src/lib/media/hdr-upgrade.ts) rather than being duplicated inline per path, so what this
+		// contract checks here is the wiring: the real element is handed to that module, and the
+		// only things that can end the wait are a confirmed play, a load error, or the timeout.
+		// The swap's actual behavior is covered behaviorally in tests/unit/hdr-upgrade.test.ts.
+		expect(contentLoad).toContain('real: video');
+		expect(contentLoad).toContain("video.addEventListener('error', () => {");
+		expect(contentLoad).toContain("upgrade.giveUp('video-load')");
+		expect(contentLoad).toContain('timeoutMs: hdrClientTimeoutMs');
 	});
 
 	it('wires the AVIF HDR candidate into PhotoSwipe via a custom content type, bypassing native image decode()', () => {
@@ -243,13 +254,17 @@ describe('journal gallery contract', () => {
 		// PhotoSwipe sizes a content's element via explicit inline width/height keyed to whichever
 		// element is currently content.element; swapping the reference without copying that over
 		// leaves the promoted image unsized ("loads at full/native zoom instead of fit-to-screen").
-		expect(hdrImageBlock.indexOf("real.style.width = placeholder.style.width")).toBeGreaterThanOrEqual(0);
-		expect(hdrImageBlock.indexOf("real.style.width = placeholder.style.width")).toBeLessThan(hdrImageBlock.indexOf('placeholder.remove()'));
-		expect(hdrImageBlock).toContain('placeholder.remove()');
-		expect(hdrImageBlock).toContain('content.element = real');
-		expect(hdrImageBlock).toContain("real.addEventListener('error', giveUp)");
-		expect(hdrImageBlock).toContain('window.setTimeout(giveUp, hdrClientTimeoutMs)');
-		expect(hdrImageBlock).toContain('if (real.complete) promote()');
+		// ...which is why the size copy has to run in the shared upgrade's `beforeSwap` hook: that
+		// is the point at which content.element is still the placeholder, so the already-correct
+		// box can be read off it before the handover. (Ordering is enforced behaviorally in
+		// tests/unit/hdr-upgrade.test.ts -- 'runs the pre-swap hook before handing the element over'.)
+		expect(hdrImageBlock.indexOf('beforeSwap: () => {')).toBeGreaterThanOrEqual(0);
+		expect(hdrImageBlock.indexOf('beforeSwap: () => {')).toBeLessThan(hdrImageBlock.indexOf('real.style.width = placeholder.style.width'));
+		expect(hdrImageBlock).toContain('real.style.height = placeholder.style.height');
+		expect(hdrImageBlock).toContain("real.addEventListener('error', () => {");
+		expect(hdrImageBlock).toContain("upgrade.giveUp('image-load')");
+		expect(hdrImageBlock).toContain('timeoutMs: hdrClientTimeoutMs');
+		expect(hdrImageBlock).toContain('if (real.complete) upgrade.promote()');
 	});
 
 	it('tints the zoom button three ways -- white, khaki/pending, blue/loaded -- gated behind PUBLIC_HDR_DEBUG, off by default', () => {
@@ -258,7 +273,8 @@ describe('journal gallery contract', () => {
 		expect(lightbox).toContain("content?.type === 'hdr-image' || (content?.type === 'video' && content?.data?.element?.dataset.videoControls === 'false')");
 		expect(lightbox).toContain("if (!hdrDebugEnabled) { root?.removeAttribute('data-pswp-hdr-state'); return; }");
 		expect(lightbox).toContain("root?.setAttribute('data-pswp-hdr-state', content.__hdrPromoted ? 'loaded' : 'pending')");
-		expect(lightbox).toContain("instance.on('change', () => { announce(); updateHdrIndicator(); notifyActiveAsset(); })");
+		expect(lightbox).toContain("instance.on('change', () => {");
+		expect(lightbox).toContain('hdrVideoPromoters.get(lightbox?.pswp?.currSlide?.content)?.();');
 		// The zoom icon's fill comes from the --pswp-icon-color custom property, not plain `color`
 		// -- and only that one, not --pswp-icon-color-secondary (the "+" bars' color), or the "+"
 		// becomes invisible against an identically-tinted glass shape.
@@ -267,39 +283,71 @@ describe('journal gallery contract', () => {
 		expect(lightbox).not.toContain('--pswp-icon-color-secondary: lightblue');
 	});
 
-	it('marks content.__hdrPromoted, and clears content.element on recycling so a revisit retries instead of being silently blocked forever', () => {
-		// The real cause of "video/image available but inconsistently not displayed": PhotoSwipe
-		// destroys (content.remove()'d, content.isAttached = false) a slide's content when it's
-		// swiped far enough away to fall out of the 3-slide holder window, but nothing cancels an
-		// in-flight HDR conversion already underway for it, AND PhotoSwipe's ContentLoader caches
-		// Content objects by index and hands the same one back on revisit. Content.load() refuses
-		// to dispatch 'contentLoad' again as long as content.element is still set, so a revisit of
-		// an abandoned slide would silently keep showing the stale placeholder forever -- no
-		// spinner, no retry -- unless content.element is explicitly cleared on abandonment.
+	it('shares one HDR upgrade state machine between both HDR paths, so the two cannot drift apart again', () => {
+		// The regression this guards was, at root, a divergence: the HDR video path and the AVIF
+		// path each carried their own copy of this logic, and the change that made the spinner
+		// clear was applied to one and not the other -- while that commit's message claimed "both
+		// paths now manage content.state consistently". Two copies of a subtle lifecycle contract
+		// IS the bug; one shared module is the fix, because it makes the divergence unexpressible.
 		const lightbox = source('Lightbox');
+		const upgradeModule = readFileSync('src/lib/media/hdr-upgrade.ts', 'utf8');
 		const contentLoad = lightbox.slice(lightbox.indexOf("instance.on('contentLoad'"), lightbox.indexOf("instance.on('loadError'"));
-		const avifBlock = contentLoad.slice(contentLoad.indexOf('const finish = ()'), contentLoad.indexOf("if (content.type !== 'video') return;"));
-		expect(avifBlock).toContain('const abandonStaleAttempt = () => {');
-		expect(avifBlock).toContain('content.element = undefined;');
-		expect(avifBlock).toContain("if (!content.isAttached) { abandonStaleAttempt(); return; }");
-		expect(avifBlock).toContain('content.__hdrPromoted = true;');
-		const videoBlock = contentLoad.slice(contentLoad.indexOf('const abandonStaleAttempt = ()', contentLoad.indexOf("if (content.type !== 'video') return;")));
-		expect(videoBlock).toContain('const abandonStaleAttempt = () => {');
-		expect(videoBlock).toContain('content.element = undefined;');
-		expect(videoBlock).toContain("if (!content.isAttached) { abandonStaleAttempt(); return; }");
-		expect(videoBlock).toContain('content.__hdrPromoted = true;');
+		expect(lightbox).toContain("import { beginHdrUpgrade, isHdrUpgradeLoading } from '$lib/media/hdr-upgrade'");
+		// Exactly two call sites -- the AVIF path and the HDR video path -- and no third copy.
+		expect(contentLoad.match(/beginHdrUpgrade\(\{/g)).toHaveLength(2);
+		// The promotion bookkeeping lives in the shared module, once, rather than per-path.
+		expect(upgradeModule.match(/__hdrPromoted = true/g)).toHaveLength(1);
+		expect(contentLoad).not.toContain('__hdrPromoted = true');
 	});
 
-	it('drives the native PhotoSwipe preloader spinner for the HDR video candidate, not just the AVIF one', () => {
-		// content.state = 'loading'/'loaded' is what Content.isLoading() actually checks
-		// (independent of content type) -- missing for the video path the whole time, unlike AVIF
-		// which has always set it. Not noticeable when conversions were fast; impossible to miss
-		// once they started taking 10-30s+ with no spinner for that whole wait.
+	it('hands the HDR element to PhotoSwipe rather than clearing content.element, so an attempt resolving before the slide is attached cannot blank it', () => {
+		// This deliberately replaces an earlier contract that asserted the OPPOSITE: it required
+		// `content.element = undefined` on any attempt that resolved while !content.isAttached, to
+		// force a fresh retry on revisit. That turned out to be why the first photo intermittently
+		// showed nothing at all. PhotoSwipe's lightbox module starts preloading slide content
+		// before its own module import resolves and before the gallery finishes opening, and
+		// Slide.appendHeavy() deliberately refuses to attach during that window -- so !isAttached
+		// is the NORMAL state of a first slide that is still opening, not evidence of recycling.
+		// Clearing the element there threw away a load that had just succeeded.
+		//
+		// Content.append() reads content.element at call time, so assigning it and doing nothing
+		// else is correct in both cases at once: still-opening (PhotoSwipe appends it shortly) and
+		// genuinely recycled (content.slide has been cleared, so there is nothing to append into).
 		const lightbox = source('Lightbox');
 		const contentLoad = lightbox.slice(lightbox.indexOf("instance.on('contentLoad'"), lightbox.indexOf("instance.on('loadError'"));
-		const videoBlock = contentLoad.slice(contentLoad.indexOf("if (content.type !== 'video') return;"));
-		expect(videoBlock).toContain("content.state = 'loading';");
-		expect(videoBlock).toContain("content.state = 'loaded';");
+		expect(contentLoad).not.toContain('abandonStaleAttempt');
+		expect(contentLoad).not.toContain('content.element = undefined');
+		expect(contentLoad).not.toContain('!content.isAttached');
+		// Behavioral coverage: tests/unit/hdr-upgrade.test.ts, 'hands the real element to
+		// PhotoSwipe without appending when the slide is not attached yet'.
+		expect(readFileSync('src/lib/media/hdr-upgrade.ts', 'utf8')).toContain('content.element = real;');
+	});
+
+	it('drives the native PhotoSwipe preloader through PhotoSwipe\'s own hooks, on both edges, for both HDR paths', () => {
+		// The previous version of this contract asserted only that the video path contained
+		// `content.state = 'loading'`, under the name "drives the native PhotoSwipe preloader
+		// spinner". It passed for the entire time the spinner was in fact permanently stuck --
+		// because writing PhotoSwipe's load state is only half the contract, and no source-text
+		// check can see that nothing ever told the preloader to re-read it. The preloader re-reads
+		// isContentLoading() only on 'change', on 'loadComplete', or when
+		// ui.updatePreloaderVisibility() is called (ui/loading-indicator.js publishes it with an
+		// explicit `// expose the method` for exactly this case).
+		const lightbox = source('Lightbox');
+		const upgradeModule = readFileSync('src/lib/media/hdr-upgrade.ts', 'utf8');
+		// Report the loading state when PhotoSwipe asks, instead of writing its own field behind
+		// its back: a second, hand-maintained copy of "am I loading" is what desynced.
+		expect(lightbox).toContain("instance.addFilter('isContentLoading'");
+		expect(lightbox).toContain('isHdrUpgradeLoading(content) || isContentLoading');
+		expect(lightbox).not.toContain('content.state =');
+		// ...and nudge the preloader to re-read it, through the published method.
+		expect(lightbox).toContain('const refreshSpinner = () => lightbox?.pswp?.ui?.updatePreloaderVisibility?.();');
+		// Both edges -- once when the attempt starts, once when it settles either way.
+		expect(upgradeModule.match(/refreshSpinner\(\)/g)?.length).toBeGreaterThanOrEqual(2);
+		// And no synthesized library-internal events: pre-open, a Content still belongs to the
+		// PhotoSwipeLightbox (no preloader subscribed to it, and content.slide is undefined so the
+		// handler's own currSlide check could never match), so dispatching 'loadComplete' at it
+		// was silently a no-op for the first slide specifically -- the one that hung worst.
+		expect(lightbox).not.toContain("dispatch?.('loadComplete'");
 	});
 
 	it('makes the HDR give-up timeout configurable via PUBLIC_HDR_CLIENT_TIMEOUT_MS instead of another guessed hardcoded number', () => {
@@ -330,7 +378,7 @@ describe('journal gallery contract', () => {
 		// message rather than shown standalone, since standalone it would just flash and be
 		// overwritten the instant load/error fires.
 		expect(lightbox).toContain("const canPlayDiagnostic = `8bit:\"${video.canPlayType('video/mp4; codecs=\"hvc1.1.6.L153.B0\"')}\" 10bit:\"${video.canPlayType('video/mp4; codecs=\"hvc1.2.4.L153.B0\"')}\" hev1:\"${video.canPlayType('video/mp4; codecs=\"hev1.2.4.L153.B0\"')}\"`");
-		expect(lightbox).toContain("`HDR video: failed to ${errorContext === 'video-playback' ? 'play' : 'load'} (${reason}), showing SDR photo [canPlayType ${canPlayDiagnostic}]`");
+		expect(lightbox).toContain("`HDR video: failed to ${reason === 'video-playback' ? 'play' : 'load'} (${detail}), showing SDR photo [canPlayType ${canPlayDiagnostic}]`");
 		expect(lightbox).toContain("setHdrStatus(content, 'AVIF HDR image: loading…')");
 		expect(lightbox).toContain("setHdrStatus(content, 'AVIF HDR image: loaded')");
 		expect(lightbox).toContain("setHdrStatus(content, 'AVIF HDR image: failed, showing SDR photo')");

@@ -120,7 +120,50 @@ export function logShareAssetProjection({ requestId, type, topLevelAssetCount, n
 }
 
 export function logShareMediaStatus({ media, status, statusCode, contentType, byteLength, failureCategory, failureReason, failureDetail }: { media: 'thumbnail' | 'video' | 'fullsize'; status: 'success' | 'failure'; statusCode?: number; contentType?: string; byteLength?: number; failureCategory?: 'unauthorized' | 'not-found' | 'upstream' | 'conversion' | 'oversized' | 'invalid-range'; failureReason?: 'read' | 'primary-decode' | 'gain-map-missing' | 'gain-map-decode' | 'metadata-invalid' | 'png-encode' | 'ffmpeg' | 'compositor-timeout' | 'ffmpeg-timeout' | 'compositor-spawn' | 'ffmpeg-spawn' | 'compositor-exit' | 'ffmpeg-exit' | 'avif-decode-timeout' | 'avif-encode-timeout' | 'avif-decode-spawn' | 'avif-encode-spawn' | 'avif-decode-exit' | 'avif-encode-exit' | 'input-limit' | 'spawn' | 'timeout' | 'exit' | 'empty-output' | 'output-limit' | 'unknown'; failureDetail?: string }) {
-  console.info(JSON.stringify({ event: `direct-share.${media}`, status, ...(statusCode === undefined ? {} : { statusCode: Math.max(0, Math.min(999, Math.trunc(statusCode))) }), ...(contentType ? { contentType: contentType.split(';', 1)[0]?.trim().slice(0, 64) } : {}), ...(byteLength === undefined ? {} : { byteLength: Math.max(0, Math.min(10 * 1024 * 1024, Math.trunc(byteLength))) }), ...(failureCategory ? { failureCategory } : {}), ...(failureReason ? { failureReason } : {}), ...(failureDetail ? { failureDetail: failureDetail.slice(0, 160) } : {}) }));
+   console.info(JSON.stringify({ event: `direct-share.${media}`, status, ...(statusCode === undefined ? {} : { statusCode: Math.max(0, Math.min(999, Math.trunc(statusCode))) }), ...(contentType ? { contentType: contentType.split(';', 1)[0]?.trim().slice(0, 64) } : {}), ...(byteLength === undefined ? {} : { byteLength: Math.max(0, Math.min(10 * 1024 * 1024, Math.trunc(byteLength))) }), ...(failureCategory ? { failureCategory } : {}), ...(failureReason ? { failureReason } : {}), ...(failureDetail ? { failureDetail: failureDetail.slice(0, 160) } : {}) }));
+}
+
+export function logHdrDiagnostic({ event, assetId, requestId, phase, source, status, statusCode, contentType, byteLength, durationMs, range, contentRange, queueDepth, activeConversions, width, height, reason }: {
+	event: 'request' | 'source' | 'conversion' | 'response' | 'cache-config';
+	assetId?: string;
+	requestId?: string;
+	phase?: 'lookup' | 'read' | 'metadata' | 'queued' | 'started' | 'compositor' | 'encoder' | 'stored' | 'failed' | 'served';
+	source?: 'upstream' | 'cache' | 'in-flight' | 'conversion' | 'none';
+	status?: 'started' | 'success' | 'failure' | 'hit' | 'miss' | 'joined';
+	statusCode?: number;
+	contentType?: string;
+	byteLength?: number;
+	durationMs?: number;
+	range?: string | null;
+	contentRange?: string;
+	queueDepth?: number;
+	activeConversions?: number;
+	width?: number;
+	height?: number;
+	reason?: string;
+}) {
+	const safeId = assetId?.replace(/[^A-Za-z0-9._-]/g, '').slice(0, 80);
+	const safeRequestId = requestId?.replace(/[^A-Za-z0-9._-]/g, '').slice(0, 80);
+	const safeRange = range?.slice(0, 64);
+	console.info(JSON.stringify({
+		event: `direct-share.hdr-${event}`,
+		...(safeId ? { assetId: safeId } : {}),
+		...(safeRequestId ? { requestId: safeRequestId } : {}),
+		...(phase ? { phase } : {}),
+		...(source ? { source } : {}),
+		...(status ? { status } : {}),
+		...(statusCode === undefined ? {} : { statusCode: Math.max(0, Math.min(999, Math.trunc(statusCode))) }),
+		...(contentType ? { contentType: contentType.split(';', 1)[0]?.trim().slice(0, 64) } : {}),
+		...(byteLength === undefined ? {} : { byteLength: Math.max(0, Math.min(100 * 1024 * 1024, Math.trunc(byteLength))) }),
+		...(durationMs === undefined ? {} : { durationMs: Math.max(0, Math.min(600_000, Math.trunc(durationMs))) }),
+		...(safeRange ? { range: safeRange } : range === null ? { range: null } : {}),
+		...(contentRange ? { contentRange: contentRange.slice(0, 80) } : {}),
+		...(queueDepth === undefined ? {} : { queueDepth: Math.max(0, Math.min(256, Math.trunc(queueDepth))) }),
+		...(activeConversions === undefined ? {} : { activeConversions: Math.max(0, Math.min(32, Math.trunc(activeConversions))) }),
+		...(width === undefined ? {} : { width: Math.max(1, Math.min(8192, Math.trunc(width))) }),
+		...(height === undefined ? {} : { height: Math.max(1, Math.min(8192, Math.trunc(height))) }),
+		...(reason ? { reason: reason.slice(0, 160) } : {})
+	}));
 }
 
 export function logShareHeroSelection({ selection }: { selection: 'configured-filename' | 'configured-asset-id' | 'album-cover' | 'first-asset' | 'none' }) {

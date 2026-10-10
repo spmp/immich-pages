@@ -52,6 +52,33 @@ describe('HDR media cache', () => {
 		expect(maximum).toBeLessThanOrEqual(2);
 	});
 
+	it('runs interactive requests ahead of queued background prewarm work', async () => {
+		const release: Array<() => void> = [];
+		const active = [0, 1].map(() => withHdrConcurrency(() => new Promise<void>((resolve) => release.push(resolve))));
+		const order: string[] = [];
+		const background = withHdrConcurrency(async () => { order.push('background'); }, { priority: 'background' });
+		const interactive = withHdrConcurrency(async () => { order.push('interactive'); }, { priority: 'interactive' });
+		release.forEach((resolve) => resolve());
+		await Promise.all([...active, background, interactive]);
+		expect(order).toEqual(['interactive', 'background']);
+	});
+
+	it('promotes an already queued background conversion when Lightbox joins it', async () => {
+		const release: Array<() => void> = [];
+		const active = [0, 1].map(() => withHdrConcurrency(() => new Promise<void>((resolve) => release.push(resolve))));
+		const order: string[] = [];
+		const create = () => withHdrConcurrency(async () => {
+			order.push('asset');
+			return { body: new Uint8Array([1]), contentType: 'video/mp4' };
+		}, { priority: 'background', queueKey: 'asset' });
+		const background = getOrCreateHdr('asset', create, Date.now(), 'background');
+		const other = withHdrConcurrency(async () => { order.push('other'); }, { priority: 'background' });
+		const interactive = getOrCreateHdr('asset', create, Date.now(), 'interactive');
+		release.forEach((resolve) => resolve());
+		await Promise.all([...active, background, interactive, other]);
+		expect(order).toEqual(['asset', 'other']);
+	});
+
 	it('times out queued work without leaving the scheduler occupied', async () => {
 		await expect(withHdrConcurrency(() => new Promise(() => {}), { timeoutMs: 1 })).rejects.toThrow('hdr-scheduler-timeout');
 		await expect(withHdrConcurrency(async () => 'ready')).resolves.toBe('ready');

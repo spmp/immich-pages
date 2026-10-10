@@ -86,6 +86,42 @@ test('runs the HDR bridge through the authenticated request context', async ({ p
   ]);
 });
 
+test('selects the HEVC HDR fallback on WebKit below 26 when only HDR dynamic range is reported', async ({ page }) => {
+	await page.addInitScript(() => {
+		Object.defineProperty(navigator, 'userAgent', { configurable: true, value: 'Mozilla/5.0 AppleWebKit/605.1.15 Version/18.6 Safari/605.1.15' });
+		const nativeMatchMedia = window.matchMedia.bind(window);
+		window.matchMedia = (query: string) => query === '(dynamic-range: high)'
+			? { ...nativeMatchMedia(query), matches: true }
+			: query === '(color-gamut: p3)' || query === '(color-gamut: rec2020)'
+				? { ...nativeMatchMedia(query), matches: false }
+				: nativeMatchMedia(query);
+	});
+	await page.goto('/share/key/heic-forward-ref');
+	await expect(page.locator('[data-lightbox-status]')).toHaveAttribute('data-lightbox-status', 'ready');
+	const candidate = page.locator(`#asset-${assetId(7)} a`);
+	await expect(candidate).toHaveAttribute('data-pswp-type', 'video');
+	await expect(candidate).toHaveAttribute('data-video-src', /\/image\/hdr/);
+});
+
+test('promotes the legacy WebKit HDR video after its media becomes ready', async ({ page }) => {
+	test.skip(!bridgeLog, 'HDR_BRIDGE_LOG is required for the legacy WebKit promotion scenario');
+	await page.addInitScript(() => {
+		Object.defineProperty(navigator, 'userAgent', { configurable: true, value: 'Mozilla/5.0 AppleWebKit/605.1.15 Version/18.6 Safari/605.1.15' });
+		const nativeMatchMedia = window.matchMedia.bind(window);
+		window.matchMedia = (query: string) => query === '(dynamic-range: high)'
+			? { ...nativeMatchMedia(query), matches: true }
+			: query === '(color-gamut: p3)' || query === '(color-gamut: rec2020)'
+				? { ...nativeMatchMedia(query), matches: false }
+				: nativeMatchMedia(query);
+	});
+	await page.goto('/share/key/heic-forward-ref');
+	await expect(page.locator('[data-lightbox-status]')).toHaveAttribute('data-lightbox-status', 'ready');
+	const candidate = page.locator(`#asset-${assetId(7)} a`);
+	await candidate.click();
+	await expect(page.locator('.pswp')).toBeVisible();
+	await expect(page.locator('.pswp')).toHaveAttribute('data-pswp-hdr-state', 'loaded', { timeout: 90_000 });
+});
+
 test('never blanks the lightbox slide while a slow HDR conversion is in flight, and promotes to the video once it completes', async ({ page }) => {
   // Requires HDR_BRIDGE_ENCODE_DELAY_MS (set by the dedicated npm run test:e2e:heic:* scripts) to
   // reproduce the real-world timing that caused this: a real first-time HDR conversion realistically
@@ -93,17 +129,21 @@ test('never blanks the lightbox slide while a slow HDR conversion is in flight, 
   // moment the HDR <video> element was created, leaving a blank slide until the video (or a too-short
   // client timeout) resolved -- observed in production as "loads fullsize, blanks, never recovers".
   test.skip(!bridgeLog || !process.env.HDR_BRIDGE_ENCODE_DELAY_MS, 'HDR_BRIDGE_LOG and HDR_BRIDGE_ENCODE_DELAY_MS are required for this scenario');
-  // See the skip note in the HDR-bridge test above: no available test browser takes the HDR video
-  // candidate path anymore (avifCandidate wins for both). The equivalent AVIF-side behavior (never
-  // blank, decode()-free promotion) is pinned at the source level instead -- see the "wires the
-  // AVIF HDR candidate..." test in tests/component/journal-gallery.test.ts.
-  test.skip(true, 'No available test browser takes the HDR video candidate path anymore; this test exercises the video bridge specifically');
-  await enableHdrHints(page);
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, 'userAgent', { configurable: true, value: 'Mozilla/5.0 AppleWebKit/605.1.15 Version/18.6 Safari/605.1.15' });
+    const nativeMatchMedia = window.matchMedia.bind(window);
+    window.matchMedia = (query: string) => query === '(dynamic-range: high)'
+      ? { ...nativeMatchMedia(query), matches: true }
+      : query === '(color-gamut: p3)' || query === '(color-gamut: rec2020)'
+        ? { ...nativeMatchMedia(query), matches: false }
+        : nativeMatchMedia(query);
+  });
   // A distinct asset from the other tests in this file: the server-side HDR cache is a
   // process-level singleton, and reusing an already-requested asset here would hit that warm
   // cache and skip the artificial delay entirely, defeating the point of this test.
   const id = assetId(15);
   await page.goto('/share/key/heic-forward-ref');
+  await expect(page.locator('[data-lightbox-status]')).toHaveAttribute('data-lightbox-status', 'ready');
   const candidate = page.locator(`#asset-${id} a`);
   await expect(candidate).toHaveAttribute('data-pswp-type', 'video');
   await candidate.click();

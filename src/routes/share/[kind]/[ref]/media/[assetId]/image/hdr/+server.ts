@@ -5,14 +5,20 @@ import { inferSafeImageMime, readBoundedBytes, IMMICH_MAX_ORIGINAL_BYTES } from 
 import { parseSharedLinkRef } from '$server/share/ref';
 import { z } from 'zod';
 import { extractImmichShareToken, PAGES_SESSION_COOKIE, sessionForShare } from '$server/share/session';
-import { logShareMediaStatus } from '$server/share/diagnostics';
+import { logHdrDiagnostic, logShareMediaStatus } from '$server/share/diagnostics';
 import { composeHdr, encodeHdrMp4, nativeFailureDetail, nativeFailureReason } from '$server/media/hdr-compositor';
-import { buildHdrCacheKey, getOrCreateHdr, withHdrConcurrency } from '$server/media/hdr-cache';
+import { buildHdrCacheKey, getCachedHdr, getHdrCacheState, getOrCreateHdr, withHdrConcurrency, HDR_CACHE_TTL_MS } from '$server/media/hdr-cache';
 import { extractAppleHdrMetadata } from '$server/media/hdr-metadata';
 import { buildHdrMetadataCacheKey, getCachedHdrMetadata, getOrExtractHdrMetadata } from '$server/media/hdr-metadata-cache';
 
 const noStore = { 'cache-control': 'private, no-store' };
 const unavailable = () => new Response('HDR unavailable', { status: 404, headers: noStore });
+// Successful media only (never the auth/error paths, which stay no-store). Decided tradeoff: a
+// revoked share's video lingering in the one browser that already legitimately viewed it, for at
+// most as long as the server's own result cache promises identical bytes, requires already
+// knowing that exact per-share media URL -- the benefit (no re-download on revisit) outweighs
+// that bounded, device-local exposure. 'private' still forbids any shared/proxy cache.
+const mediaCacheControl = { 'cache-control': `private, max-age=${Math.floor(HDR_CACHE_TTL_MS / 1000)}` };
 
 // Safari/WebKit's native <video> element is markedly stricter than Chromium about a server
 // actually honoring Range requests before it will play a source at all -- it commonly probes
@@ -20,15 +26,15 @@ const unavailable = () => new Response('HDR unavailable', { status: 404, headers
 // 200-with-full-body response to that probe can make it refuse to ever start. The whole HDR
 // video is already fully buffered in memory by the time this runs, so honoring Range here is
 // just slicing that buffer, not proxying/coordinating with anything upstream.
-function hdrVideoResponse(body: Uint8Array, rangeHeader: string | null): Response {
+function hdrVideoResponse(body: Uint8Array, rangeHeader: string | null, context: { assetId: string; requestId?: string; source: 'cache' | 'conversion' }): Response {
 	const total = body.byteLength;
-	const headers = { 'content-type': 'video/mp4', 'accept-ranges': 'bytes', ...noStore };
+	const headers = { 'content-type': 'video/mp4', 'accept-ranges': 'bytes', ...mediaCacheControl };
 	// Diagnostic only: everything server-side has checked out clean (correct bytes, correct
 	// container structure) while the client still reports the video failing to load, with no
 	// client-visible reason why. Logging exactly what was asked for and what was answered turns
 	// the next report from a guess into a fact -- bounded/sanitized the same way the rest of this
 	// module's request-scoped diagnostics are.
-	const logHdrVideoResponse = (status: number, contentRange?: string) => console.info(JSON.stringify({ event: 'direct-share.hdr-video-response', status, range: rangeHeader?.slice(0, 64) ?? null, contentRange, totalBytes: total }));
+	const logHdrVideoResponse = (status: number, contentRange?: string) => logHdrDiagnostic({ event: 'response', assetId: context.assetId, requestId: context.requestId, phase: 'served', source: context.source, status: status >= 200 && status < 300 ? 'success' : 'failure', statusCode: status, range: rangeHeader?.slice(0, 64) ?? null, contentRange, byteLength: status === 206 && contentRange ? Number(contentRange.split(' ')[1]?.split('-')[1]) - Number(contentRange.split(' ')[1]?.split('-')[0]) + 1 : total });
 	if (!rangeHeader) {
 		logHdrVideoResponse(200);
 		// body.buffer is a view into Node's shared pool slab for small allocations, not just
@@ -40,7 +46,8 @@ function hdrVideoResponse(body: Uint8Array, rangeHeader: string | null): Respons
 	const end = match ? (match[2] !== undefined ? Number(match[2]) : total - 1) : NaN;
 	if (!match || !Number.isSafeInteger(start) || !Number.isSafeInteger(end) || start > end || start >= total) {
 		logHdrVideoResponse(416, `bytes */${total}`);
-		return new Response(null, { status: 416, headers: { ...headers, 'content-range': `bytes */${total}` } });
+		// Not a successful media byte delivery -- no reason to let a client cache a 416.
+		return new Response(null, { status: 416, headers: { ...headers, ...noStore, 'content-range': `bytes */${total}` } });
 	}
 	const boundedEnd = Math.min(end, total - 1);
 	const slice = body.subarray(start, boundedEnd + 1);
@@ -52,7 +59,9 @@ function hdrVideoResponse(body: Uint8Array, rangeHeader: string | null): Respons
 	});
 }
 
-export const GET: RequestHandler = async ({ params, request, cookies, fetch }) => {
+export const GET: RequestHandler = async ({ params, request, cookies, fetch, locals }) => {
+	const requestStartedAt = Date.now();
+	const requestId = locals?.requestId;
 	const shareRef = parseSharedLinkRef(params.kind, params.ref);
 	if (!shareRef || !z.uuidv4().safeParse(params.assetId).success) return new Response('Media not found', { status: 404, headers: noStore });
 	const session = sessionForShare(cookies.get(PAGES_SESSION_COOKIE), shareRef);
@@ -81,11 +90,39 @@ export const GET: RequestHandler = async ({ params, request, cookies, fetch }) =
 		logShareMediaStatus({ media: 'fullsize', status: 'failure', statusCode: 404, failureCategory: 'not-found', failureReason: 'metadata-invalid' });
 		return unavailable();
 	}
+	const requestUrl = new URL(request.url);
+	const requestedWidth = boundedDimension(requestUrl.searchParams.get('width'));
+	const requestedHeight = boundedDimension(requestUrl.searchParams.get('height'));
+	const conversionPriority = requestUrl.searchParams.get('priority') === 'interactive' ? 'interactive' : 'background';
+	logHdrDiagnostic({ event: 'request', assetId: params.assetId, requestId, phase: 'lookup', status: 'started', range: request.headers.get('range'), width: requestedWidth, height: requestedHeight });
+	// A revisit of a photo whose HDR video is already cached was paying for the ENTIRE original
+	// download (up to 100MB) and a full read into memory on every single request -- including a
+	// bare Range byte-probe -- just to recompute a cache key that would then hit and discard
+	// those bytes. The cache key only needs header-level identity (already have it, no body
+	// read required) plus the already-cached metadata fields: if both are in hand, check the
+	// cache before paying for the body at all.
+	if (cachedMetadata.hit && cachedMetadata.value) {
+		const metadata = cachedMetadata.value;
+		const sourceIdentity = [
+			source.response.headers.get('etag'),
+			source.response.headers.get('last-modified'),
+			source.response.headers.get('content-length'),
+			metadata.version,
+			metadata.sourceProfile,
+			metadata.sourceTransfer,
+			metadata.orientation
+		].filter(Boolean).join('|');
+		const cached = sourceIdentity ? getCachedHdr(buildHdrCacheKey({ assetId: params.assetId, sourceIdentity, width: requestedWidth, height: requestedHeight })) : undefined;
+		if (cached) {
+			await source.response.body?.cancel().catch(() => {});
+			logHdrDiagnostic({ event: 'source', assetId: params.assetId, requestId, phase: 'lookup', source: 'cache', status: 'hit', contentType: cached.contentType, byteLength: cached.body.byteLength, durationMs: Date.now() - requestStartedAt, width: requestedWidth, height: requestedHeight });
+			logShareMediaStatus({ media: 'fullsize', status: 'success', contentType: cached.contentType, byteLength: cached.body.byteLength });
+			return hdrVideoResponse(cached.body, request.headers.get('range'), { assetId: params.assetId, requestId, source: 'cache' });
+		}
+		logHdrDiagnostic({ event: 'source', assetId: params.assetId, requestId, phase: 'lookup', source: 'conversion', status: 'miss', durationMs: Date.now() - requestStartedAt, width: requestedWidth, height: requestedHeight });
+	}
 	try {
 		const input = await readBoundedBytes(source.response, IMMICH_MAX_ORIGINAL_BYTES);
-		const requestUrl = new URL(request.url);
-		const requestedWidth = boundedDimension(requestUrl.searchParams.get('width'));
-		const requestedHeight = boundedDimension(requestUrl.searchParams.get('height'));
 		const mime = inferSafeImageMime(input, source.response.headers.get('content-type'));
 		if (!mime || !['image/heic', 'image/heif'].includes(mime)) {
 			logShareMediaStatus({ media: 'fullsize', status: 'failure', statusCode: 404, contentType: mime ?? undefined, byteLength: input.byteLength, failureCategory: 'not-found' });
@@ -117,28 +154,30 @@ export const GET: RequestHandler = async ({ params, request, cookies, fetch }) =
 			].filter(Boolean).join('|') || `bytes-${input.byteLength}`;
 			const cacheKey = buildHdrCacheKey({ assetId: params.assetId, sourceIdentity, width: requestedWidth, height: requestedHeight });
 			output = await getOrCreateHdr(cacheKey, async () => {
+				logHdrDiagnostic({ event: 'conversion', assetId: params.assetId, requestId, phase: 'queued', source: 'conversion', status: 'started', queueDepth: getHdrCacheState().waitingConversions, activeConversions: getHdrCacheState().activeConversions });
 				return withHdrConcurrency(async () => {
-					// Only "success"/"failure" were ever logged, both after the fact -- a request stuck
-					// mid-pipeline (queued vs. actively compositing vs. actively encoding vs. genuinely
-					// hung) was indistinguishable from the outside. This line plus the eventual
-					// success/failure line lets elapsed time at each stage be read directly from logs.
-					console.info(JSON.stringify({ event: 'direct-share.hdr-video-start', assetId: params.assetId }));
+					const conversionStartedAt = Date.now();
+					logHdrDiagnostic({ event: 'conversion', assetId: params.assetId, requestId, phase: 'started', source: 'conversion', status: 'started', queueDepth: getHdrCacheState().waitingConversions, activeConversions: getHdrCacheState().activeConversions });
 					const compositorPpm = bridgeEnabled
 						? await composeHdr(input, metadata, { executable: process.env.HDR_COMPOSITOR_PATH, invocationId: params.assetId })
 						: await composeHdr(input, metadata);
+					logHdrDiagnostic({ event: 'conversion', assetId: params.assetId, requestId, phase: 'compositor', source: 'conversion', status: 'success', durationMs: Date.now() - conversionStartedAt });
 					const body = bridgeEnabled
 						? await encodeHdrMp4(compositorPpm, { executable: process.env.HDR_FFMPEG_PATH, invocationId: params.assetId })
 						: await encodeHdrMp4(compositorPpm);
+					logHdrDiagnostic({ event: 'conversion', assetId: params.assetId, requestId, phase: 'encoder', source: 'conversion', status: 'success', byteLength: body.byteLength, durationMs: Date.now() - conversionStartedAt });
 					return { body, contentType: 'video/mp4' };
-				});
-			});
+				}, { priority: conversionPriority, queueKey: cacheKey });
+			}, Date.now(), conversionPriority);
 		} catch (error) {
 			const failureReason = nativeFailureReason(error);
+			logHdrDiagnostic({ event: 'conversion', assetId: params.assetId, requestId, phase: 'failed', source: 'conversion', status: 'failure', reason: nativeFailureDetail(error), durationMs: Date.now() - requestStartedAt });
 			logShareMediaStatus({ media: 'fullsize', status: 'failure', statusCode: 502, contentType: mime, byteLength: input.byteLength, failureCategory: 'conversion', failureReason, failureDetail: nativeFailureDetail(error) });
 			return new Response('HDR conversion unavailable', { status: 502, headers: noStore });
 		}
+		logHdrDiagnostic({ event: 'conversion', assetId: params.assetId, requestId, phase: 'stored', source: 'conversion', status: 'success', contentType: output.contentType, byteLength: output.body.byteLength, durationMs: Date.now() - requestStartedAt });
 		logShareMediaStatus({ media: 'fullsize', status: 'success', contentType: output.contentType, byteLength: output.body.byteLength });
-		return hdrVideoResponse(output.body, request.headers.get('range'));
+		return hdrVideoResponse(output.body, request.headers.get('range'), { assetId: params.assetId, requestId, source: 'conversion' });
 	} catch { logShareMediaStatus({ media: 'fullsize', status: 'failure', failureCategory: 'upstream' }); return unavailable(); }
 	};
 

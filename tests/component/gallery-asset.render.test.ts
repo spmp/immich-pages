@@ -64,4 +64,19 @@ describe('GalleryAsset rendered behavior', () => {
 		expect(fallbackImg.dataset.mediaSource).toBe('thumbnail');
 		expect(fallbackImg.getAttribute('src')).toBe('/share/key/ref/media/a1111111-1111-4111-8111-111111111111/thumbnail');
 	});
+
+	it('uses the HDR video candidate on legacy WebKit when HDR is reported but P3 is not', async () => {
+		const originalUserAgent = navigator.userAgent;
+		const originalMatchMedia = window.matchMedia;
+		Object.defineProperty(navigator, 'userAgent', { configurable: true, value: 'Mozilla/5.0 AppleWebKit/605.1.15 Version/18.6 Safari/605.1.15' });
+		window.matchMedia = ((query: string) => ({ matches: query === '(dynamic-range: high)', media: query, onchange: null, addListener: () => {}, removeListener: () => {}, addEventListener: () => {}, removeEventListener: () => {}, dispatchEvent: () => false })) as typeof window.matchMedia;
+		try {
+			const { container } = render(GalleryAsset, { asset: makeAsset({ hdrHref: '/share/key/ref/media/a1111111-1111-4111-8111-111111111111/image/hdr', hdrAvifHref: '/share/key/ref/media/a1111111-1111-4111-8111-111111111111/image/hdr-avif' } as Partial<NormalizedAsset>), layoutWidth: 400, layoutHeight: 300, layoutMeasured: true });
+			await new Promise((resolve) => setTimeout(resolve, 0));
+			expect(container.querySelector('a')?.getAttribute('data-pswp-type')).toBe('video');
+		} finally {
+			Object.defineProperty(navigator, 'userAgent', { configurable: true, value: originalUserAgent });
+			window.matchMedia = originalMatchMedia;
+		}
+	});
 });

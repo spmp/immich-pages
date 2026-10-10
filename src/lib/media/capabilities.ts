@@ -40,6 +40,16 @@ export function supportsWideColorGamut(): boolean {
 	return window.matchMedia('(color-gamut: p3)').matches || window.matchMedia('(color-gamut: rec2020)').matches;
 }
 
+/** Legacy WebKit can report HDR dynamic range without exposing the P3 media query. Its HEVC
+ * HDR path remains the compatible fallback; AVIF gain-map support is still gated separately. */
+export function supportsHdrVideo(): boolean {
+	if (!supportsHdrDisplay()) return false;
+	if (supportsWideColorGamut()) return true;
+	if (typeof navigator === 'undefined') return false;
+	const safari = safariVersion(navigator.userAgent);
+	return safari !== null && safari < AVIF_GAINMAP_MIN_SAFARI_VERSION;
+}
+
 function isSameOriginPath(src: string): boolean {
 	if (!src.startsWith('/') || src.startsWith('//')) return false;
 	if (typeof window === 'undefined') return true;

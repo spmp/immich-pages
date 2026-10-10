@@ -3,7 +3,7 @@
 	import type { NormalizedAsset } from '$server/presentation/model';
 	import { onMount } from 'svelte';
 	import { chooseResolution, requiredWidth, selectTargetResolution } from '$lib/media/resolution';
-	import { HDR_FORCE_AVIF, probeImageDecode, supportsAvifGainMapHdr, supportsHdrDisplay, supportsWideColorGamut } from '$lib/media/capabilities';
+	import { HDR_FORCE_AVIF, probeImageDecode, supportsAvifGainMapHdr, supportsHdrDisplay, supportsHdrVideo, supportsWideColorGamut } from '$lib/media/capabilities';
 	import { journalDebugEnabled, reportJournalDebug } from './journal-debug';
 	let { asset, layoutWidth, layoutHeight, layoutMeasured = false }: { asset: NormalizedAsset & { width?: number | null; height?: number | null; videoHref?: string; fullWidth?: boolean }; layoutWidth?: number; layoutHeight?: number; layoutMeasured?: boolean } = $props();
 	let avifGainMapSupported = $state(false);
@@ -19,6 +19,7 @@
 	type HdrStatus = 'not-requested' | 'unsupported' | 'checking' | 'verified' | 'failed';
 	let hdrDisplay = $state(false);
 	let hdrGamut = $state(false);
+	let hdrVideoSupported = $state(false);
 	let hdrProbeStatus = $state<HdrStatus>('not-requested');
 	const isVideo = $derived(asset.type === 'VIDEO');
 	const label = $derived(asset.caption ?? (isVideo ? 'Journey video' : 'Journey photograph'));
@@ -45,7 +46,7 @@
 	// AVIF decoder that doesn't honor the gain map (see HDR_FORCE_AVIF doc comment for the escape
 	// hatch that skips this distinction entirely).
 	const avifCandidate = $derived(Boolean(resolvedHdrAvifSource && !promotedFailed && (HDR_FORCE_AVIF || (hdrDisplay && hdrGamut && avifGainMapSupported))));
-	const hdrCandidate = $derived(Boolean(!avifCandidate && resolvedHdrSource && hdrDisplay && hdrGamut && !promotedFailed));
+	const hdrCandidate = $derived(Boolean(!avifCandidate && resolvedHdrSource && hdrVideoSupported && !promotedFailed));
 	const posterSource = $derived((hdrCandidate || avifCandidate) && !promotedFailed ? (resolvedFullsizeSource ?? resolvedThumbnailSource) : resolvedThumbnailSource);
 	const lightboxImageSource = $derived(avifCandidate ? resolvedHdrAvifSource : (fullsizeAvailable && !promotedFailed ? resolvedFullsizeSource : null));
 	const fallbackActive = $derived(resolution === 'thumbnail' && promotedFailed);
@@ -56,6 +57,14 @@
 			const url = new URL(source, typeof document === 'undefined' ? 'https://pages.invalid' : document.baseURI);
 			url.searchParams.set('width', String(target.width));
 			url.searchParams.set('height', String(target.height));
+			return url.pathname + url.search;
+		} catch { return source; }
+	}
+	function addInteractivePriority(source: string | null | undefined) {
+		if (!source) return undefined;
+		try {
+			const url = new URL(source, typeof document === 'undefined' ? 'https://pages.invalid' : document.baseURI);
+			url.searchParams.set('priority', 'interactive');
 			return url.pathname + url.search;
 		} catch { return source; }
 	}
@@ -173,6 +182,7 @@
 		dpr = typeof window.devicePixelRatio === 'number' && window.devicePixelRatio > 0 ? window.devicePixelRatio : 1;
 		hdrDisplay = supportsHdrDisplay();
 		hdrGamut = supportsWideColorGamut();
+		hdrVideoSupported = supportsHdrVideo();
 		avifGainMapSupported = supportsAvifGainMapHdr();
 		measured = true;
 	});
@@ -192,7 +202,7 @@
 	});
 </script>
 
-	<figure bind:this={figureElement} id={'asset-' + asset.id} tabindex="-1" data-hdr-prewarm={hdrDisplay && hdrGamut ? (resolvedHdrSource ?? undefined) : undefined} data-hdr-target-width={hdrTarget?.width} data-hdr-target-height={hdrTarget?.height} data-hdr-bounded={hdrTarget?.bounded} data-resolution-policy={layoutMeasured ? 'measured-slot' : 'thumbnail-baseline'} data-media-resolution={journalDebugEnabled ? resolution : undefined} data-media-hdr-status={journalDebugEnabled ? hdrProbeStatus : undefined} data-media-slot-width={journalDebugEnabled ? renderedSlotWidth : undefined} data-media-intrinsic-width={journalDebugEnabled ? policyIntrinsicWidth : undefined} data-media-dpr={journalDebugEnabled ? dpr : undefined} data-media-required-width={journalDebugEnabled ? policyRequiredWidth : undefined} data-media-layout-measured={journalDebugEnabled ? layoutMeasured : undefined} data-media-measuring-completed={journalDebugEnabled ? measured : undefined} data-media-fullsize-available={journalDebugEnabled ? fullsizeAvailable : undefined} data-media-promotion-failed={journalDebugEnabled ? promotedFailed : undefined} data-media-fallback-active={journalDebugEnabled ? fallbackActive : undefined} style={layoutWidth && layoutHeight ? `width: ${layoutWidth}px; height: ${layoutHeight}px` : undefined} class:failed class:full-width={asset.fullWidth} class:portrait={orientation === 'portrait'} class:landscape={orientation === 'landscape'}>
+	<figure bind:this={figureElement} id={'asset-' + asset.id} tabindex="-1" data-hdr-prewarm={hdrVideoSupported ? (resolvedHdrSource ?? undefined) : undefined} data-hdr-target-width={hdrTarget?.width} data-hdr-target-height={hdrTarget?.height} data-hdr-bounded={hdrTarget?.bounded} data-resolution-policy={layoutMeasured ? 'measured-slot' : 'thumbnail-baseline'} data-media-resolution={journalDebugEnabled ? resolution : undefined} data-media-hdr-status={journalDebugEnabled ? hdrProbeStatus : undefined} data-media-slot-width={journalDebugEnabled ? renderedSlotWidth : undefined} data-media-intrinsic-width={journalDebugEnabled ? policyIntrinsicWidth : undefined} data-media-dpr={journalDebugEnabled ? dpr : undefined} data-media-required-width={journalDebugEnabled ? policyRequiredWidth : undefined} data-media-layout-measured={journalDebugEnabled ? layoutMeasured : undefined} data-media-measuring-completed={journalDebugEnabled ? measured : undefined} data-media-fullsize-available={journalDebugEnabled ? fullsizeAvailable : undefined} data-media-promotion-failed={journalDebugEnabled ? promotedFailed : undefined} data-media-fallback-active={journalDebugEnabled ? fallbackActive : undefined} style={layoutWidth && layoutHeight ? `width: ${layoutWidth}px; height: ${layoutHeight}px` : undefined} class:failed class:full-width={asset.fullWidth} class:portrait={orientation === 'portrait'} class:landscape={orientation === 'landscape'}>
 	{#if failed}<div class="unavailable" role="status">Media unavailable</div>
 	{:else if isVideo}
 		<div class="gallery-media-frame">
@@ -202,7 +212,7 @@
 		</div>
 	{:else}
 		<div class="gallery-media-frame">
-			<a href={resolve(asset.thumbnail as any)} aria-label={label} data-media-source="thumbnail" data-lightbox-fallback="native-anchor" data-pswp-type={hdrCandidate ? 'video' : avifCandidate ? 'hdr-image' : undefined} data-video-src={hdrCandidate ? resolvedHdrSource : undefined} data-video-poster={hdrCandidate ? posterSource : undefined} data-video-controls={hdrCandidate ? 'false' : undefined} data-pswp-src={!hdrCandidate ? (lightboxImageSource ?? undefined) : undefined} data-pswp-poster={avifCandidate ? posterSource : undefined} data-pswp-width={lightboxWidth} data-pswp-height={lightboxHeight}>
+				<a href={resolve(asset.thumbnail as any)} aria-label={label} data-media-source="thumbnail" data-lightbox-fallback="native-anchor" data-pswp-type={hdrCandidate ? 'video' : avifCandidate ? 'hdr-image' : undefined} data-video-src={hdrCandidate ? addInteractivePriority(resolvedHdrSource) : undefined} data-video-poster={hdrCandidate ? posterSource : undefined} data-video-controls={hdrCandidate ? 'false' : undefined} data-pswp-src={!hdrCandidate ? (avifCandidate ? addInteractivePriority(lightboxImageSource ?? undefined) : (lightboxImageSource ?? undefined)) : undefined} data-pswp-poster={avifCandidate ? posterSource : undefined} data-pswp-width={lightboxWidth} data-pswp-height={lightboxHeight}>
 				<img src={mediaSource} alt={label} loading="lazy" width={lightboxWidth} height={lightboxHeight} data-media-source={resolution} bind:naturalWidth bind:naturalHeight onload={handleMediaLoad} onerror={handleMediaError} />
 			</a>
 		</div>

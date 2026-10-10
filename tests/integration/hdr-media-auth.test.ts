@@ -32,7 +32,10 @@ describe('share HDR media boundary', () => {
 		const response = await GET({ params, request: new Request('https://pages.example/share/key/opaque-ref'), cookies: { get: vi.fn(), set: vi.fn() }, fetch: fetchMock } as never);
 		expect(response.status).toBe(200);
 		expect(response.headers.get('content-type')).toBe('video/mp4');
-		expect(response.headers.get('cache-control')).toBe('private, no-store');
+		// Decided tradeoff (see .planning/debug/hdr-lightbox-state-regression.md): successful
+		// media may be cached by the browser itself -- never a shared/proxy cache -- for as long
+		// as the server's own result cache promises identical bytes.
+		expect(response.headers.get('cache-control')).toBe('private, max-age=600');
 		expect(compose).toHaveBeenCalledWith(source, expect.objectContaining({ makerNote33: 0.8, makerNote48: 0.4 }));
 		expect(encode).toHaveBeenCalledWith(new Uint8Array([1, 2]));
 		compose.mockRestore();
@@ -71,6 +74,38 @@ describe('share HDR media boundary', () => {
 		compose.mockRestore();
 		encode.mockRestore();
 		extract.mockRestore();
+	});
+
+	it('skips re-reading the original body once the HDR output is already cached (header identity + cached metadata is enough to prove the cache hit)', async () => {
+		const source = new Uint8Array([0, 0, 0, 0, 102, 116, 121, 112, 104, 101, 105, 99]);
+		const fetchMock = vi.fn(async (input: URL | RequestInfo) => new Response(new URL(input.toString()).pathname.endsWith('/me') ? JSON.stringify(v3) : source, { headers: { 'content-type': 'image/heic', etag: 'fixed-etag' } }));
+		const compositor = await import('../../src/lib/server/media/hdr-compositor');
+		const metadata = await import('../../src/lib/server/media/hdr-metadata');
+		const client = await import('../../src/lib/server/immich/client');
+		const compose = vi.spyOn(compositor, 'composeHdr').mockResolvedValue(new Uint8Array([1, 2]));
+		const encode = vi.spyOn(compositor, 'encodeHdrMp4').mockResolvedValue(new Uint8Array([3, 4]));
+		const extract = vi.spyOn(metadata, 'extractAppleHdrMetadata').mockResolvedValue({ version: '1.0', auxiliaryType: 'urn:com:apple:photo:2020:aux:hdrgainmap', makerNote33: 0.8, makerNote48: 0.4, headroom: 1.8, hdrGain: 1.25, sourceProfile: 'display-p3', sourceTransfer: 'srgb', orientation: 1 });
+		const readSpy = vi.spyOn(client, 'readBoundedBytes');
+		const request = { request: new Request('https://pages.example/share/key/opaque-ref'), cookies: { get: vi.fn(), set: vi.fn() }, fetch: fetchMock };
+
+		const first = await GET({ ...request, params } as never);
+		expect(first.status).toBe(200);
+		// The shared-link JSON body is parsed through provider.ts's own internal readBoundedText,
+		// a same-module call this cross-module spy can't see -- so the one call it does observe
+		// here is exactly the original HEIC body read in this route's own code.
+		expect(readSpy).toHaveBeenCalledTimes(1);
+
+		const second = await GET({ ...request, params } as never);
+		expect(second.status).toBe(200);
+		expect(new Uint8Array(await second.arrayBuffer())).toEqual(new Uint8Array([3, 4]));
+		// No additional call: the cache hit above was proven (and reached) using only header
+		// identity + already-cached metadata, without ever reading the original body again.
+		expect(readSpy).toHaveBeenCalledTimes(1);
+		expect(compose).toHaveBeenCalledTimes(1);
+		compose.mockRestore();
+		encode.mockRestore();
+		extract.mockRestore();
+		readSpy.mockRestore();
 	});
 
 	it('keeps SDR fallback when Apple metadata is absent', async () => {

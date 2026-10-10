@@ -22,6 +22,7 @@ function waitForOutput(child, pattern, timeout = 30_000) {
     const timer = setTimeout(() => reject(new Error(`Timed out waiting for ${pattern}`)), timeout);
     child.stdout.on('data', (chunk) => {
       output += chunk;
+      if (process.env.MOCK_PAGES_LOG === 'true') process.stderr.write(chunk);
       const match = output.match(pattern);
       if (match) {
         clearTimeout(timer);
@@ -86,6 +87,7 @@ try {
         SDR_HEIC_CONVERTER_PATH: process.env.SDR_HEIC_CONVERTER_PATH ?? defaultSdrConverterPath
       }
   });
+  if (process.env.MOCK_PAGES_LOG === 'true') pages.stdout.on('data', (chunk) => process.stderr.write(chunk));
   await waitForHttp('http://127.0.0.1:4173/health');
   await new Promise((resolve, reject) => {
     const test = spawn(process.platform === 'win32' ? 'npx.cmd' : 'npx', ['playwright', 'test', `--config=${playwrightConfig}`, ...playwrightArgs], {
