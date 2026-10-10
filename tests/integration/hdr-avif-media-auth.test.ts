@@ -36,8 +36,8 @@ describe('share HDR AVIF media boundary', () => {
 		// media may be cached by the browser itself -- never a shared/proxy cache -- for as long
 		// as the server's own result cache promises identical bytes.
 		expect(response.headers.get('cache-control')).toBe('private, max-age=600');
-		expect(decode).toHaveBeenCalledWith(source, expect.objectContaining({ makerNote33: 0.8, makerNote48: 0.4 }));
-		expect(encode).toHaveBeenCalledWith(new Uint8Array([1, 2]), expect.objectContaining({ sourceProfile: 'display-p3' }));
+		expect(decode).toHaveBeenCalledWith(source, expect.objectContaining({ makerNote33: 0.8, makerNote48: 0.4 }), expect.objectContaining({ signal: expect.any(AbortSignal) }));
+		expect(encode).toHaveBeenCalledWith(new Uint8Array([1, 2]), expect.objectContaining({ sourceProfile: 'display-p3' }), expect.objectContaining({ signal: expect.any(AbortSignal) }));
 		decode.mockRestore();
 		encode.mockRestore();
 		extract.mockRestore();

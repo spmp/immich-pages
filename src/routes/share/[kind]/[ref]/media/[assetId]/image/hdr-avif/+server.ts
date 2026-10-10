@@ -6,8 +6,9 @@ import { parseSharedLinkRef } from '$server/share/ref';
 import { z } from 'zod';
 import { extractImmichShareToken, PAGES_SESSION_COOKIE, sessionForShare } from '$server/share/session';
 import { logHdrDiagnostic, logShareMediaStatus } from '$server/share/diagnostics';
-import { decodeHdrAvifStream, encodeHdrAvif, nativeFailureDetail, nativeFailureReason } from '$server/media/hdr-compositor';
-import { buildHdrCacheKey, getCachedHdr, getHdrCacheState, getOrCreateHdr, withHdrConcurrency, HDR_CACHE_TTL_MS } from '$server/media/hdr-cache';
+import { nativeFailureDetail, nativeFailureReason } from '$server/media/hdr-compositor';
+import { buildHdrCacheKey, getCachedHdr, HDR_CACHE_TTL_MS } from '$server/media/hdr-cache';
+import { getHdrInteractiveCoordinator } from '$server/media/hdr-prewarm';
 import { extractAppleHdrMetadata } from '$server/media/hdr-metadata';
 import { buildHdrMetadataCacheKey, getCachedHdrMetadata, getOrExtractHdrMetadata } from '$server/media/hdr-metadata-cache';
 
@@ -43,7 +44,6 @@ export const GET: RequestHandler = async ({ params, request, cookies, fetch, loc
 		source.response.headers.get('content-length')
 	].filter(Boolean).join('|') || `asset-${params.assetId}`;
 	const metadataCacheKey = buildHdrMetadataCacheKey({ assetId: params.assetId, sourceIdentity: headerSourceIdentity });
-	const conversionPriority = new URL(request.url).searchParams.get('priority') === 'interactive' ? 'interactive' : 'background';
 	logHdrDiagnostic({ event: 'request', assetId: params.assetId, requestId, phase: 'lookup', status: 'started', source: 'upstream' });
 	const cachedMetadata = getCachedHdrMetadata(metadataCacheKey);
 	if (cachedMetadata.hit && !cachedMetadata.value) {
@@ -106,24 +106,7 @@ export const GET: RequestHandler = async ({ params, request, cookies, fetch, loc
 				metadata.sourceTransfer,
 				metadata.orientation
 			].filter(Boolean).join('|') || `bytes-${input.byteLength}`;
-			// Distinct outputContract from /image/hdr's default ('mp4-hevc-main10-pq-bt2020') so the
-			// two routes never collide on the same cache key for the same underlying asset.
-			const cacheKey = buildHdrCacheKey({ assetId: params.assetId, sourceIdentity, outputContract: 'avif-gainmap-p3' });
-			output = await getOrCreateHdr(cacheKey, async () => {
-				logHdrDiagnostic({ event: 'conversion', assetId: params.assetId, requestId, phase: 'queued', source: 'conversion', status: 'started', queueDepth: getHdrCacheState().waitingConversions, activeConversions: getHdrCacheState().activeConversions });
-				return withHdrConcurrency(async () => {
-					const conversionStartedAt = Date.now();
-					logHdrDiagnostic({ event: 'conversion', assetId: params.assetId, requestId, phase: 'started', source: 'conversion', status: 'started', queueDepth: getHdrCacheState().waitingConversions, activeConversions: getHdrCacheState().activeConversions });
-					const stream = bridgeEnabled
-						? await decodeHdrAvifStream(input, metadata, { executable: process.env.HDR_AVIF_DECODE_PATH, invocationId: params.assetId })
-						: await decodeHdrAvifStream(input, metadata);
-					const body = bridgeEnabled
-						? await encodeHdrAvif(stream, metadata, { executable: process.env.HDR_AVIF_ENCODE_PATH, invocationId: params.assetId })
-						: await encodeHdrAvif(stream, metadata);
-					logHdrDiagnostic({ event: 'conversion', assetId: params.assetId, requestId, phase: 'encoder', source: 'conversion', status: 'success', byteLength: body.byteLength, durationMs: Date.now() - conversionStartedAt });
-					return { body, contentType: 'image/avif' };
-				}, { priority: conversionPriority, queueKey: cacheKey });
-			}, Date.now(), conversionPriority);
+			output = await getHdrInteractiveCoordinator().submitInteractive({ id: params.assetId, eligible: true, position: 0, sourceIdentity, sourceBytes: input.slice(), metadata }, 'avif');
 		} catch (error) {
 			const failureReason = nativeFailureReason(error);
 			logHdrDiagnostic({ event: 'conversion', assetId: params.assetId, requestId, phase: 'failed', source: 'conversion', status: 'failure', reason: nativeFailureDetail(error), durationMs: Date.now() - requestStartedAt });
