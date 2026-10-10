@@ -50,6 +50,7 @@ type Job = {
 	state: HdrJobState;
 	source: SourceBuffer;
 	error?: string;
+	abortController: AbortController;
 };
 
 export type HdrProgressSnapshot = {
@@ -82,7 +83,8 @@ export class HdrPrewarmCoordinator {
 	newGeneration(): number {
 		this.generation += 1;
 		for (const job of this.jobs.values()) {
-			if (job.state === 'queued') {
+			if (job.state === 'queued' || job.state === 'running') {
+				job.abortController.abort();
 				job.state = 'skipped';
 				this.release(job);
 			}
@@ -148,7 +150,7 @@ export class HdrPrewarmCoordinator {
 			if (priority === 'interactive') existing.priority = priority;
 			return;
 		}
-		const job: Job = { key, asset, representation, generation, priority, attempts: 0, state: 'queued', source: { bytes: asset.sourceBytes, released: false } };
+		const job: Job = { key, asset, representation, generation, priority, attempts: 0, state: 'queued', source: { bytes: asset.sourceBytes, released: false }, abortController: new AbortController() };
 		this.jobs.set(key, job);
 		void this.run(job);
 	}
@@ -158,8 +160,8 @@ export class HdrPrewarmCoordinator {
 		job.state = 'running';
 		try {
 			await getOrCreateHdr(job.key, () => withHdrConcurrency(
-				() => this.convert(job),
-				{ priority: job.priority, timeoutMs: this.options.timeoutMs, queueKey: job.key }
+			(signal) => this.convert(job, signal),
+				{ signal: job.abortController.signal, priority: job.priority, timeoutMs: this.options.timeoutMs, queueKey: job.key }
 			), Date.now(), job.priority);
 			if (job.generation !== this.generation) return this.finish(job, 'skipped');
 			this.finish(job, 'succeeded');
@@ -176,9 +178,9 @@ export class HdrPrewarmCoordinator {
 		}
 	}
 
-	private async convert(job: Job): Promise<CachedMedia> {
+	private async convert(job: Job, signal?: AbortSignal): Promise<CachedMedia> {
 		if (job.generation !== this.generation) throw new Error('stale-generation');
-		return this.options.convert({ assetId: job.asset.id, representation: job.representation, sourceBytes: job.source.bytes, width: job.asset.width, height: job.asset.height, cacheKey: job.key, signal: new AbortController().signal });
+		return this.options.convert({ assetId: job.asset.id, representation: job.representation, sourceBytes: job.source.bytes, width: job.asset.width, height: job.asset.height, cacheKey: job.key, signal: signal ?? job.abortController.signal });
 	}
 
 	private finish(job: Job, state: Extract<HdrJobState, 'succeeded' | 'failed' | 'skipped'>): void {

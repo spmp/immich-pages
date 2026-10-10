@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { buildHdrCacheKey, clearHdrCache, getCachedHdr, getOrCreateHdr, withHdrConcurrency } from '../../src/lib/server/media/hdr-cache';
+import { buildHdrCacheKey, clearHdrCache, getCachedHdr, getHdrCacheBackendConfig, getOrCreateHdr, memoryHdrCacheBackend, withHdrConcurrency } from '../../src/lib/server/media/hdr-cache';
 
 describe('HDR media cache', () => {
 	beforeEach(() => clearHdrCache());
@@ -36,6 +36,18 @@ describe('HDR media cache', () => {
 		expect(key).toContain('asset_one');
 		expect(key).toContain('1200:800');
 		expect(key).not.toMatch(/cookie|authorization|https?:/i);
+	});
+
+	it('keeps video and AVIF cache identities independent', () => {
+		const common = { assetId: 'asset', sourceIdentity: 'etag', width: 10, height: 20 };
+		expect(buildHdrCacheKey({ ...common, outputContract: 'video' })).not.toBe(buildHdrCacheKey({ ...common, outputContract: 'avif' }));
+	});
+
+	it('exposes only a non-writing memory backend, even when disk is requested', () => {
+		const config = getHdrCacheBackendConfig();
+		expect(config.backend).toBe('memory');
+		expect(config.diskWrites).toBe(false);
+		expect(memoryHdrCacheBackend.stats().entries).toBe(0);
 	});
 
 	it('enforces one global queue contract and releases work after completion', async () => {
@@ -80,7 +92,9 @@ describe('HDR media cache', () => {
 	});
 
 	it('times out queued work without leaving the scheduler occupied', async () => {
-		await expect(withHdrConcurrency(() => new Promise(() => {}), { timeoutMs: 1 })).rejects.toThrow('hdr-scheduler-timeout');
+		let aborted = false;
+		await expect(withHdrConcurrency((signal) => new Promise(() => signal?.addEventListener('abort', () => { aborted = true; })), { timeoutMs: 1 })).rejects.toThrow('hdr-scheduler-timeout');
+		expect(aborted).toBe(true);
 		await expect(withHdrConcurrency(async () => 'ready')).resolves.toBe('ready');
 	});
 
