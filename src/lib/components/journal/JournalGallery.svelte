@@ -3,10 +3,9 @@
 	import GalleryAsset from './GalleryAsset.svelte';
 	import Lightbox from './Lightbox.svelte';
 	import { onMount } from 'svelte';
-	import { env } from '$env/dynamic/public';
 	import { reportJournalDebug } from './journal-debug';
 	import { calculateJustifiedRows } from './justified-layout';
-	import { supportsHdrVideo } from '$lib/media/capabilities';
+	import { preferredHdrRepresentation } from '$lib/media/capabilities';
 	let { assets, shareKind, shareRef, fullWidth = [] }: { assets: NormalizedAsset[]; shareKind?: string; shareRef?: string; fullWidth?: string[] } = $props();
 	const enriched = $derived(assets.map((asset) => {
 		const videoHref = asset.videoHref ?? (asset.type === 'VIDEO' && shareKind && shareRef ? `/share/${shareKind}/${encodeURIComponent(shareRef)}/media/${encodeURIComponent(asset.id)}/video/playback` : undefined);
@@ -27,110 +26,38 @@
 	});
 	onMount(() => reportJournalDebug('gallery-state', { category: 'gallery', status: enriched.length === 0 ? 'empty' : 'success', assetCount: enriched.length, imageCount: enriched.filter((asset) => asset.type !== 'VIDEO').length, videoCount: enriched.filter((asset) => asset.type === 'VIDEO').length, ...(enriched.length === 0 ? { errorContext: 'gallery-load' as const } : {}) }));
 	onMount(() => {
-		if (!supportsHdrVideo()) return;
-		const controllers = new Set<AbortController>();
-		const completed = new Set<string>();
-		const activeUrls = new Set<string>();
-		const attempts = new Map<string, number>();
+		const representation = preferredHdrRepresentation();
+		if (!representation || !shareKind || !shareRef || enriched.length === 0) return;
 		let stopped = false;
-		let running = 0;
-		let queue: string[] = [];
-		const assetInfo = (url: string) => {
-			const elements = Array.from(document.querySelectorAll<HTMLElement>('[data-hdr-prewarm]'));
-			const index = elements.findIndex((element) => element.dataset.hdrPrewarm === url);
-			return { assetIndex: index >= 0 ? index : undefined, assetTotal: elements.length };
+		let controller: AbortController | undefined;
+		let lastAnnouncement = '';
+		const first = enriched.findIndex((asset) => Boolean(representation === 'avif' ? asset.hdrAvifHref : asset.hdrHref));
+		const announce = (activeAssetId: string, activePosition: number) => {
+			if (stopped || document.visibilityState !== 'visible' || !Number.isSafeInteger(activePosition) || activePosition < 0) return;
+			const key = `${activeAssetId}:${activePosition}:${representation}`;
+			if (key === lastAnnouncement) return;
+			lastAnnouncement = key;
+			controller?.abort();
+			controller = new AbortController();
+			void fetch(`/share/${encodeURIComponent(shareKind)}/${encodeURIComponent(shareRef)}/prewarm`, {
+				method: 'POST', credentials: 'same-origin', signal: controller.signal,
+				headers: { 'content-type': 'application/json', 'x-hdr-representation': representation },
+				body: JSON.stringify({ activeAssetId, activePosition })
+			}).catch(() => { /* optional control-plane failure preserves SDR */ });
 		};
-		// This is a separate, per-browser-tab limit on how many background prewarm *fetches* this
-		// one client issues in parallel -- unrelated to the server's own HDR_MAX_CONCURRENT (which
-		// bounds simultaneous native conversions across every client). Configurable for the same
-		// reason everything else here is: no reason to force a code change + redeploy to try a
-		// different value.
-		const parsedPrewarmConcurrency = Number(env.PUBLIC_HDR_PREWARM_CONCURRENCY);
-		const maxConcurrent = Number.isFinite(parsedPrewarmConcurrency) && parsedPrewarmConcurrency > 0 ? Math.min(Math.trunc(parsedPrewarmConcurrency), 16) : 2;
-		// No bound on how long a single prewarm fetch could hang -- a stalled connection (real risk
-		// on a flaky mobile network, which is exactly the device class this exists for) would
-		// permanently occupy one of only `maxConcurrent` client-side slots for the rest of the
-		// session, silently halting all further prewarming with no visible symptom at all.
-		const prewarmFetchTimeoutMs = 90_000;
-		// Default: natural gallery order (first photo, then sequentially) -- querySelectorAll
-		// already returns elements in document order, so no sort needed. If the viewer opens a
-		// specific photo in the lightbox, pages:active-asset (dispatched by Lightbox.svelte)
-		// rotates this so prewarming continues sequentially from that photo instead of wherever
-		// the original front-to-back scan happened to be.
-		let preferredStartFigureId: string | null = null;
-		const schedule = () => {
-			if (stopped || document.visibilityState !== 'visible') return;
-			const candidates = Array.from(document.querySelectorAll<HTMLElement>('[data-hdr-prewarm]'))
-				.map((element) => ({ url: element.dataset.hdrPrewarm, figureId: element.closest('figure')?.id }))
-				.filter((item): item is { url: string; figureId: string | undefined } => Boolean(item.url && !completed.has(item.url)));
-			const startIndex = preferredStartFigureId ? candidates.findIndex((item) => item.figureId === preferredStartFigureId) : -1;
-			const ordered = startIndex > 0 ? [...candidates.slice(startIndex), ...candidates.slice(0, startIndex)] : candidates;
-			queue = ordered.map((item) => item.url).filter((url, index, all) => all.indexOf(url) === index && !activeUrls.has(url));
-			reportJournalDebug('hdr-prewarm', { status: 'changed', requestPhase: 'schedule', assetTotal: candidates.length, prewarmReuse: completed.size > 0 });
-			pump();
-		};
-		const pump = () => {
-			while (!stopped && document.visibilityState === 'visible' && running < maxConcurrent && queue.length) {
-				const url = queue.shift()!;
-				if (completed.has(url) || activeUrls.has(url)) {
-					reportJournalDebug('hdr-prewarm', { status: 'ready', requestPhase: 'reuse', urlKind: 'hdr-video', prewarmReuse: true, ...assetInfo(url) });
-					continue;
-				}
-				activeUrls.add(url);
-				attempts.set(url, (attempts.get(url) ?? 0) + 1);
-				running += 1;
-				const controller = new AbortController();
-				controllers.add(controller);
-				const giveUpTimer = window.setTimeout(() => controller.abort(), prewarmFetchTimeoutMs);
-				const startedAt = performance.now();
-				reportJournalDebug('hdr-prewarm', { status: 'started', requestPhase: 'start', urlKind: 'hdr-video', ...assetInfo(url) });
-				let succeeded = false;
-				void fetch(url, { credentials: 'same-origin', signal: controller.signal, headers: { accept: 'video/mp4' } })
-					.then(async (response) => {
-						const bytes = response.ok ? (await response.arrayBuffer()).byteLength : null;
-						succeeded = response.ok;
-						if (succeeded) completed.add(url);
-						reportJournalDebug('hdr-prewarm', { status: response.ok ? 'success' : 'failure', requestPhase: 'end', urlKind: 'hdr-video', statusCode: response.status, bytes, durationMs: performance.now() - startedAt, ...assetInfo(url) });
-					})
-					.catch(() => reportJournalDebug('hdr-prewarm', { status: 'failure', requestPhase: 'end', urlKind: 'hdr-video', failureCategory: controller.signal.aborted ? 'timeout' : 'network', bytes: null, durationMs: performance.now() - startedAt, ...assetInfo(url) }))
-					.finally(() => {
-						window.clearTimeout(giveUpTimer);
-						controllers.delete(controller);
-						activeUrls.delete(url);
-						running -= 1;
-						if (!succeeded && (attempts.get(url) ?? 0) < 2 && !stopped) queue.push(url);
-						pump();
-					});
-			}
-		};
+		if (first >= 0) announce(enriched[first].id, first);
 		const onActiveAsset = (event: Event) => {
-			const figureId = (event as CustomEvent<{ figureId?: string }>).detail?.figureId;
-			if (!figureId || figureId === preferredStartFigureId) return;
-			preferredStartFigureId = figureId;
-			schedule();
+			const detail = (event as CustomEvent<{ activeAssetId?: string; activePosition?: number }>).detail;
+			if (detail?.activeAssetId && Number.isSafeInteger(detail.activePosition)) announce(detail.activeAssetId, detail.activePosition as number);
 		};
 		document.addEventListener('pages:active-asset', onActiveAsset);
-		const galleryRoot = document.querySelector<HTMLElement>(`#journal-gallery`);
-		const prewarmObserver = typeof MutationObserver === 'undefined' || !galleryRoot ? undefined : new MutationObserver(() => schedule());
-		prewarmObserver?.observe(galleryRoot!, { subtree: true, attributes: true, attributeFilter: ['data-hdr-prewarm'] });
-		const onVisibilityChange = () => {
-			if (document.visibilityState === 'hidden') {
-				for (const controller of controllers) controller.abort();
-				queue = [];
-			} else schedule();
-		};
+		const onVisibilityChange = () => { if (document.visibilityState === 'visible' && first >= 0) announce(enriched[first].id, first); };
 		document.addEventListener('visibilitychange', onVisibilityChange);
-		const idleWindow = window as Window & { requestIdleCallback?: (callback: () => void, options?: { timeout: number }) => number; cancelIdleCallback?: (handle: number) => void };
-		const usedIdleCallback = Boolean(idleWindow.requestIdleCallback);
-		const idle = usedIdleCallback ? idleWindow.requestIdleCallback!(schedule, { timeout: 250 }) : window.setTimeout(schedule, 0);
 		return () => {
 			stopped = true;
-			document.removeEventListener('visibilitychange', onVisibilityChange);
+			controller?.abort();
 			document.removeEventListener('pages:active-asset', onActiveAsset);
-			prewarmObserver?.disconnect();
-			for (const controller of controllers) controller.abort();
-			if (usedIdleCallback && idleWindow.cancelIdleCallback) idleWindow.cancelIdleCallback(idle);
-			else window.clearTimeout(idle);
+			document.removeEventListener('visibilitychange', onVisibilityChange);
 		};
 	});
 </script>

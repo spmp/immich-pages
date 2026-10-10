@@ -75,8 +75,11 @@
 		// scheduled prewarm fetches for photos nobody's looking at anymore.
 		const notifyActiveAsset = () => {
 			const anchor = lightbox?.pswp?.currSlide?.content?.data?.element as HTMLElement | undefined;
-			const figureId = anchor?.closest('figure')?.id;
-			if (figureId) document.dispatchEvent(new CustomEvent('pages:active-asset', { detail: { figureId } }));
+			const figure = anchor?.closest('figure');
+			const figureId = figure?.id;
+			const gallery = getGallery();
+			const activePosition = anchor && gallery ? Array.from(gallery.querySelectorAll('a')).indexOf(anchor as HTMLAnchorElement) : -1;
+			if (figureId && figure?.dataset.assetId && activePosition >= 0) document.dispatchEvent(new CustomEvent('pages:active-asset', { detail: { figureId, activeAssetId: figure.dataset.assetId, activePosition } }));
 		};
 			// Visual-only diagnostic: tints the zoom button for whichever slide pages has identified
 			// as carrying a real Apple gain map (the HDR video candidate or the AVIF HDR candidate),
@@ -242,7 +245,7 @@
 						event.preventDefault();
 						reportJournalDebug('hdr-media', { status: 'loading', spinner: 'start', photoSwipeType: 'hdr-image', srcKind: 'hdr-avif' });
 						const label = content.data.element?.getAttribute('aria-label') ?? 'Journey photograph';
-						const cached = promotedHdrMedia.get(content.data.src);
+						const cached = promotedHdrMedia.get('avif', content.data.src);
 						if (cached) {
 							content.element = cached;
 							markHdrUpgradePromoted(content);
@@ -301,7 +304,7 @@
 							},
 							onSettled: (outcome) => {
 								if (outcome === 'promoted') {
-									promotedHdrMedia.set(content.data.src, real);
+								promotedHdrMedia.set('avif', content.data.src, real);
 									setHdrStatus(content, 'AVIF HDR image: loaded');
 									updateHdrIndicator();
 									reportJournalDebug('hdr-media', { status: 'promoted', spinner: 'stop', photoSwipeType: 'hdr-image', srcKind: 'hdr-avif' });
@@ -345,7 +348,7 @@
 						return;
 					}
 
-					const cached = promotedHdrMedia.get(content.data.src);
+					const cached = promotedHdrMedia.get('video', content.data.src);
 					if (cached instanceof HTMLVideoElement) {
 						content.element = cached;
 						markHdrUpgradePromoted(content);
@@ -453,7 +456,7 @@
 						releaseReal: () => { video.pause(); video.removeAttribute('src'); video.load(); },
 						onSettled: (outcome, reason) => {
 							if (outcome === 'promoted') {
-								promotedHdrMedia.set(content.data.src, video);
+								promotedHdrMedia.set('video', content.data.src, video);
 								if (!hdrVideos.includes(video)) hdrVideos.push(video);
 								// Don't wait for the next 'change' -- a preloaded neighboring slide can
 								// promote while a different slide is current, and its autoplay has

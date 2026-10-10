@@ -158,8 +158,8 @@ describe('journal gallery contract', () => {
 		expect(asset).toContain('data-lightbox-fallback="native-anchor"');
 		expect(asset).toContain('supportsHdrDisplay()');
 		expect(asset).toContain('resolvedHdrSource');
-		expect(asset).toContain('data-hdr-prewarm={hdrVideoSupported ? (resolvedHdrSource ?? undefined) : undefined}');
-		expect(asset).toContain('const hdrCandidate = $derived(Boolean(!avifCandidate && resolvedHdrSource && hdrVideoSupported && !promotedFailed))');
+		expect(asset).toContain('data-hdr-representation={hdrRepresentation ?? undefined}');
+		expect(asset).toContain("const hdrCandidate = $derived(Boolean(!avifCandidate && resolvedHdrSource && hdrRepresentation === 'video' && !promotedFailed))");
 		expect(asset).toContain('const posterSource = $derived((hdrCandidate || avifCandidate) && !promotedFailed ? (resolvedFullsizeSource ?? resolvedThumbnailSource) : resolvedThumbnailSource)');
 		expect(asset).toContain('data-video-poster={hdrCandidate ? posterSource : undefined}');
 		expect(lightbox).toContain('void video.play().catch(() => {});');
@@ -176,28 +176,20 @@ describe('journal gallery contract', () => {
 		expect(asset).toContain('data-hdr-target-height');
 		expect(asset).toContain('data-hdr-bounded');
 		expect(gallery).not.toContain('maxRequests = 8');
-		expect(gallery).toContain('queue = ordered.map((item) => item.url)');
-		expect(gallery).toContain('activeUrls.delete(url)');
-		expect(gallery).toContain("Number.isFinite(parsedPrewarmConcurrency) && parsedPrewarmConcurrency > 0 ? Math.min(Math.trunc(parsedPrewarmConcurrency), 16) : 2");
+		expect(gallery).toContain("headers: { 'content-type': 'application/json', 'x-hdr-representation': representation }");
+		expect(gallery).toContain('activeAssetId, activePosition');
+		expect(gallery).not.toContain('data-hdr-prewarm');
 		expect(gallery).toContain("document.visibilityState === 'visible'");
 	});
 
 	it('prewarms HDR videos in gallery order by default, reprioritized to continue from whichever photo the viewer opens', () => {
 		const gallery = source('JournalGallery');
 		const lightbox = source('Lightbox');
-		// querySelectorAll already returns elements in document order -- no sort needed for the
-		// "first photo, then sequentially" default.
-		expect(gallery).not.toContain('getBoundingClientRect');
 		expect(gallery).toContain("document.addEventListener('pages:active-asset', onActiveAsset)");
-		expect(gallery).toContain('const startIndex = preferredStartFigureId ? candidates.findIndex((item) => item.figureId === preferredStartFigureId) : -1;');
-		expect(gallery).toContain('const ordered = startIndex > 0 ? [...candidates.slice(startIndex), ...candidates.slice(0, startIndex)] : candidates;');
-		// A stalled fetch (real risk on the flaky mobile connections this exists for) used to be
-		// able to permanently occupy one of only `maxConcurrent` slots forever, silently halting
-		// all further prewarming with no visible symptom.
-		expect(gallery).toContain('const giveUpTimer = window.setTimeout(() => controller.abort(), prewarmFetchTimeoutMs);');
-		expect(gallery).toContain('window.clearTimeout(giveUpTimer);');
-		expect(gallery).toContain("attributeFilter: ['data-hdr-prewarm']");
-		expect(lightbox).toContain("document.dispatchEvent(new CustomEvent('pages:active-asset', { detail: { figureId } }))");
+		expect(gallery).toContain('preferredHdrRepresentation()');
+		expect(gallery).toContain('controller?.abort()');
+		expect(gallery).not.toContain('querySelectorAll<HTMLElement>(\'[data-hdr-prewarm]\')');
+		expect(lightbox).toContain("document.dispatchEvent(new CustomEvent('pages:active-asset', { detail: { figureId, activeAssetId: figure.dataset.assetId, activePosition } }))");
 		expect(lightbox).toContain('notifyActiveAsset();');
 	});
 

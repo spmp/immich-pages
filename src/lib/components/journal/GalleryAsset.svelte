@@ -3,10 +3,9 @@
 	import type { NormalizedAsset } from '$server/presentation/model';
 	import { onMount } from 'svelte';
 	import { chooseResolution, requiredWidth, selectTargetResolution } from '$lib/media/resolution';
-	import { HDR_FORCE_AVIF, probeImageDecode, supportsAvifGainMapHdr, supportsHdrDisplay, supportsHdrVideo, supportsWideColorGamut } from '$lib/media/capabilities';
+	import { preferredHdrRepresentation, probeImageDecode, supportsHdrDisplay, supportsWideColorGamut } from '$lib/media/capabilities';
 	import { journalDebugEnabled, reportJournalDebug } from './journal-debug';
 	let { asset, layoutWidth, layoutHeight, layoutMeasured = false }: { asset: NormalizedAsset & { width?: number | null; height?: number | null; videoHref?: string; fullWidth?: boolean }; layoutWidth?: number; layoutHeight?: number; layoutMeasured?: boolean } = $props();
-	let avifGainMapSupported = $state(false);
 	let failed = $state(false);
 	let naturalWidth = $state(0);
 	let naturalHeight = $state(0);
@@ -19,7 +18,7 @@
 	type HdrStatus = 'not-requested' | 'unsupported' | 'checking' | 'verified' | 'failed';
 	let hdrDisplay = $state(false);
 	let hdrGamut = $state(false);
-	let hdrVideoSupported = $state(false);
+	let hdrRepresentation = $state<import('$lib/media/capabilities').HdrRepresentation | null>(null);
 	let hdrProbeStatus = $state<HdrStatus>('not-requested');
 	const isVideo = $derived(asset.type === 'VIDEO');
 	const label = $derived(asset.caption ?? (isVideo ? 'Journey video' : 'Journey photograph'));
@@ -45,8 +44,8 @@
 	// video candidate is only needed for the specific gap of an HDR-capable display paired with an
 	// AVIF decoder that doesn't honor the gain map (see HDR_FORCE_AVIF doc comment for the escape
 	// hatch that skips this distinction entirely).
-	const avifCandidate = $derived(Boolean(resolvedHdrAvifSource && !promotedFailed && (HDR_FORCE_AVIF || (hdrDisplay && hdrGamut && avifGainMapSupported))));
-	const hdrCandidate = $derived(Boolean(!avifCandidate && resolvedHdrSource && hdrVideoSupported && !promotedFailed));
+	const avifCandidate = $derived(Boolean(resolvedHdrAvifSource && !promotedFailed && hdrRepresentation === 'avif'));
+	const hdrCandidate = $derived(Boolean(!avifCandidate && resolvedHdrSource && hdrRepresentation === 'video' && !promotedFailed));
 	const posterSource = $derived((hdrCandidate || avifCandidate) && !promotedFailed ? (resolvedFullsizeSource ?? resolvedThumbnailSource) : resolvedThumbnailSource);
 	const lightboxImageSource = $derived(avifCandidate ? resolvedHdrAvifSource : (fullsizeAvailable && !promotedFailed ? resolvedFullsizeSource : null));
 	const fallbackActive = $derived(resolution === 'thumbnail' && promotedFailed);
@@ -182,8 +181,7 @@
 		dpr = typeof window.devicePixelRatio === 'number' && window.devicePixelRatio > 0 ? window.devicePixelRatio : 1;
 		hdrDisplay = supportsHdrDisplay();
 		hdrGamut = supportsWideColorGamut();
-		hdrVideoSupported = supportsHdrVideo();
-		avifGainMapSupported = supportsAvifGainMapHdr();
+		hdrRepresentation = preferredHdrRepresentation();
 		measured = true;
 	});
 	let probedFullsizeSource = '';
@@ -202,7 +200,7 @@
 	});
 </script>
 
-	<figure bind:this={figureElement} id={'asset-' + asset.id} tabindex="-1" data-hdr-prewarm={hdrVideoSupported ? (resolvedHdrSource ?? undefined) : undefined} data-hdr-target-width={hdrTarget?.width} data-hdr-target-height={hdrTarget?.height} data-hdr-bounded={hdrTarget?.bounded} data-resolution-policy={layoutMeasured ? 'measured-slot' : 'thumbnail-baseline'} data-media-resolution={journalDebugEnabled ? resolution : undefined} data-media-hdr-status={journalDebugEnabled ? hdrProbeStatus : undefined} data-media-slot-width={journalDebugEnabled ? renderedSlotWidth : undefined} data-media-intrinsic-width={journalDebugEnabled ? policyIntrinsicWidth : undefined} data-media-dpr={journalDebugEnabled ? dpr : undefined} data-media-required-width={journalDebugEnabled ? policyRequiredWidth : undefined} data-media-layout-measured={journalDebugEnabled ? layoutMeasured : undefined} data-media-measuring-completed={journalDebugEnabled ? measured : undefined} data-media-fullsize-available={journalDebugEnabled ? fullsizeAvailable : undefined} data-media-promotion-failed={journalDebugEnabled ? promotedFailed : undefined} data-media-fallback-active={journalDebugEnabled ? fallbackActive : undefined} style={layoutWidth && layoutHeight ? `width: ${layoutWidth}px; height: ${layoutHeight}px` : undefined} class:failed class:full-width={asset.fullWidth} class:portrait={orientation === 'portrait'} class:landscape={orientation === 'landscape'}>
+	<figure bind:this={figureElement} id={'asset-' + asset.id} data-asset-id={asset.id} tabindex="-1" data-hdr-representation={hdrRepresentation ?? undefined} data-hdr-target-width={hdrTarget?.width} data-hdr-target-height={hdrTarget?.height} data-hdr-bounded={hdrTarget?.bounded} data-resolution-policy={layoutMeasured ? 'measured-slot' : 'thumbnail-baseline'} data-media-resolution={journalDebugEnabled ? resolution : undefined} data-media-hdr-status={journalDebugEnabled ? hdrProbeStatus : undefined} data-media-slot-width={journalDebugEnabled ? renderedSlotWidth : undefined} data-media-intrinsic-width={journalDebugEnabled ? policyIntrinsicWidth : undefined} data-media-dpr={journalDebugEnabled ? dpr : undefined} data-media-required-width={journalDebugEnabled ? policyRequiredWidth : undefined} data-media-layout-measured={journalDebugEnabled ? layoutMeasured : undefined} data-media-measuring-completed={journalDebugEnabled ? measured : undefined} data-media-fullsize-available={journalDebugEnabled ? fullsizeAvailable : undefined} data-media-promotion-failed={journalDebugEnabled ? promotedFailed : undefined} data-media-fallback-active={journalDebugEnabled ? fallbackActive : undefined} style={layoutWidth && layoutHeight ? `width: ${layoutWidth}px; height: ${layoutHeight}px` : undefined} class:failed class:full-width={asset.fullWidth} class:portrait={orientation === 'portrait'} class:landscape={orientation === 'landscape'}>
 	{#if failed}<div class="unavailable" role="status">Media unavailable</div>
 	{:else if isVideo}
 		<div class="gallery-media-frame">

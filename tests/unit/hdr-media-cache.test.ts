@@ -6,18 +6,19 @@ describe('promoted HDR media cache', () => {
 		const cache = new HdrMediaCache();
 		const media = {} as HTMLImageElement;
 
-		cache.set('/hdr/asset.avif', media);
+		cache.set('avif', '/hdr/asset.avif', media);
 
-		expect(cache.get('/hdr/asset.avif')).toBe(media);
-		expect(cache.get('/hdr/other.avif')).toBeUndefined();
+		expect(cache.get('avif', '/hdr/asset.avif')).toBe(media);
+		expect(cache.get('avif', '/hdr/other.avif')).toBeUndefined();
+		expect(cache.get('video', '/hdr/asset.avif')).toBeUndefined();
 	});
 
 	it('clears entries when the owning lightbox is destroyed', () => {
 		const cache = new HdrMediaCache();
-		cache.set('/hdr/asset.mp4', {} as HTMLVideoElement);
+		cache.set('video', '/hdr/asset.mp4', {} as HTMLVideoElement);
 
 		cache.clear();
 
-		expect(cache.get('/hdr/asset.mp4')).toBeUndefined();
+		expect(cache.get('video', '/hdr/asset.mp4')).toBeUndefined();
 	});
 });

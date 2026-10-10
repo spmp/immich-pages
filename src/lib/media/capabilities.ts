@@ -5,6 +5,7 @@ import { env } from '$env/dynamic/public';
  * automatic SDR degrade on decoders that don't understand the gain map. Useful for gathering
  * real-world results across devices faster than the allowlist below can be hand-maintained. */
 export const HDR_FORCE_AVIF = env.PUBLIC_HDR_FORCE_AVIF === 'true';
+export type HdrRepresentation = 'video' | 'avif';
 
 /** No browser API reports "this decoder honors AVIF gain maps as real HDR" -- a standards-
  * compliant AVIF decoder that ignores the gain map still decodes successfully, just flat/SDR, so
@@ -48,6 +49,13 @@ export function supportsHdrVideo(): boolean {
 	if (typeof navigator === 'undefined') return false;
 	const safari = safariVersion(navigator.userAgent);
 	return safari !== null && safari < AVIF_GAINMAP_MIN_SAFARI_VERSION;
+}
+
+/** Select one optional representation from browser hints; never an authorization decision. */
+export function preferredHdrRepresentation(): HdrRepresentation | null {
+	if (!supportsHdrDisplay()) return null;
+	if (HDR_FORCE_AVIF || (supportsWideColorGamut() && supportsAvifGainMapHdr())) return 'avif';
+	return supportsHdrVideo() ? 'video' : null;
 }
 
 function isSameOriginPath(src: string): boolean {
