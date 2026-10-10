@@ -16,6 +16,20 @@ describe('Phase 8 Gate C release evidence contract', () => {
     expect(Array.isArray(evidence.negativeCases)).toBe(true);
     expect(evidence.negativeCases.every((entry: any) => entry.outcome === 'sdr-fallback')).toBe(true);
     expect(evidence.redaction).toEqual({ credentialsLogged: false, rawMediaLogged: false, rawUpstreamBodiesLogged: false });
+    expect(evidence.automatedPrewarm).toMatchObject({
+      status: 'PASS',
+      evidenceKind: 'automated-release-contract',
+      attempts: 2,
+      cacheBackend: 'memory',
+      representations: ['video', 'avif'],
+      fallback: 'SDR-only on failure'
+    });
+    expect(evidence.automatedPrewarm.resourceBounds).toMatchObject({
+      concurrency: 'configured-and-capped',
+      queue: 'configured-and-capped',
+      nativeTimeout: 'abortable',
+      cacheBytes: 'configured-and-capped'
+    });
     for (const fixture of evidence.fixtures) {
       expect(fixture.sourceHash).toMatch(/^[a-f0-9]{64}$/);
       expect(fixture.sourceBytes).toBeGreaterThan(0);
@@ -48,6 +62,10 @@ describe('Phase 8 Gate C release evidence contract', () => {
       expect(source).toContain('sdr-fallback');
     }
     expect(evidenceText).not.toMatch(/(?:BEGIN (?:BASE64|JPEG|PNG)|data:(?:image|video)\/(?:base64|utf8))/i);
+    expect(JSON.stringify(evidence)).not.toMatch(/(?:cookie|authorization|bearer|password|set-cookie|rawMediaBytes|sourceBytes\s*:\s*\[)/i);
+    expect(evidenceText).toMatch(/automated.*prewarm|prewarm.*automated/i);
+    expect(evidenceText).toMatch(/physical.*(?:separate|not automated)|not inferred from Docker/i);
+    expect(evidence.automatedPrewarm.fallback).toBe('SDR-only on failure');
   });
 });
 
