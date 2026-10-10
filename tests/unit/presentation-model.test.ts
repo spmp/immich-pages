@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { parsePresentationDocument } from '../../src/lib/server/presentation/frontmatter';
-import { deriveDisplayDate, selectHero, type NormalizedPageModel } from '../../src/lib/server/presentation/model';
+import { deriveDisplayDate, projectHdrAssets, selectHero, type NormalizedPageModel } from '../../src/lib/server/presentation/model';
 
 const share = { album: { albumThumbnailAssetId: 'b' }, assets: [
 	{ id: 'a', originalFileName: 'first.jpg', type: 'IMAGE' },
@@ -30,5 +30,15 @@ describe('normalized presentation model seams', () => {
 		if (explicit.kind === 'valid') expect(deriveDisplayDate(explicit.config, base as never)).toEqual({ start: '2024-01-01', end: '2024-01-01' });
 		const empty = parsePresentationDocument('---\nimmich-presentation:\n  type: journey\n  version: 1\n---');
 		if (empty.kind === 'valid') expect(deriveDisplayDate(empty.config, base as never)).toEqual({ start: '2025-01-01T00:00:00Z', end: '2025-02-02T00:00:00Z' });
+	});
+
+	it('preserves normalized response order and stable duplicate ties for HDR projection', () => {
+		const projected = projectHdrAssets([
+			{ id: 'b', type: 'IMAGE', thumbnail: '/b', sourceMimeType: 'image/heic', sourceWidth: 2, sourceHeight: 2 },
+			{ id: 'a', type: 'IMAGE', thumbnail: '/a', sourceMimeType: 'image/heic', sourceWidth: 2, sourceHeight: 2 },
+			{ id: 'a', type: 'IMAGE', thumbnail: '/a-duplicate', sourceMimeType: 'image/heic', sourceWidth: 2, sourceHeight: 2 }
+		]);
+		expect(projected.map((asset) => asset.id)).toEqual(['b', 'a', 'a']);
+		expect(projected.map((asset) => asset.position)).toEqual([0, 1, 2]);
 	});
 });

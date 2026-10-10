@@ -3,7 +3,7 @@ import { inferSafeImageMime, IMMICH_MAX_ORIGINAL_BYTES, readBoundedBytes } from 
 import type { ImmichProvider } from '$server/immich/provider';
 import { projectHdrAssets, type NormalizedPageModel } from '$server/presentation/model';
 import { extractAppleHdrMetadata } from './hdr-metadata';
-import { getHdrInteractiveCoordinator, type AuthorizedHdrAsset, type HdrPrewarmCoordinator, type HdrProgressSnapshot } from './hdr-prewarm';
+import { getHdrInteractiveCoordinator, type AuthorizedHdrAsset, type HdrPrewarmCoordinator, type HdrProgressSnapshot, type HdrRepresentation } from './hdr-prewarm';
 import { parseHdrLookahead, targetLookahead } from './hdr-prewarm-policy';
 
 type SourceProvider = Pick<ImmichProvider, 'getFullsizeImage'>;
@@ -12,6 +12,7 @@ export type HdrSourcePreparationOptions = {
 	coordinator?: HdrPrewarmCoordinator;
 	lookahead?: ReturnType<typeof parseHdrLookahead>;
 	activePosition?: number;
+	representation?: HdrRepresentation;
 	extractMetadata?: typeof extractAppleHdrMetadata;
 };
 
@@ -26,6 +27,7 @@ export async function prepareAuthorizedHdrSources(
 	options: HdrSourcePreparationOptions = {}
 ): Promise<HdrProgressSnapshot> {
 	const coordinator = options.coordinator ?? getHdrInteractiveCoordinator();
+	const representation = options.representation ?? 'video';
 	const projection = projectHdrAssets(page.assets);
 	const targets = targetLookahead(projection, options.activePosition ?? 0, options.lookahead ?? parseHdrLookahead());
 	const acquired: AuthorizedHdrAsset[] = [];
@@ -48,11 +50,12 @@ export async function prepareAuthorizedHdrSources(
 		} catch {
 			if (bytes) disposeBytes(bytes);
 		} finally {
-			await source?.response?.body?.cancel().catch(() => {});
+			const body = source?.response?.body;
+			if (body) await body.cancel().catch(() => {});
 		}
 	}
-	if (acquired.length === 0) return coordinator.snapshot(coordinator.getGeneration(), 'video');
-	return coordinator.schedule({ assets: acquired, activePosition: -1, lookahead: { kind: 'all' }, generation: coordinator.getGeneration() }, 'video', 'background');
+	if (acquired.length === 0) return coordinator.snapshot(coordinator.getGeneration(), representation);
+	return coordinator.schedule({ assets: acquired, activePosition: -1, lookahead: { kind: 'all' }, generation: coordinator.getGeneration() }, representation, 'background');
 }
 
 function disposeBytes(bytes: Uint8Array): void {
