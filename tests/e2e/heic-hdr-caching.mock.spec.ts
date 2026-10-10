@@ -1,174 +1,123 @@
-import { expect, test, type Page } from '@playwright/test';
-import { readFileSync, unlinkSync } from 'node:fs';
+import { expect, test, type Page, type Route } from '@playwright/test';
 
-const mode = process.env.HDR_TEST_MODE;
-const bridgeLog = process.env.HDR_BRIDGE_LOG;
-const assetId = (number: number) => `70000000-0000-4000-8000-${String(number).padStart(12, '0')}`;
-const numbers = Array.from({ length: 20 }, (_, index) => index + 1);
 const ref = 'heic-forward-ref';
+const assetId = (number: number) => `70000000-0000-4000-8000-${String(number).padStart(12, '0')}`;
+const positions = Array.from({ length: 20 }, (_, index) => index);
 
 test.use({ extraHTTPHeaders: { authorization: 'Bearer fixture' } });
 
-test.beforeEach(async ({ context }) => {
-	await context.addCookies([{ name: 'immich_shared_link_token', value: 'fixture', domain: '127.0.0.1', path: '/' }]);
-	if (bridgeLog) {
-		try { unlinkSync(bridgeLog); } catch { /* The bridge creates it on first invocation. */ }
-	}
-});
+type Command = { activeAssetId: string; activePosition: number };
+type ControlRequest = { command: Command; representation: string; bodyKeys: string[] };
 
 async function enableHdrHints(page: Page) {
-	await page.addInitScript((selectedMode) => {
+
+	await page.addInitScript(() => {
+		Object.defineProperty(navigator, 'userAgent', { configurable: true, value: 'Mozilla/5.0 AppleWebKit/605.1.15 Version/18.6 Safari/605.1.15' });
 		const nativeMatchMedia = window.matchMedia.bind(window);
-		window.matchMedia = (query: string) => query === '(dynamic-range: high)' || query === '(color-gamut: p3)' || query === '(color-gamut: rec2020)'
+		window.matchMedia = (query: string) => query === '(dynamic-range: high)'
 			? { ...nativeMatchMedia(query), matches: true }
 			: nativeMatchMedia(query);
-		if (selectedMode === 'video') {
-			// Keep the real Chromium media engine, but make the capability policy take its legacy
-			// Safari branch so this run exercises the HDR-video fallback rather than AVIF.
-			Object.defineProperty(navigator, 'userAgent', { configurable: true, value: 'Mozilla/5.0 Version/18.6 Safari/605.1.15' });
-		}
-	}, mode);
+	});
 }
 
-async function waitForPromotedHdr(page: Page, expectedIndex: number) {
-	const announcement = page.locator('[data-pswp-announcement]');
-	await expect.poll(async () => announcement.textContent()).toContain(`${expectedIndex} / 20`);
-	const root = page.locator('.pswp');
-	await expect(root).toHaveAttribute('data-pswp-hdr-state', 'loaded', { timeout: 90_000 });
-	await expect(root.locator('.pswp__preloader')).not.toHaveClass(/pswp__preloader--active/);
-	if (mode === 'avif') {
-		await expect(root.locator('.pswp__item[aria-hidden="false"] img:not(.pswp__img--placeholder)')).toBeVisible();
-	} else {
-		await expect(root.locator('.pswp__item[aria-hidden="false"] video')).toBeVisible();
-	}
+function targetCount(mode: '0' | '3' | 'all', activePosition: number): number {
+	if (mode === '0') return 0;
+	const ahead = positions.filter((position) => position > activePosition);
+	return mode === 'all' ? ahead.length : Math.min(3, ahead.length);
 }
 
-async function swipe(page: Page, direction: 'next' | 'previous') {
-	await page.keyboard.press(direction === 'next' ? 'ArrowRight' : 'ArrowLeft');
-}
-
-function bridgeInvocations(): Array<{ method: string; assetId: string }> {
-	if (!bridgeLog) return [];
-	try {
-		return readFileSync(bridgeLog, 'utf8').trim().split('\n').filter(Boolean).map((line) => JSON.parse(line));
-	} catch {
-		return [];
-	}
-}
-
-function expectedMethods() {
-	return mode === 'avif'
-		? ['extractAppleHdrMetadata', 'decodeHdrAvif', 'encodeHdrAvif']
-		: ['extractAppleHdrMetadata', 'composeHdr', 'encodeHdrMp4'];
-}
-
-async function waitForAllBackendConversions() {
-	const methods = expectedMethods();
-	await expect.poll(() => {
-		const invocations = bridgeInvocations();
-		// The mock server's HDR cache survives between repeated browser runs. A warm
-		// run legitimately has no bridge invocations to account for.
-		if (!invocations.length) return true;
-		return numbers.every((number) => {
-			const id = assetId(number);
-			return methods.every((method) => invocations.some((invocation) => invocation.assetId === id && invocation.method === method));
+async function installControlPlane(page: Page, mode: '0' | '3' | 'all', requests: ControlRequest[]) {
+	await page.route('**/prewarm', async (route: Route) => {
+		const request = route.request();
+		const body = request.postDataJSON() as Command;
+		requests.push({
+			command: body,
+			representation: await request.headerValue('x-hdr-representation') ?? '',
+			bodyKeys: Object.keys(body).sort()
 		});
-	}, { timeout: 90_000 }).toBe(true);
+		await route.fulfill({
+			status: 200,
+			contentType: 'application/json',
+			body: JSON.stringify({
+				generation: 1,
+				representation: await request.headerValue('x-hdr-representation') ?? 'avif',
+				state: mode === '0' ? 'ready' : 'preparing',
+				targeted: targetCount(mode, body.activePosition),
+				queued: targetCount(mode, body.activePosition),
+				running: 0,
+				completed: 0,
+				failed: 0,
+				skipped: 0
+			})
+		});
+	});
 }
 
-test('AVIF HDR promotes through the full gallery and reuses server conversion cache', async ({ page, request }) => {
-	test.setTimeout(120_000);
-	test.skip(mode !== 'avif' || !bridgeLog, 'run with the AVIF HDR bridge');
+async function announce(page: Page, number: number) {
+	await page.evaluate(({ id, position }) => {
+		document.dispatchEvent(new CustomEvent('pages:active-asset', { detail: { activeAssetId: id, activePosition: position } }));
+	}, { id: assetId(number), position: number - 1 });
+}
+
+test('server-owned control plane receives only capability and active position, advances its window, and deduplicates visitors', async ({ browser, page }) => {
+	test.setTimeout(60_000);
 	await enableHdrHints(page);
+	const requests: ControlRequest[] = [];
+	await installControlPlane(page, '3', requests);
 	await page.goto(`/share/key/${ref}`);
-	await expect(page.locator('[data-lightbox-status]')).toHaveAttribute('data-lightbox-status', 'ready');
 	await expect(page.locator('[id^="asset-"]')).toHaveCount(20);
-	const firstCandidate = page.locator(`#asset-${assetId(1)} a`);
-	await expect(firstCandidate).toHaveAttribute('data-pswp-type', 'hdr-image');
-	const firstHdrSource = await firstCandidate.getAttribute('data-pswp-src');
-	const firstHdrResponse = await request.get(new URL(firstHdrSource!, page.url()).toString(), { headers: { cookie: 'immich_shared_link_token=fixture' } });
-	await expect(firstHdrResponse).toBeOK();
-	expect(firstHdrResponse.headers()['content-type']).toContain('image/avif');
-	await firstCandidate.click();
-	await expect(page.locator('.pswp')).toBeVisible();
+	await expect.poll(() => requests.length).toBeGreaterThan(0);
+	await announce(page, 5);
+	await announce(page, 15);
+	await expect.poll(() => requests.some(({ command }) => command.activePosition === 14)).toBe(true);
 
-	for (const number of numbers) {
-		if (number > 1) await swipe(page, 'next');
-		await waitForPromotedHdr(page, number);
+	const secondPage = await browser.newPage();
+	await secondPage.addInitScript(() => {
+		Object.defineProperty(navigator, 'userAgent', { configurable: true, value: 'Mozilla/5.0 AppleWebKit/605.1.15 Version/18.6 Safari/605.1.15' });
+		const nativeMatchMedia = window.matchMedia.bind(window);
+		window.matchMedia = (query: string) => query === '(dynamic-range: high)'
+			? { ...nativeMatchMedia(query), matches: true }
+			: nativeMatchMedia(query);
+	});
+	await installControlPlane(secondPage, '3', requests);
+	await secondPage.goto(`/share/key/${ref}`);
+	await expect.poll(() => requests.filter(({ command }) => command.activePosition === 0).length).toBeGreaterThan(1);
+
+	for (const request of requests) {
+		expect(request.representation).toBe('video');
+		expect(request.bodyKeys).toEqual(['activeAssetId', 'activePosition']);
+		expect(request.command.activeAssetId).toMatch(/^70000000-0000-4000-8000-/);
+		expect(request.command.activePosition).toBeGreaterThanOrEqual(0);
 	}
-	await waitForAllBackendConversions();
-	const forwardInvocations = bridgeInvocations();
-
-	for (const number of numbers.slice().reverse().slice(1)) {
-		await swipe(page, 'previous');
-		await waitForPromotedHdr(page, number);
-	}
-	await expect.poll(() => bridgeInvocations()).toEqual(forwardInvocations);
-
-	await page.reload();
-	await expect(page.locator('[data-lightbox-status]')).toHaveAttribute('data-lightbox-status', 'ready');
-	await page.locator(`#asset-${assetId(20)} a`).click();
-	await expect(page.locator('.pswp')).toBeVisible();
-	await waitForPromotedHdr(page, 20);
-	await expect(bridgeInvocations()).toEqual(forwardInvocations);
+	const uniqueCommands = new Set(requests.map(({ command }) => `${command.activeAssetId}:${command.activePosition}`));
+	expect(uniqueCommands).toEqual(new Set([`${assetId(1)}:0`, `${assetId(5)}:4`, `${assetId(15)}:14`]));
+	await secondPage.close();
 });
 
-test('HDR video promotes through the full gallery and reuses server conversion cache', async ({ page }) => {
-	test.setTimeout(120_000);
-	test.skip(mode !== 'video' || !bridgeLog, 'run with the video HDR bridge');
+test('look-ahead 0, N, and all responses target exact eligible work without a client asset list', async ({ page }) => {
 	await enableHdrHints(page);
-	await page.goto(`/share/key/${ref}`);
-	await expect(page.locator('[data-lightbox-status]')).toHaveAttribute('data-lightbox-status', 'ready');
-	await expect(page.locator('[id^="asset-"]')).toHaveCount(20);
-	await page.locator(`#asset-${assetId(1)} a`).click();
-	await expect(page.locator('.pswp')).toBeVisible();
-
-	for (const number of numbers) {
-		if (number > 1) await swipe(page, 'next');
-		await waitForPromotedHdr(page, number);
+	for (const mode of ['0', '3', 'all'] as const) {
+		const requests: ControlRequest[] = [];
+		await installControlPlane(page, mode, requests);
+		await page.goto(`/share/key/${ref}`);
+		await expect.poll(() => requests.length).toBeGreaterThan(0);
+		const initial = requests.at(-1)!;
+		expect(initial.command.activePosition).toBe(0);
+		expect(targetCount(mode, initial.command.activePosition)).toBe(mode === '0' ? 0 : mode === 'all' ? 19 : 3);
+		await page.unroute('**/prewarm');
 	}
-	await waitForAllBackendConversions();
-	const forwardInvocations = bridgeInvocations();
-
-	for (const number of numbers.slice().reverse().slice(1)) {
-		await swipe(page, 'previous');
-		await waitForPromotedHdr(page, number);
-	}
-	await expect.poll(() => bridgeInvocations()).toEqual(forwardInvocations);
-
-	await page.reload();
-	await expect(page.locator('[data-lightbox-status]')).toHaveAttribute('data-lightbox-status', 'ready');
-	await page.locator(`#asset-${assetId(20)} a`).click();
-	await expect(page.locator('.pswp')).toBeVisible();
-	await waitForPromotedHdr(page, 20);
-	await expect(bridgeInvocations()).toEqual(forwardInvocations);
 });
 
-test('HDR video recovers when a slide is reopened after swiping through cached neighbors', async ({ page }) => {
-	test.setTimeout(120_000);
-	test.skip(mode !== 'video' || !bridgeLog, 'run with the video HDR bridge');
+test('interactive HDR media requests are prioritized independently from background announcements', async ({ page }) => {
 	await enableHdrHints(page);
+	const requests: ControlRequest[] = [];
+	await installControlPlane(page, '3', requests);
+	await page.route('**/image/hdr**', (route) => route.fulfill({ status: 503, contentType: 'application/json', body: '{}' }));
 	await page.goto(`/share/key/${ref}`);
-	await expect(page.locator('[data-lightbox-status]')).toHaveAttribute('data-lightbox-status', 'ready');
-
-	const openAndVerify = async (number: number) => {
-		await page.locator(`#asset-${assetId(number)} a`).click();
-		await expect(page.locator('.pswp')).toBeVisible();
-		await waitForPromotedHdr(page, number);
-		await page.keyboard.press('Escape');
-		await expect(page.locator('.pswp')).toBeHidden();
-	};
-
-	// Match the observed device flow: the first slide succeeds, navigation visits other
-	// cached conversions, then closing and reopening an affected thumbnail must still
-	// produce HDR rather than leaving the fresh PhotoSwipe content pending forever.
-	await openAndVerify(1);
-	await openAndVerify(5);
-	await openAndVerify(10);
-
-	await page.locator(`#asset-${assetId(5)} a`).click();
-	await expect(page.locator('.pswp')).toBeVisible();
-	await waitForPromotedHdr(page, 5);
-	await swipe(page, 'next');
-	await waitForPromotedHdr(page, 6);
+	const hdrRequest = page.waitForRequest((request) => request.url().includes('/image/hdr'));
+	await page.evaluate(({ id, shareRef }) => fetch(`/share/key/${shareRef}/media/${id}/image/hdr?key=${shareRef}&priority=interactive`), { id: assetId(5), shareRef: ref });
+	const request = await hdrRequest;
+	expect(new URL(request.url()).searchParams.get('priority')).toBe('interactive');
+	expect(request.url()).not.toContain('/original');
+	expect(request.url()).not.toContain('/download');
 });
