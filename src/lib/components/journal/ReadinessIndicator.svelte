@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { preferredHdrRepresentation } from '$lib/media/capabilities';
 
 	type ReadinessState = 'preparing' | 'ready' | 'partial';
 	type Progress = {
@@ -24,9 +25,12 @@
 	};
 
 	onMount(() => {
-		if (!enabled || !activeAssetId) return;
+		const representation = preferredHdrRepresentation();
+		if (!enabled || !activeAssetId || !representation) return;
 		let stopped = false;
 		let timer: number | undefined;
+		let currentAssetId = activeAssetId;
+		let currentPosition = activePosition;
 		const endpoint = `${window.location.pathname}/prewarm`;
 		const poll = async () => {
 			if (stopped || document.visibilityState !== 'visible') return;
@@ -34,8 +38,8 @@
 				const response = await fetch(endpoint, {
 					method: 'POST',
 					credentials: 'same-origin',
-					headers: { 'content-type': 'application/json', 'x-hdr-representation': 'video' },
-					body: JSON.stringify({ activeAssetId, activePosition })
+					headers: { 'content-type': 'application/json', 'x-hdr-representation': representation },
+					body: JSON.stringify({ activeAssetId: currentAssetId, activePosition: currentPosition })
 				});
 				if (!response.ok) {
 					readinessState = 'partial';
@@ -55,8 +59,16 @@
 				}
 			}
 		};
+		const onActiveAsset = (event: Event) => {
+			const detail = (event as CustomEvent<{ activeAssetId?: string; activePosition?: number }>).detail;
+			if (!detail?.activeAssetId || typeof detail.activePosition !== 'number' || !Number.isSafeInteger(detail.activePosition) || detail.activePosition < 0) return;
+			currentAssetId = detail.activeAssetId;
+			currentPosition = detail.activePosition;
+			void poll();
+		};
+		document.addEventListener('pages:active-asset', onActiveAsset);
 		void poll();
-		return () => { stopped = true; if (timer !== undefined) window.clearTimeout(timer); };
+		return () => { stopped = true; document.removeEventListener('pages:active-asset', onActiveAsset); if (timer !== undefined) window.clearTimeout(timer); };
 	});
 
 	const label = $derived(readinessState === 'preparing' ? 'Preparing enhanced photos' : readinessState === 'ready' ? 'Enhanced photos ready' : 'Some enhanced photos are unavailable; showing standard photos');
