@@ -319,7 +319,10 @@
 							reportAvifLifecycle('failure', 'end', 'stop');
 							upgrade.giveUp('image-load');
 						});
-						real.addEventListener('load', () => upgrade.promote(), { once: true });
+						real.addEventListener('load', () => {
+							if (real.naturalWidth > 0) upgrade.promote();
+							else upgrade.giveUp('image-decode');
+						}, { once: true });
 						real.src = content.data.src;
 						if (real.complete) upgrade.promote();
 						return;
@@ -419,13 +422,12 @@
 						video.preload = 'auto';
 						video.load();
 					};
+					let playbackStarted = false;
 					const tryPromote = () => {
 						if (!videoReady || content !== lightbox?.pswp?.currSlide?.content || !upgrade || upgrade.settled) return;
-						// WebKit can leave the play() promise pending even after canplay has proved that
-						// the first frame is decodable. Do not hold the visible HDR handoff hostage to
-						// that promise; playback is best-effort once the real element is attached.
-						void video.play().catch(() => {});
-						upgrade.promote();
+						if (playbackStarted) return;
+						playbackStarted = true;
+						void video.play().then(() => upgrade.promote()).catch(() => upgrade.giveUp('video-playback'));
 					};
 					hdrVideoLoaders.set(content, startVideo);
 					hdrVideoPromoters.set(content, tryPromote);

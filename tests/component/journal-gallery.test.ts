@@ -162,8 +162,8 @@ describe('journal gallery contract', () => {
 		expect(asset).toContain("const hdrCandidate = $derived(Boolean(!avifCandidate && resolvedHdrSource && hdrRepresentation === 'video' && !promotedFailed))");
 		expect(asset).toContain('const posterSource = $derived((hdrCandidate || avifCandidate) && !promotedFailed ? (resolvedFullsizeSource ?? resolvedThumbnailSource) : resolvedThumbnailSource)');
 		expect(asset).toContain('data-video-poster={hdrCandidate ? posterSource : undefined}');
-		expect(lightbox).toContain('void video.play().catch(() => {});');
-		expect(lightbox).toContain('upgrade.promote();');
+		expect(lightbox).toContain("video.play().then(() => upgrade.promote()).catch(() => upgrade.giveUp('video-playback'))");
+		expect(lightbox).toContain("upgrade.giveUp('image-decode')");
 		expect(capabilities).toContain('setTimeout(() => finish(false)');
 		expect(capabilities).toContain("src.startsWith('//')");
 	});
