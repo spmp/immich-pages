@@ -14,9 +14,12 @@
 	import '$lib/styles/theme.css';
 	import ThemeRoot from './ThemeRoot.svelte';
 	import { createThemeState } from '$lib/theme/state.svelte';
+	import ReadinessIndicator from './ReadinessIndicator.svelte';
 
-	let { page, navigation }: { page: NormalizedPageModel; navigation?: { entries: NavigationEntry[]; activeHref?: string } } = $props();
+	let { page, navigation, indicatorEnabled = false }: { page: NormalizedPageModel; navigation?: { entries: NavigationEntry[]; activeHref?: string }; indicatorEnabled?: boolean } = $props();
 	const theme = createThemeState();
+	const hdrPosition = $derived(page.assets.findIndex((asset) => asset.type === 'IMAGE' && ['image/heic', 'image/heif'].includes(asset.sourceMimeType?.toLowerCase() ?? '')));
+	const hdrAssetId = $derived(hdrPosition >= 0 ? page.assets[hdrPosition]?.id : undefined);
 	const date = $derived(page.showMetadata && (page.album.startDate || page.album.endDate)
 		? { start: page.album.startDate ?? page.album.endDate!, end: page.album.endDate ?? page.album.startDate! } : undefined);
 
@@ -32,6 +35,7 @@
 {#snippet mobileNavigation()}<MobileDrawer entries={navigation?.entries} activeHref={navigation?.activeHref} {theme} />{/snippet}
 
 	<ThemeRoot {theme} gradient={page.presentation.gradient} heroSource={page.hero?.thumbnail}>
+		<ReadinessIndicator enabled={indicatorEnabled} activeAssetId={hdrAssetId} activePosition={Math.max(0, hdrPosition)} />
 		<div class:navigated={navigation} class="journal-layout">
 			{#if navigation}<PageNavigation entries={navigation.entries} activeHref={navigation.activeHref} {theme} />{/if}
 			<main class="journal journal-content">

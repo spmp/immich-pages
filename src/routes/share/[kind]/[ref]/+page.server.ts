@@ -1,5 +1,6 @@
 import { error, fail, redirect } from '@sveltejs/kit';
 import type { PageServerLoad } from './$types';
+import { env } from '$env/dynamic/private';
 import { authContextFromRequest } from '$server/immich/auth-context';
 import { createImmichProvider } from '$server/immich/provider';
 import { assembleDirectShare } from '$server/page/assemble';
@@ -12,6 +13,19 @@ import type { NavigationEntry } from '$server/library/model';
 import { prepareAuthorizedHdrSources } from '$server/media/hdr-prewarm-source';
 
 const safePassword = (value: FormDataEntryValue | null) => typeof value === 'string' && value.length > 0 && value.length <= 256 ? value : null;
+
+export type HdrIndicatorParse = {
+	enabled: boolean;
+	category: 'default' | 'explicit' | 'invalid';
+};
+
+/** Reduce the private deployment setting to a server-only boolean and safe category. */
+export function parseHdrIndicator(value: unknown = env.HDR_PREWARM_INDICATOR): HdrIndicatorParse {
+	if (value === 'on') return { enabled: true, category: 'explicit' };
+	if (value === 'off') return { enabled: false, category: 'explicit' };
+	if (value === undefined || value === null) return { enabled: true, category: 'default' };
+	return { enabled: true, category: 'invalid' };
+}
 
 export const load: PageServerLoad = async ({ params, request, locals, fetch, cookies, setHeaders }) => {
 	setHeaders({ 'cache-control': 'private, no-store' });
@@ -36,6 +50,7 @@ export const load: PageServerLoad = async ({ params, request, locals, fetch, coo
 	logDirectShareOutcome({ outcome: outcome.kind, method: request.method, pathname,
 		metadataReason: outcome.kind === 'invalid-metadata' ? outcome.metadataReason : undefined });
 	if (outcome.kind === 'page') {
+		const indicator = parseHdrIndicator();
 		// Optional HDR work starts only after normalized authorization succeeds and
 		// is deliberately detached from SSR and the returned browser model.
 		void prepareAuthorizedHdrSources(createImmichProvider(fetch), context, outcome.page).catch(() => {});
@@ -53,7 +68,7 @@ export const load: PageServerLoad = async ({ params, request, locals, fetch, coo
 		const { id: _albumId, ...browserAlbum } = outcome.page.album;
 		const browserOutcome = { ...outcome, page: { ...outcome.page, album: browserAlbum } };
 		logDirectShareBoundary({ phase: 'end', method: request.method, pathname, status: 200 });
-		return { outcome: browserOutcome, navigation: { entries: navigationEntries, activeHref: currentHref } };
+		return { outcome: browserOutcome, navigation: { entries: navigationEntries, activeHref: currentHref }, indicatorEnabled: indicator.enabled };
 	}
 	if (outcome.kind === 'non-page') { logDirectShareBoundary({ phase: 'end', method: request.method, pathname, status: 404 }); return { outcome }; }
 	if (outcome.kind === 'invalid-metadata') { logDirectShareBoundary({ phase: 'end', method: request.method, pathname, status: 422 }); return { outcome: { kind: 'presentation-error' as const, state: 'invalid' as const } }; }
