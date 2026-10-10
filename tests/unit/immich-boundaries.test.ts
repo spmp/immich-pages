@@ -72,27 +72,26 @@ describe('Immich v3 boundary contracts', () => {
 		expect(resolved.data?.assets.map((asset) => asset.id)).toEqual([second.id, first.id]);
 	});
 
-	it('orders metadata-search results by the album\'s own configured chronological direction, defaulting to desc (newest first) as Immich does', async () => {
+	it('preserves metadata-search response order, including equal-date and equal-id ties', async () => {
 		const early = { ...v3.assets[0], id: '22222222-2222-4222-8222-222222222222', localDateTime: '2026-01-01T00:00:00.000Z' };
 		const late = { ...v3.assets[0], id: '33333333-3333-4333-8333-333333333333', localDateTime: '2026-06-01T00:00:00.000Z' };
 		const middle = { ...v3.assets[0], id: '44444444-4444-4444-8444-444444444444', createdAt: '2026-03-01T00:00:00.000Z' };
 		const undated = { ...v3.assets[0], id: '55555555-5555-4555-8555-555555555555', localDateTime: undefined, createdAt: undefined };
-		const shuffled = { albums: {}, assets: { items: [late, undated, early, middle] } };
+		const equalDate = { ...v3.assets[0], id: late.id, localDateTime: late.localDateTime };
+		const shuffled = { albums: {}, assets: { items: [late, undated, early, middle, equalDate] } };
 		const searchFetch = (nested: unknown) => vi.fn(async (input: URL | RequestInfo) => new Response(JSON.stringify(new URL(input.toString()).pathname === '/api/shared-links/me' ? nested : shuffled)));
 
-		// No album.order field at all -- this is exactly what a real Immich v3.1.0 shared-link
-		// response looked like in production, so the default must match Immich's own default.
-		const noOrderField = { ...v3, assets: [], album: { ...v3.album, assetCount: 4 } };
+		const noOrderField = { ...v3, assets: [], album: { ...v3.album, assetCount: 5 } };
 		const defaulted = await createImmichProvider(searchFetch(noOrderField), 'https://immich.example').getSharedLink(context);
-		expect(defaulted.data?.assets.map((asset) => asset.id)).toEqual([late.id, middle.id, early.id, undated.id]);
+		expect(defaulted.data?.assets.map((asset) => asset.id)).toEqual([late.id, undated.id, early.id, middle.id, equalDate.id]);
 
 		const ascending = { ...v3, assets: [], album: { ...v3.album, assetCount: 4, order: 'asc' as const } };
 		const ascResult = await createImmichProvider(searchFetch(ascending), 'https://immich.example').getSharedLink(context);
-		expect(ascResult.data?.assets.map((asset) => asset.id)).toEqual([early.id, middle.id, late.id, undated.id]);
+		expect(ascResult.data?.assets.map((asset) => asset.id)).toEqual([late.id, undated.id, early.id, middle.id, equalDate.id]);
 
 		const descending = { ...v3, assets: [], album: { ...v3.album, assetCount: 4, order: 'desc' as const } };
 		const descResult = await createImmichProvider(searchFetch(descending), 'https://immich.example').getSharedLink(context);
-		expect(descResult.data?.assets.map((asset) => asset.id)).toEqual([late.id, middle.id, early.id, undated.id]);
+		expect(descResult.data?.assets.map((asset) => asset.id)).toEqual([late.id, undated.id, early.id, middle.id, equalDate.id]);
 	});
 
 	it('preserves the ordered nested album assets before considering metadata search', async () => {

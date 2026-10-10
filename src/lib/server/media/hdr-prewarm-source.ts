@@ -1,0 +1,60 @@
+import type { AuthContext } from '$server/immich/auth-context';
+import { inferSafeImageMime, IMMICH_MAX_ORIGINAL_BYTES, readBoundedBytes } from '$server/immich/client';
+import type { ImmichProvider } from '$server/immich/provider';
+import { projectHdrAssets, type NormalizedPageModel } from '$server/presentation/model';
+import { extractAppleHdrMetadata } from './hdr-metadata';
+import { getHdrInteractiveCoordinator, type AuthorizedHdrAsset, type HdrPrewarmCoordinator, type HdrProgressSnapshot } from './hdr-prewarm';
+import { parseHdrLookahead, targetLookahead } from './hdr-prewarm-policy';
+
+type SourceProvider = Pick<ImmichProvider, 'getFullsizeImage'>;
+
+export type HdrSourcePreparationOptions = {
+	coordinator?: HdrPrewarmCoordinator;
+	lookahead?: ReturnType<typeof parseHdrLookahead>;
+	activePosition?: number;
+	extractMetadata?: typeof extractAppleHdrMetadata;
+};
+
+/**
+ * Acquire only bounded bytes for an authorized normalized target. The request
+ * context is used while this function runs and never enters global work.
+ */
+export async function prepareAuthorizedHdrSources(
+	provider: SourceProvider,
+	context: AuthContext,
+	page: Pick<NormalizedPageModel, 'assets'>,
+	options: HdrSourcePreparationOptions = {}
+): Promise<HdrProgressSnapshot> {
+	const coordinator = options.coordinator ?? getHdrInteractiveCoordinator();
+	const projection = projectHdrAssets(page.assets);
+	const targets = targetLookahead(projection, options.activePosition ?? 0, options.lookahead ?? parseHdrLookahead());
+	const acquired: AuthorizedHdrAsset[] = [];
+	for (const target of targets) {
+		let source: Awaited<ReturnType<SourceProvider['getFullsizeImage']>> | undefined;
+		let bytes: Uint8Array | undefined;
+		try {
+			source = await provider.getFullsizeImage(context, target.id);
+			if (!source.response?.ok) continue;
+			bytes = await readBoundedBytes(source.response, IMMICH_MAX_ORIGINAL_BYTES);
+			const mime = inferSafeImageMime(bytes, source.response.headers.get('content-type'));
+			if (mime !== 'image/heif' && mime !== 'image/heic') continue;
+			const metadata = await (options.extractMetadata ?? extractAppleHdrMetadata)(bytes);
+			if (!metadata) {
+				disposeBytes(bytes);
+			} else {
+				acquired.push({ ...target, sourceBytes: bytes, metadata });
+				bytes = undefined;
+			}
+		} catch {
+			if (bytes) disposeBytes(bytes);
+		} finally {
+			await source?.response?.body?.cancel().catch(() => {});
+		}
+	}
+	if (acquired.length === 0) return coordinator.snapshot(coordinator.getGeneration(), 'video');
+	return coordinator.schedule({ assets: acquired, activePosition: -1, lookahead: { kind: 'all' }, generation: coordinator.getGeneration() }, 'video', 'background');
+}
+
+function disposeBytes(bytes: Uint8Array): void {
+	bytes.fill(0);
+}

@@ -2,6 +2,8 @@ import { describe, expect, it, vi } from 'vitest';
 import { parseSharedLinkRef } from '../../src/lib/server/share/ref';
 import { createImmichProvider } from '../../src/lib/server/immich/provider';
 import { assembleDirectShare } from '../../src/lib/server/page/assemble';
+import { createHdrPrewarmCoordinator } from '../../src/lib/server/media/hdr-prewarm';
+import { prepareAuthorizedHdrSources } from '../../src/lib/server/media/hdr-prewarm-source';
 import v3Response from '../fixtures/shared-link/v3-valid-page.json';
 
 describe('direct-share tracer', () => {
@@ -46,6 +48,27 @@ describe('direct-share tracer', () => {
 		expect(outcome.kind).toBe('page');
 		expect(JSON.stringify(outcome)).not.toContain('originalPath');
 		expect(JSON.stringify(outcome)).not.toContain('https://immich.example');
+	});
+
+	it('dispatches one nonblocking authorized normalized source observation in album order', async () => {
+		const source = new Uint8Array([1, 2, 3]);
+		const coordinator = createHdrPrewarmCoordinator({
+			convert: async ({ sourceBytes }) => ({ body: sourceBytes, contentType: 'video/mp4' })
+		});
+		const provider = {
+			getFullsizeImage: vi.fn(async () => ({ status: 200, response: new Response(source, { headers: { 'content-type': 'image/heic' } }) }))
+		};
+		const metadata: import('../../src/lib/server/media/hdr-metadata').AppleHdrMetadata = { version: '1.0', auxiliaryType: 'urn:com:apple:photo:2020:aux:hdrgainmap', makerNote33: 0.8, makerNote48: 0.4, headroom: 1.8, hdrGain: 1.25, sourceProfile: 'display-p3', sourceTransfer: 'srgb', orientation: 1 };
+		const snapshot = await prepareAuthorizedHdrSources(provider, { shareRef: { kind: 'key', value: 'opaque_ref' }, cookie: 'secret', authorization: 'Bearer secret' }, {
+			assets: [
+				{ id: '11111111-1111-4111-8111-111111111111', type: 'IMAGE', thumbnail: '/a', sourceMimeType: 'image/jpeg' },
+				{ id: '22222222-2222-4222-8222-222222222222', type: 'IMAGE', thumbnail: '/b', sourceMimeType: 'image/heic', sourceWidth: 10, sourceHeight: 20 }
+			]
+		}, { coordinator, extractMetadata: async () => metadata });
+		await new Promise((resolve) => setTimeout(resolve, 0));
+		expect(snapshot.targeted).toBe(1);
+		expect(provider.getFullsizeImage).toHaveBeenCalledWith(expect.objectContaining({ cookie: 'secret' }), '22222222-2222-4222-8222-222222222222');
+		expect(coordinator.inspectSourceBytes()).toBe(0);
 	});
 
 	it('keeps raw author content and private values out of the browser model', async () => {
