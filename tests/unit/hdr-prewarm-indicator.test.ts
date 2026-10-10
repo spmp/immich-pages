@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseHdrIndicator } from '../../src/routes/share/[kind]/[ref]/+page.server';
+import { parseHdrIndicator } from '../../src/lib/server/media/hdr-prewarm-policy';
 
 describe('HDR prewarm indicator configuration', () => {
 	it.each([

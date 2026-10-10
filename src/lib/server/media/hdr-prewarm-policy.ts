@@ -12,6 +12,19 @@ export type HdrProjectionAsset = {
 export const DEFAULT_HDR_LOOKAHEAD = 10;
 export const MAX_HDR_LOOKAHEAD = 100;
 
+export type HdrIndicatorParse = {
+	enabled: boolean;
+	category: 'default' | 'explicit' | 'invalid';
+};
+
+/** Reduce the private deployment setting to a server-only boolean and safe category. */
+export function parseHdrIndicator(value: unknown): HdrIndicatorParse {
+	if (value === 'on') return { enabled: true, category: 'explicit' };
+	if (value === 'off') return { enabled: false, category: 'explicit' };
+	if (value === undefined || value === null) return { enabled: true, category: 'default' };
+	return { enabled: true, category: 'invalid' };
+}
+
 export function parseHdrLookahead(value: unknown = process.env.HDR_PREWARM_LOOKAHEAD): HdrLookahead {
 	if (value === 0 || value === '0') return 0;
 	if (value === 'all') return { kind: 'all' };

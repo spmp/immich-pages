@@ -11,21 +11,10 @@ import { registerShare, VISITED_SHARES_COOKIE } from '$server/share/registry';
 import { discoverLibrary } from '$server/library/discover';
 import type { NavigationEntry } from '$server/library/model';
 import { prepareAuthorizedHdrSources } from '$server/media/hdr-prewarm-source';
+import { parseHdrIndicator } from '$server/media/hdr-prewarm-policy';
 
 const safePassword = (value: FormDataEntryValue | null) => typeof value === 'string' && value.length > 0 && value.length <= 256 ? value : null;
 
-export type HdrIndicatorParse = {
-	enabled: boolean;
-	category: 'default' | 'explicit' | 'invalid';
-};
-
-/** Reduce the private deployment setting to a server-only boolean and safe category. */
-export function parseHdrIndicator(value: unknown = env.HDR_PREWARM_INDICATOR): HdrIndicatorParse {
-	if (value === 'on') return { enabled: true, category: 'explicit' };
-	if (value === 'off') return { enabled: false, category: 'explicit' };
-	if (value === undefined || value === null) return { enabled: true, category: 'default' };
-	return { enabled: true, category: 'invalid' };
-}
 
 export const load: PageServerLoad = async ({ params, request, locals, fetch, cookies, setHeaders }) => {
 	setHeaders({ 'cache-control': 'private, no-store' });
@@ -50,7 +39,7 @@ export const load: PageServerLoad = async ({ params, request, locals, fetch, coo
 	logDirectShareOutcome({ outcome: outcome.kind, method: request.method, pathname,
 		metadataReason: outcome.kind === 'invalid-metadata' ? outcome.metadataReason : undefined });
 	if (outcome.kind === 'page') {
-		const indicator = parseHdrIndicator();
+		const indicator = parseHdrIndicator(env.HDR_PREWARM_INDICATOR);
 		// Optional HDR work starts only after normalized authorization succeeds and
 		// is deliberately detached from SSR and the returned browser model.
 		void prepareAuthorizedHdrSources(createImmichProvider(fetch), context, outcome.page).catch(() => {});
