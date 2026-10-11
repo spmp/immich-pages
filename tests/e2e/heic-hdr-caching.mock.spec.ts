@@ -197,3 +197,33 @@ test('real-route evidence: nested album order wins over a scrambled top-level pr
 	expect(await page.locator('[id^="asset-"]').evaluateAll((figures) => figures.slice(0, 3).map((figure) => figure.getAttribute('data-asset-id')))).toEqual([assetId(1), assetId(2), assetId(3)]);
 	expect(commands[0]).toMatchObject({ activeAssetId: assetId(1), activePosition: 0, representation: 'video' });
 });
+
+test('renders both real album projections in upstream order and keeps HDR positions aligned', async ({ page }) => {
+	await installVideoHints(page);
+	const orders = [
+		{ ref: 'heic-forward-ref', numbers: Array.from({ length: 20 }, (_, index) => index + 1) },
+		{ ref: 'heic-reverse-ref', numbers: Array.from({ length: 20 }, (_, index) => 20 - index) }
+	] as const;
+
+	for (const { ref: shareRef, numbers } of orders) {
+		const commands: Command[] = [];
+		page.on('request', (request) => {
+			if (request.method() !== 'POST' || !request.url().endsWith('/prewarm')) return;
+			const body = request.postDataJSON() as Command;
+			commands.push(body);
+		});
+
+		await page.goto(`/share/key/${shareRef}`);
+		await expect(page.locator('[id^="asset-"]')).toHaveCount(numbers.length);
+		await expect.poll(() => page.locator('[id^="asset-"]').evaluateAll((figures) => figures.map((figure) => figure.getAttribute('data-asset-id')))).toEqual(numbers.map(assetId));
+
+		for (const [position, number] of numbers.entries()) {
+			await page.evaluate(({ id, activePosition }) => {
+				document.dispatchEvent(new CustomEvent('pages:active-asset', { detail: { activeAssetId: id, activePosition } }));
+			}, { id: assetId(number), activePosition: position });
+			await expect.poll(() => commands.some((command) => command.activePosition === position && command.activeAssetId === assetId(number))).toBe(true);
+		}
+
+		page.removeAllListeners('request');
+	}
+});
