@@ -1,4 +1,4 @@
-export type HdrReadinessState = 'preparing' | 'ready' | 'partial';
+export type HdrReadinessState = 'idle' | 'unsupported' | 'empty' | 'preparing' | 'ready' | 'partial';
 
 export type HdrReadinessProgress = {
 	state: HdrReadinessState;
@@ -23,4 +23,12 @@ export function resolveHdrReadiness(
 	const terminal = progress.completed + progress.failed + progress.skipped;
 	if (terminal >= progress.targeted) return { ...progress, state: progress.failed + progress.skipped > 0 ? 'partial' : 'ready' };
 	return { ...progress, state: 'preparing' };
+}
+
+export function resolveHdrReadinessState(progress: Pick<HdrReadinessProgress, 'targeted' | 'completed' | 'failed' | 'skipped'> | undefined, options: { supported: boolean }): HdrReadinessState {
+	if (!options.supported) return 'unsupported';
+	if (!progress || progress.targeted === 0) return 'empty';
+	return progress.completed + progress.failed + progress.skipped >= progress.targeted
+		? progress.failed + progress.skipped > 0 ? 'partial' : 'ready'
+		: 'preparing';
 }

@@ -13,6 +13,11 @@ export type ImmichProvider = {
 	getVersion: () => Promise<{ status: number; version?: string }>;
 };
 
+/** The nested album projection is the only projection that carries album order. */
+export function selectAuthoritativeAlbumAssets<T extends { id: string }>(topLevel: readonly T[], nested: readonly T[] | undefined): readonly T[] {
+	return nested && nested.length > 0 ? nested : topLevel;
+}
+
 export function createImmichProvider(fetchImpl: typeof fetch = fetch, baseUrl = process.env.IMMICH_BASE_URL): ImmichProvider {
 	if (!baseUrl) throw new Error('IMMICH_BASE_URL is required');
 	return {
@@ -31,9 +36,10 @@ export function createImmichProvider(fetchImpl: typeof fetch = fetch, baseUrl = 
 				const parsed = SharedLinkResponseSchema.safeParse(JSON.parse(await readBoundedText(response)));
 				if (!parsed.success) return { status: 422, error: 'malformed' };
 				let data = parsed.data;
-				if (data.type === 'ALBUM' && data.assets.length === 0 && data.album) {
-					if (data.album.assets?.length) {
-						data = { ...data, assets: data.album.assets };
+				if (data.type === 'ALBUM' && data.album) {
+					const authoritative = selectAuthoritativeAlbumAssets(data.assets, data.album.assets);
+					if (authoritative.length > 0) {
+						data = { ...data, assets: [...authoritative] };
 					} else {
 						const albumAssets = await fetchAlbumAssets(baseUrl, context, data.album.id, data.album.assetCount ?? 0, fetchImpl);
 						if (!albumAssets) return { status: 502 };

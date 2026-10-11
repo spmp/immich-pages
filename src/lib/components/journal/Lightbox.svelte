@@ -311,6 +311,7 @@
 									return;
 								}
 								setHdrStatus(content, 'AVIF HDR image: failed, showing SDR photo');
+								updateHdrIndicator();
 								reportJournalDebug('hdr-media', { status: 'given-up', hdrReason: 'image-load', spinner: 'stop', photoSwipeType: 'hdr-image', srcKind: 'hdr-avif' });
 								reportJournalDebug('media-failure', { category: 'image', status: 'unavailable', errorContext: 'image-load', failureCategory: 'decode' });
 							}
@@ -472,6 +473,7 @@
 							const code = video.error?.code;
 							const detail = code !== undefined ? (mediaErrorLabel[code] ?? `code ${code}`) : 'timed out';
 							setHdrStatus(content, `HDR video: failed to ${reason === 'video-playback' ? 'play' : 'load'} (${detail}), showing SDR photo [canPlayType ${canPlayDiagnostic}]`);
+							updateHdrIndicator();
 							reportJournalDebug('hdr-media', { status: 'given-up', hdrReason: reason === 'video-playback' ? 'video-playback' : 'video-load', spinner: 'stop', nativeErrorCode: code ?? null, photoSwipeType: 'video', srcKind: 'hdr-video' });
 							reportJournalDebug('media-failure', { category: 'video', status: 'unavailable', errorContext: reason === 'video-playback' ? 'video-playback' : 'video-load', failureCategory: reason === 'video-playback' ? 'playback' : 'decode' });
 							// The placeholder <img> is already the visible, correct content; nothing to swap.

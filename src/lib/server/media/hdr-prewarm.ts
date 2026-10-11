@@ -24,6 +24,7 @@ export type AuthorizedHdrProjection = {
 	activePosition: number;
 	lookahead: HdrLookahead;
 	generation: number;
+	scope?: string;
 };
 
 export type HdrConversionInput = {
@@ -57,6 +58,7 @@ type Job = {
 	error?: string;
 	abortController: AbortController;
 	result: Promise<CachedMedia>;
+	scope: string;
 };
 
 export type HdrProgressSnapshot = {
@@ -80,6 +82,7 @@ function safeReason(error: unknown): string {
 export class HdrPrewarmCoordinator {
 	private readonly jobs = new Map<string, Job>();
 	private generation = 0;
+	private readonly scopedGenerations = new Map<string, number>();
 	private readonly maxAttempts: number;
 
 	constructor(private readonly options: HdrPrewarmOptions) {
@@ -105,14 +108,26 @@ export class HdrPrewarmCoordinator {
 		return this.generation;
 	}
 
+	getScopedGeneration(scope: string): number {
+		return this.scopedGenerations.get(scope) ?? 0;
+	}
+
 	/** Accepts only the server-produced normalized projection; callers never provide asset IDs separately. */
 	schedule(projection: AuthorizedHdrProjection, representation: HdrRepresentation, priority: HdrConversionPriority = 'background'): HdrProgressSnapshot {
-		const generation = projection.generation === this.generation ? projection.generation : this.newGeneration();
+		const scope = projection.scope ?? 'default';
+		const generation = projection.generation === this.getScopedGeneration(scope) ? projection.generation : this.newScopedGeneration(scope);
 		const targets = projection.lookahead !== 0 && projection.lookahead.kind === 'all'
 			? targetAllEligible(projection.assets)
 			: targetLookahead(projection.assets, projection.activePosition, projection.lookahead);
-		for (const asset of targets) this.enqueue(asset, representation, generation, priority);
-		return this.snapshot(generation, representation);
+		for (const asset of targets) this.enqueue(asset, representation, generation, priority, scope);
+		return this.snapshot(generation, representation, scope);
+	}
+
+	newScopedGeneration(scope: string): number {
+		const next = this.getScopedGeneration(scope) + 1;
+		this.scopedGenerations.set(scope, next);
+		for (const job of this.jobs.values()) if (job.scope === scope && (job.state === 'queued' || job.state === 'running')) { job.abortController.abort(); this.finish(job, 'skipped'); }
+		return next;
 	}
 
 	/** Interactive media routes can promote existing work without creating a second conversion. */
@@ -126,8 +141,8 @@ export class HdrPrewarmCoordinator {
 		return this.enqueue(asset, representation, generation, 'interactive');
 	}
 
-	snapshot(generation = this.generation, representation: HdrRepresentation = 'video'): HdrProgressSnapshot {
-		const jobs = [...this.jobs.values()].filter((job) => job.generation === generation && job.representation === representation);
+	snapshot(generation = this.generation, representation: HdrRepresentation = 'video', scope = 'default'): HdrProgressSnapshot {
+		const jobs = [...this.jobs.values()].filter((job) => job.scope === scope && job.generation === generation && job.representation === representation);
 		const completed = jobs.filter((job) => job.state === 'succeeded').length;
 		const failed = jobs.filter((job) => job.state === 'failed').length;
 		const skipped = jobs.filter((job) => job.state === 'skipped').length;
@@ -153,7 +168,7 @@ export class HdrPrewarmCoordinator {
 		return bytes;
 	}
 
-	private enqueue(asset: AuthorizedHdrAsset, representation: HdrRepresentation, generation: number, priority: HdrConversionPriority): Promise<CachedMedia> {
+	private enqueue(asset: AuthorizedHdrAsset, representation: HdrRepresentation, generation: number, priority: HdrConversionPriority, scope = 'default'): Promise<CachedMedia> {
 		const key = buildHdrCacheKey({ assetId: asset.id, sourceIdentity: asset.sourceIdentity, width: asset.width, height: asset.height, outputContract: HDR_OUTPUT_CONTRACT[representation] });
 		const existing = this.jobs.get(key);
 		if (existing && existing.generation === generation && existing.state !== 'failed' && existing.state !== 'skipped' && (existing.state !== 'succeeded' || getCachedHdr(existing.key))) {
@@ -165,7 +180,7 @@ export class HdrPrewarmCoordinator {
 		const result = new Promise<CachedMedia>((resolve, reject) => { resolveResult = resolve; rejectResult = reject; });
 		// Background schedule() calls intentionally do not await individual jobs.
 		result.catch(() => {});
-		const job: Job = { key, asset, representation, generation, priority, attempts: 0, state: 'queued', source: { bytes: asset.sourceBytes, released: false }, abortController: new AbortController(), result };
+		const job: Job = { key, asset, representation, generation, priority, attempts: 0, state: 'queued', source: { bytes: asset.sourceBytes, released: false }, abortController: new AbortController(), result, scope };
 		(job as Job & { resolveResult: typeof resolveResult; rejectResult: typeof rejectResult }).resolveResult = resolveResult;
 		(job as Job & { resolveResult: typeof resolveResult; rejectResult: typeof rejectResult }).rejectResult = rejectResult;
 		this.jobs.set(key, job);

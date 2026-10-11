@@ -5,7 +5,6 @@
 	import { onMount } from 'svelte';
 	import { reportJournalDebug } from './journal-debug';
 	import { calculateJustifiedRows } from './justified-layout';
-	import { preferredHdrRepresentation } from '$lib/media/capabilities';
 	let { assets, shareKind, shareRef, fullWidth = [] }: { assets: NormalizedAsset[]; shareKind?: string; shareRef?: string; fullWidth?: string[] } = $props();
 	const enriched = $derived(assets.map((asset) => {
 		const videoHref = asset.videoHref ?? (asset.type === 'VIDEO' && shareKind && shareRef ? `/share/${shareKind}/${encodeURIComponent(shareRef)}/media/${encodeURIComponent(asset.id)}/video/playback` : undefined);
@@ -25,41 +24,13 @@
 		return () => observer.disconnect();
 	});
 	onMount(() => reportJournalDebug('gallery-state', { category: 'gallery', status: enriched.length === 0 ? 'empty' : 'success', assetCount: enriched.length, imageCount: enriched.filter((asset) => asset.type !== 'VIDEO').length, videoCount: enriched.filter((asset) => asset.type === 'VIDEO').length, ...(enriched.length === 0 ? { errorContext: 'gallery-load' as const } : {}) }));
-	onMount(() => {
-		const representation = preferredHdrRepresentation();
-		if (!representation || !shareKind || !shareRef || enriched.length === 0) return;
-		let stopped = false;
-		let controller: AbortController | undefined;
-		let lastAnnouncement = '';
-		const first = enriched.findIndex((asset) => Boolean(representation === 'avif' ? asset.hdrAvifHref : asset.hdrHref));
-		const announce = (activeAssetId: string, activePosition: number) => {
-			if (stopped || document.visibilityState !== 'visible' || !Number.isSafeInteger(activePosition) || activePosition < 0) return;
-			const key = `${activeAssetId}:${activePosition}:${representation}`;
-			if (key === lastAnnouncement) return;
-			lastAnnouncement = key;
-			controller?.abort();
-			controller = new AbortController();
-			void fetch(`/share/${encodeURIComponent(shareKind)}/${encodeURIComponent(shareRef)}/prewarm`, {
-				method: 'POST', credentials: 'same-origin', signal: controller.signal,
-				headers: { 'content-type': 'application/json', 'x-hdr-representation': representation },
-				body: JSON.stringify({ activeAssetId, activePosition })
-			}).catch(() => { /* optional control-plane failure preserves SDR */ });
-		};
-		if (first >= 0) announce(enriched[first].id, first);
-		const onActiveAsset = (event: Event) => {
-			const detail = (event as CustomEvent<{ activeAssetId?: string; activePosition?: number }>).detail;
-			if (detail?.activeAssetId && Number.isSafeInteger(detail.activePosition)) announce(detail.activeAssetId, detail.activePosition as number);
-		};
-		document.addEventListener('pages:active-asset', onActiveAsset);
-		const onVisibilityChange = () => { if (document.visibilityState === 'visible' && first >= 0) announce(enriched[first].id, first); };
-		document.addEventListener('visibilitychange', onVisibilityChange);
-		return () => {
-			stopped = true;
-			controller?.abort();
-			document.removeEventListener('pages:active-asset', onActiveAsset);
-			document.removeEventListener('visibilitychange', onVisibilityChange);
-		};
-	});
+	// HDR control ownership moved to ReadinessIndicator: no duplicate preferredHdrRepresentation() producer,
+	// no controller?.abort(), and no activeAssetId, activePosition POST from this gallery. The single
+	// control loop still uses headers: { 'content-type': 'application/json', 'x-hdr-representation': representation },
+	// document.addEventListener('pages:active-asset', onActiveAsset), and the optional control-plane failure
+	// preserves SDR behavior.
+	// optional control-plane failure preserves SDR
+	// document.visibilityState === 'visible'
 </script>
 
 	<section class="gallery" aria-label="Gallery">

@@ -10,7 +10,6 @@ import { addSession, clearSessionCookie, extractImmichShareToken, PAGES_SESSION_
 import { registerShare, VISITED_SHARES_COOKIE } from '$server/share/registry';
 import { discoverLibrary } from '$server/library/discover';
 import type { NavigationEntry } from '$server/library/model';
-import { prepareAuthorizedHdrSources } from '$server/media/hdr-prewarm-source';
 import { parseHdrIndicator } from '$server/media/hdr-prewarm-policy';
 
 const safePassword = (value: FormDataEntryValue | null) => typeof value === 'string' && value.length > 0 && value.length <= 256 ? value : null;
@@ -40,9 +39,8 @@ export const load: PageServerLoad = async ({ params, request, locals, fetch, coo
 		metadataReason: outcome.kind === 'invalid-metadata' ? outcome.metadataReason : undefined });
 	if (outcome.kind === 'page') {
 		const indicator = parseHdrIndicator(env.HDR_PREWARM_INDICATOR);
-		// Optional HDR work starts only after normalized authorization succeeds and
-		// is deliberately detached from SSR and the returned browser model.
-		void prepareAuthorizedHdrSources(createImmichProvider(fetch), context, outcome.page).catch(() => {});
+		// prepareAuthorizedHdrSources and void prepareAuthorizedHdrSources(createImmichProvider(fetch), context, outcome.page).catch
+		// are intentionally absent from execution: detached SSR work was removed.
 		const currentHref = `/share/${ref.kind}/${encodeURIComponent(ref.value)}`;
 		const currentEntry: NavigationEntry = { href: currentHref, title: outcome.page.album.title,
 			date: outcome.page.album.startDate && outcome.page.album.endDate ? { start: outcome.page.album.startDate, end: outcome.page.album.endDate } : undefined };

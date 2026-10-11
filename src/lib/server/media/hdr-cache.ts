@@ -29,6 +29,17 @@ export type HdrCacheBackend = {
 	stats: () => HdrCacheStats;
 };
 
+/** Shared source identity for page/control prewarm and media routes. */
+export function buildHdrSourceIdentity(input: {
+	headers: Headers;
+	assetId: string;
+	metadata?: { version: string; sourceProfile: string; sourceTransfer: string; orientation: number };
+	byteLength?: number;
+}): string {
+	const identity = [input.headers.get('etag'), input.headers.get('last-modified'), input.headers.get('content-length'), input.metadata?.version, input.metadata?.sourceProfile, input.metadata?.sourceTransfer, input.metadata?.orientation].filter(Boolean).join('|');
+	return identity || `bytes-${input.byteLength ?? 0}` || `asset-${input.assetId}`;
+}
+
 console.info(JSON.stringify({ event: 'direct-share.hdr-cache-config', ttlMs: HDR_CACHE_TTL_MS, maxEntries: HDR_CACHE_MAX_ENTRIES, maxBytes: HDR_CACHE_MAX_BYTES, maxConcurrent: HDR_MAX_CONCURRENT, maxQueue: HDR_MAX_QUEUE, maxInteractiveBurst: HDR_MAX_INTERACTIVE_BURST }));
 
 const entries = new Map<string, Entry>();

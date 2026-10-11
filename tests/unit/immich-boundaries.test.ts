@@ -14,7 +14,8 @@ describe('Immich v3 boundary contracts', () => {
 		const now = 1_700_000_000_000;
 		const cookie = registerShare(undefined, { kind: 'key', value: 'opaque-ref' }, now);
 		const [iv, tag, body] = cookie.split('.');
-		expect(decodeRegistry([iv, `x${tag.slice(1)}`, body].join('.'), now)).toBeNull();
+		const tamperedTag = `${tag.startsWith('x') ? 'y' : 'x'}${tag.slice(1)}`;
+		expect(decodeRegistry([iv, tamperedTag, body].join('.'), now)).toBeNull();
 		expect(decodeRegistry('x'.repeat(REGISTRY_MAX_COOKIE_BYTES + 1), now)).toBeNull();
 		const entries = Array.from({ length: REGISTRY_MAX_ENTRIES + 1 }, (_, index) => ({ kind: 'key' as const, value: `ref-${index}`, firstSeenAt: now, lastSeenAt: now, expiresAt: now + 1_000 }));
 		const bounded = encodeRegistry({ version: 1, entries: entries.slice(0, REGISTRY_MAX_ENTRIES) });
@@ -69,7 +70,7 @@ describe('Immich v3 boundary contracts', () => {
 		const second = { ...v3.assets[0], id: '33333333-3333-4333-8333-333333333333' };
 		const share = { ...v3, assets: [second, first], album: { ...v3.album, assets: [first, second] } };
 		const resolved = await createImmichProvider(vi.fn(async () => new Response(JSON.stringify(share))), 'https://immich.example').getSharedLink(context);
-		expect(resolved.data?.assets.map((asset) => asset.id)).toEqual([second.id, first.id]);
+		expect(resolved.data?.assets.map((asset) => asset.id)).toEqual([first.id, second.id]);
 	});
 
 	it('preserves metadata-search response order, including equal-date and equal-id ties', async () => {

@@ -7,7 +7,7 @@ import { z } from 'zod';
 import { extractImmichShareToken, PAGES_SESSION_COOKIE, sessionForShare } from '$server/share/session';
 import { logHdrDiagnostic, logShareMediaStatus } from '$server/share/diagnostics';
 import { nativeFailureDetail, nativeFailureReason } from '$server/media/hdr-compositor';
-import { buildHdrCacheKey, getCachedHdr, HDR_CACHE_TTL_MS } from '$server/media/hdr-cache';
+import { buildHdrCacheKey, buildHdrSourceIdentity, getCachedHdr, HDR_CACHE_TTL_MS } from '$server/media/hdr-cache';
 import { getHdrInteractiveCoordinator } from '$server/media/hdr-prewarm';
 import { extractAppleHdrMetadata } from '$server/media/hdr-metadata';
 import { buildHdrMetadataCacheKey, getCachedHdrMetadata, getOrExtractHdrMetadata } from '$server/media/hdr-metadata-cache';
@@ -56,15 +56,7 @@ export const GET: RequestHandler = async ({ params, request, cookies, fetch, loc
 	// plus the already-cached metadata fields -- check the cache before paying for the body.
 	if (cachedMetadata.hit && cachedMetadata.value) {
 		const metadata = cachedMetadata.value;
-		const sourceIdentity = [
-			source.response.headers.get('etag'),
-			source.response.headers.get('last-modified'),
-			source.response.headers.get('content-length'),
-			metadata.version,
-			metadata.sourceProfile,
-			metadata.sourceTransfer,
-			metadata.orientation
-		].filter(Boolean).join('|');
+		const sourceIdentity = buildHdrSourceIdentity({ headers: source.response.headers, assetId: params.assetId, metadata });
 		const cached = sourceIdentity ? getCachedHdr(buildHdrCacheKey({ assetId: params.assetId, sourceIdentity, outputContract: 'avif-gainmap-p3' })) : undefined;
 		if (cached) {
 			await source.response.body?.cancel().catch(() => {});
@@ -97,15 +89,7 @@ export const GET: RequestHandler = async ({ params, request, cookies, fetch, loc
 		}
 		let output;
 		try {
-			const sourceIdentity = [
-				source.response.headers.get('etag'),
-				source.response.headers.get('last-modified'),
-				source.response.headers.get('content-length'),
-				metadata.version,
-				metadata.sourceProfile,
-				metadata.sourceTransfer,
-				metadata.orientation
-			].filter(Boolean).join('|') || `bytes-${input.byteLength}`;
+			const sourceIdentity = buildHdrSourceIdentity({ headers: source.response.headers, assetId: params.assetId, metadata, byteLength: input.byteLength });
 			output = await getHdrInteractiveCoordinator().submitInteractive({ id: params.assetId, eligible: true, position: 0, sourceIdentity, sourceBytes: input.slice(), metadata }, 'avif');
 		} catch (error) {
 			const failureReason = nativeFailureReason(error);

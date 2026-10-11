@@ -6,6 +6,7 @@ import { createImmichProvider } from '$server/immich/provider';
 import { inferSafeImageMime, IMMICH_MAX_ORIGINAL_BYTES, readBoundedBytes } from '$server/immich/client';
 import { extractAppleHdrMetadata } from '$server/media/hdr-metadata';
 import { getHdrInteractiveCoordinator, type AuthorizedHdrAsset, type HdrProgressSnapshot } from '$server/media/hdr-prewarm';
+import { buildHdrSourceIdentity } from '$server/media/hdr-cache';
 import { parseHdrLookahead, targetLookahead, type HdrProjectionAsset } from '$server/media/hdr-prewarm-policy';
 import { emptyHdrProgress, emitHdrProgressEvent, HDR_PREWARM_MAX_BODY_BYTES, HDR_PREWARM_MAX_GENERATION, HDR_PREWARM_MAX_POLL, HDR_PREWARM_MAX_POSITION, progressHeaders, redactHdrProgress } from '$server/media/hdr-progress';
 import { parseSharedLinkRef } from '$server/share/ref';
@@ -20,6 +21,10 @@ const CommandSchema = z.object({
 }).strict();
 
 type EndpointEvent = Parameters<RequestHandler>[0];
+
+function operationScope(ref: NonNullable<ReturnType<typeof parseSharedLinkRef>>): string {
+	return `share-${ref.kind}-${ref.value}`.replace(/[^A-Za-z0-9._:-]/g, '_').slice(0, 160);
+}
 
 function response(snapshot: HdrProgressSnapshot, status = 200): Response {
 	return json(redactHdrProgress(snapshot), { status, headers: progressHeaders() });
@@ -61,9 +66,9 @@ function projectionAsset(asset: { id: string; type: string; originalMimeType?: s
 	return { id: asset.id, position, eligible: asset.type === 'IMAGE' && (mime === 'image/heic' || mime === 'image/heif'), sourceIdentity: `${asset.id}:${mime ?? 'unknown'}:${asset.width ?? 'auto'}x${asset.height ?? 'auto'}`, width: asset.width ?? undefined, height: asset.height ?? undefined };
 }
 
-async function authorizedAssets(event: EndpointEvent, command: z.infer<typeof CommandSchema>, provider: ReturnType<typeof createImmichProvider>, context: Parameters<ReturnType<typeof createImmichProvider>['getSharedLink']>[0]): Promise<{ status: number; generation: number; assets?: AuthorizedHdrAsset[]; snapshot?: HdrProgressSnapshot }> {
+async function authorizedAssets(event: EndpointEvent, command: z.infer<typeof CommandSchema>, provider: ReturnType<typeof createImmichProvider>, context: Parameters<ReturnType<typeof createImmichProvider>['getSharedLink']>[0], scope: string): Promise<{ status: number; generation: number; assets?: AuthorizedHdrAsset[]; snapshot?: HdrProgressSnapshot }> {
 	const coordinator = getHdrInteractiveCoordinator();
-	const generation = coordinator.getGeneration();
+	const generation = coordinator.getScopedGeneration(scope);
 	if (command.generation !== undefined && command.generation !== generation) return { status: 409, generation, snapshot: emptyHdrProgress(generation, command.representation, 'partial') };
 	const share = await provider.getSharedLink(context);
 	if (share.status === 401 || share.status === 403) return { status: 403, generation };
@@ -87,15 +92,7 @@ async function authorizedAssets(event: EndpointEvent, command: z.infer<typeof Co
 				// Keep the prewarm key byte-for-byte compatible with both interactive media
 				// routes. A MIME/dimension identity is not equivalent to the media route's
 				// upstream identity and silently causes a second conversion on swipe.
-				const sourceIdentity = [
-					source.response.headers.get('etag'),
-					source.response.headers.get('last-modified'),
-					source.response.headers.get('content-length'),
-					metadata.version,
-					metadata.sourceProfile,
-					metadata.sourceTransfer,
-					metadata.orientation
-				].filter(Boolean).join('|') || `bytes-${bytes.byteLength}`;
+				const sourceIdentity = buildHdrSourceIdentity({ headers: source.response.headers, assetId: target.id, metadata, byteLength: bytes.byteLength });
 				assets.push({ ...target, sourceIdentity, sourceBytes: bytes, metadata });
 			}
 			else bytes.fill(0);
@@ -121,13 +118,13 @@ export const POST: RequestHandler = async (event) => {
 	const context = requestContext(event, shareRef);
 	const coordinator = getHdrInteractiveCoordinator();
 	try {
-		const result = await authorizedAssets(event, command, createImmichProvider(event.fetch), context);
+		const result = await authorizedAssets(event, command, createImmichProvider(event.fetch), context, operationScope(shareRef));
 		if (result.status !== 200) {
 			if (result.status === 403) event.cookies.set(PAGES_SESSION_COOKIE, '', { path: '/', httpOnly: true, secure: true, sameSite: 'lax', maxAge: 0 });
 			return response(result.snapshot ?? emptyHdrProgress(result.generation, command.representation, 'partial'), result.status);
 		}
 		if (!result.assets?.length) return response(emptyHdrProgress(result.generation, command.representation));
-		const snapshot = coordinator.schedule({ assets: result.assets, activePosition: -1, lookahead: { kind: 'all' }, generation: result.generation }, command.representation, 'background');
+		const snapshot = coordinator.schedule({ assets: result.assets, activePosition: -1, lookahead: { kind: 'all' }, generation: result.generation, scope: operationScope(shareRef) }, command.representation, 'background');
 		const requestId = event.locals?.requestId;
 		if (snapshot.queued > 0) emitHdrProgressEvent('queued', command.representation, requestId);
 		if (snapshot.running > 0) emitHdrProgressEvent('started', command.representation, requestId);

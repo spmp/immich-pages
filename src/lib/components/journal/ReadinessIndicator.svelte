@@ -3,7 +3,7 @@
 	import { preferredHdrRepresentation } from '$lib/media/capabilities';
 	import { resolveHdrReadiness } from '$lib/media/hdr-readiness';
 
-	type ReadinessState = 'preparing' | 'ready' | 'partial';
+	type ReadinessState = 'idle' | 'unsupported' | 'empty' | 'preparing' | 'ready' | 'partial';
 	type Progress = {
 		state: ReadinessState;
 		targeted: number;
@@ -15,10 +15,10 @@
 	};
 
 	let { enabled, activeAssetId, activePosition = 0 }: { enabled: boolean; activeAssetId?: string; activePosition?: number } = $props();
-	let readinessState = $state<ReadinessState>('ready');
+	let readinessState = $state<ReadinessState>('idle');
 	let progress = $state<Progress>({ state: 'ready', targeted: 0, queued: 0, running: 0, completed: 0, failed: 0, skipped: 0 });
 
-	const isState = (value: unknown): value is ReadinessState => value === 'preparing' || value === 'ready' || value === 'partial';
+	const isState = (value: unknown): value is ReadinessState => value === 'preparing' || value === 'ready' || value === 'partial' || value === 'empty' || value === 'unsupported' || value === 'idle';
 	const isProgress = (value: unknown): value is Progress => {
 		if (!value || typeof value !== 'object') return false;
 		const candidate = value as Record<string, unknown>;
@@ -29,7 +29,8 @@
 		const representation = preferredHdrRepresentation();
 		if (!enabled || !activeAssetId) return;
 		if (!representation) {
-			progress = resolveHdrReadiness(progress, { supported: false });
+				readinessState = 'unsupported';
+				progress = { ...progress, state: 'ready' };
 			readinessState = progress.state;
 			return;
 		}
@@ -48,20 +49,18 @@
 					body: JSON.stringify({ activeAssetId: currentAssetId, activePosition: currentPosition })
 				});
 				if (!response.ok) {
-					progress = resolveHdrReadiness(progress, { supported: true, controlFailed: true });
-					readinessState = progress.state;
+					readinessState = 'partial';
 					return;
 				}
 				const value: unknown = await response.json();
 				if (isProgress(value)) {
 					progress = resolveHdrReadiness(value, { supported: true });
-					readinessState = progress.state;
+					readinessState = value.targeted === 0 ? 'empty' : progress.state;
 				}
 				if (!stopped && isProgress(value) && value.state === 'preparing') timer = window.setTimeout(() => void poll(), 2000);
 			} catch {
 				if (!stopped) {
-					progress = resolveHdrReadiness(progress, { supported: true, controlFailed: true });
-					readinessState = progress.state;
+					readinessState = 'partial';
 				}
 			}
 		};
@@ -77,10 +76,12 @@
 		return () => { stopped = true; document.removeEventListener('pages:active-asset', onActiveAsset); if (timer !== undefined) window.clearTimeout(timer); };
 	});
 
-	const label = $derived(readinessState === 'preparing' ? 'Preparing enhanced photos' : readinessState === 'ready' ? 'Enhanced photos ready' : 'Some enhanced photos are unavailable; showing standard photos');
+	const label = $derived(readinessState === 'preparing' ? 'Preparing enhanced photos' : readinessState === 'ready' ? 'Enhanced photos ready' : readinessState === 'unsupported' ? 'Enhanced photos unsupported' : readinessState === 'empty' ? 'No enhanced photos needed' : 'Some enhanced photos are unavailable; showing standard photos');
 </script>
 
-{#if enabled && activeAssetId && progress.targeted !== 0}
+{#if enabled && activeAssetId && readinessState !== 'idle' && readinessState !== 'empty' && readinessState !== 'unsupported'}
+	<!-- Previous contract was progress.targeted !== 0; explicit empty/unsupported states now suppress it. -->
+	<!-- {#if enabled && activeAssetId && progress.targeted !== 0} -->
 	<div class="readiness" class:partial={readinessState === 'partial'} class:ready={readinessState === 'ready'} role="status" aria-live="polite" aria-busy={readinessState === 'preparing'} aria-label={label} title={label}>
 		<span class="indicator" aria-hidden="true"></span>
 		<span class="sr-only">{label}</span>
