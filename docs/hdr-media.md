@@ -87,6 +87,13 @@ emulating the hint is not a physical HDR pass.
 
 ## Local/container evidence
 
+The production Compose service keeps HDR configuration deployment-owned while
+remaining stateless: `HDR_PREWARM_LOOKAHEAD` defaults to `10`,
+`HDR_PREWARM_INDICATOR` defaults to `on`, and `HDR_CACHE_BACKEND` is `memory`.
+`HDR_CACHE_DIRECTORY` is accepted as future-shaped metadata only; the current
+implementation never writes it. The Compose service declares no application
+volume, database, media store, or correctness-critical persistent state.
+
 `tests/resources/hdr/` is ignored and must contain operator-supplied local fixtures
 only. Acquire them with `scripts/acquire-hdr-fixtures.mjs`, supplying
 `--source-dir "$HDR_FIXTURE_SOURCE_DIR"`, the preserved `2.HEIF` reference, and
@@ -106,8 +113,8 @@ to the evidence record. `scripts/hdr-fixture-matrix.mjs` requires the
 reference plus the complete portrait/landscape matrix and records missing gain map,
 missing version, malformed MakerNote, unsupported profile, oversized input, timeout,
 and FFmpeg failure as SDR fallback. `scripts/verify-docker-fixture-content.mjs`
-inspects the runtime image and generated build context; fixture paths and media
-extensions must be absent. Docker or missing local fixtures are blocking operator
+inspects the runtime image and probes the generated build context; local fixture
+paths and reference artifacts must be absent. Docker or missing local fixtures are blocking operator
 prerequisites, not passes.
 
 The real Traefik-backed browser command is `npm run test:e2e`; it exercises the

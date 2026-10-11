@@ -7,6 +7,7 @@ describe('destructive stateless recreation harness', () => {
   it('uses disposable Compose resources and a direct-share projection comparison', () => {
     const compose = readFileSync('tests/fixtures/stateless/compose.yaml', 'utf8');
     const harness = readFileSync('scripts/test-stateless-recreate.mjs', 'utf8');
+    const productionCompose = readFileSync('compose.yaml', 'utf8');
     expect(compose).not.toContain('pages-cache');
     expect(harness).not.toContain('cacheDir');
     expect(harness).not.toContain('disposable-cache');
@@ -14,6 +15,9 @@ describe('destructive stateless recreation harness', () => {
     expect(harness).toContain("down', '--volumes', '--remove-orphans");
     expect(harness).toContain('before.body !== after.body');
     expect(harness).toContain('Docker is required');
+    expect(productionCompose).not.toMatch(/^\s+volumes:/m);
+    expect(productionCompose).not.toMatch(/^\s+(?:db|database|media|postgres|redis):/m);
+    expect(productionCompose).toContain('IMMICH_BASE_URL:');
   });
 
   it('accepts the current v3.1.0 fixture response and assembles a 200 page', async () => {
