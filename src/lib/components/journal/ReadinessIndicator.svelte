@@ -46,7 +46,7 @@
 					method: 'POST',
 					credentials: 'same-origin',
 					headers: { 'content-type': 'application/json', 'x-hdr-representation': representation },
-					body: JSON.stringify({ activeAssetId: currentAssetId, activePosition: currentPosition })
+					body: JSON.stringify({ activeAssetId: currentAssetId, activePosition: currentPosition, representation })
 				});
 				if (!response.ok) {
 					readinessState = 'partial';

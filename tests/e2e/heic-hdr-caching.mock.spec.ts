@@ -1,4 +1,5 @@
 import { expect, test, type Page, type Route } from '@playwright/test';
+import { readFileSync } from 'node:fs';
 
 const ref = 'heic-forward-ref';
 const assetId = (number: number) => `70000000-0000-4000-8000-${String(number).padStart(12, '0')}`;
@@ -59,7 +60,7 @@ async function announce(page: Page, number: number) {
 	}, { id: assetId(number), position: number - 1 });
 }
 
-test('server-owned control plane receives only capability and active position, advances its window, and deduplicates visitors', async ({ browser, page }) => {
+test('control-shape: server-owned control plane receives only capability and active position', async ({ browser, page }) => {
 	test.setTimeout(60_000);
 	await enableHdrHints(page);
 	const requests: ControlRequest[] = [];
@@ -94,7 +95,7 @@ test('server-owned control plane receives only capability and active position, a
 	await secondPage.close();
 });
 
-test('look-ahead 0, N, and all responses target exact eligible work without a client asset list', async ({ page }) => {
+test('control-shape: look-ahead 0, N, and all target exact eligible work', async ({ page }) => {
 	await enableHdrHints(page);
 	for (const mode of ['0', '3', 'all'] as const) {
 		const requests: ControlRequest[] = [];
@@ -108,7 +109,7 @@ test('look-ahead 0, N, and all responses target exact eligible work without a cl
 	}
 });
 
-test('interactive HDR media requests are prioritized independently from background announcements', async ({ page }) => {
+test('control-shape: interactive HDR media requests are prioritized independently', async ({ page }) => {
 	await enableHdrHints(page);
 	const requests: ControlRequest[] = [];
 	await installControlPlane(page, '3', requests);
@@ -120,4 +121,79 @@ test('interactive HDR media requests are prioritized independently from backgrou
 	expect(new URL(request.url()).searchParams.get('priority')).toBe('interactive');
 	expect(request.url()).not.toContain('/original');
 	expect(request.url()).not.toContain('/download');
+});
+
+function bridgeEvents(): Array<{ method?: string; assetId?: string | null }> {
+	const path = process.env.HDR_BRIDGE_LOG;
+	if (!path) throw new Error('HDR_BRIDGE_LOG is required for real-route caching evidence');
+	try { return readFileSync(path, 'utf8').trim().split('\n').filter(Boolean).map((line) => JSON.parse(line)); }
+	catch { return []; }
+}
+
+async function installVideoHints(page: Page) {
+	await page.context().addCookies([{ name: 'immich_shared_link_token', value: 'fixture', domain: '127.0.0.1', path: '/' }]);
+	await page.addInitScript(() => {
+		Object.defineProperty(navigator, 'userAgent', { configurable: true, value: 'Mozilla/5.0 AppleWebKit/605.1.15 Version/18.6 Safari/605.1.15' });
+		const nativeMatchMedia = window.matchMedia.bind(window);
+		window.matchMedia = (query: string) => query === '(dynamic-range: high)' ? { ...nativeMatchMedia(query), matches: true } : nativeMatchMedia(query);
+	});
+}
+
+test('real-route evidence: prewarm completion is reused by first and later HDR media requests', async ({ page }) => {
+	test.setTimeout(120_000);
+	await installVideoHints(page);
+	const before = bridgeEvents().length;
+	const prewarmResponses: Array<{ status: number; body: Record<string, unknown> }> = [];
+	page.on('response', async (response) => {
+		if (!response.url().endsWith('/prewarm')) return;
+		try { prewarmResponses.push({ status: response.status(), body: await response.json() }); } catch { /* navigation teardown */ }
+	});
+	await page.goto('/share/key/heic-forward-ref');
+	await expect(page.locator('[id^="asset-"]')).toHaveCount(20);
+	await expect(page.locator('[data-hdr-representation="video"]')).toHaveCount(20);
+	await expect.poll(() => prewarmResponses.some(({ status }) => status === 200)).toBe(true);
+	expect(prewarmResponses.map(({ body }) => ({ state: body.state, targeted: body.targeted, completed: body.completed }))).toContainEqual(expect.objectContaining({ state: 'preparing', targeted: 19 }));
+	await expect.poll(() => prewarmResponses.some(({ body }) => body.state === 'ready' && body.targeted === 19 && body.completed === 19), { timeout: 100_000 }).toBe(true);
+	await expect(page.locator('[aria-label="Enhanced photos ready"]')).toBeVisible();
+
+	const completed = bridgeEvents().slice(before).filter((event) => event.method === 'encodeHdrMp4');
+	expect(new Set(completed.map((event) => event.assetId)).size).toBe(19);
+	const conversionsBeforeMedia = completed.length;
+	for (const number of [2, 20]) {
+		const response = await page.evaluate(({ id }) => fetch(`/share/key/heic-forward-ref/media/${id}/image/hdr?key=heic-forward-ref&width=1200&height=800`, { headers: { range: 'bytes=0-1' } }).then((result) => ({ status: result.status, contentRange: result.headers.get('content-range') })), { id: assetId(number) });
+		expect(response.status).toBe(206);
+		expect(response.contentRange).toMatch(/^bytes 0-1\//);
+		await expect.poll(() => bridgeEvents().slice(before).filter((event) => event.method === 'encodeHdrMp4').length).toBe(conversionsBeforeMedia);
+	}
+});
+
+test('real-route evidence: all lookahead drains beyond queue capacity and keeps progress scoped', async ({ browser }) => {
+	test.setTimeout(120_000);
+	const first = await browser.newPage({ extraHTTPHeaders: { authorization: 'Bearer fixture' } });
+	const second = await browser.newPage({ extraHTTPHeaders: { authorization: 'Bearer fixture' } });
+	await Promise.all([installVideoHints(first), installVideoHints(second)]);
+	const responses: Array<{ page: string; body: Record<string, unknown> }> = [];
+	const pages = [['first', first], ['second', second]] as const;
+	for (const [name, current] of pages) current.on('response', async (response) => {
+		if (!response.url().endsWith('/prewarm')) return;
+		try { responses.push({ page: name, body: await response.json() }); } catch { /* navigation teardown */ }
+	});
+	await Promise.all([first.goto('/share/key/heic-forward-ref'), second.goto('/share/key/heic-second-ref')]);
+	await expect.poll(() => responses.filter(({ body }) => body.state === 'ready').length, { timeout: 100_000 }).toBe(2);
+	for (const name of ['first', 'second']) expect(responses.filter((item) => item.page === name).at(-1)?.body).toMatchObject({ targeted: 19, completed: 19, failed: 0 });
+	await first.close();
+	await second.close();
+});
+
+test('real-route evidence: nested album order wins over a scrambled top-level projection', async ({ page }) => {
+	await installVideoHints(page);
+	const commands: Array<{ activeAssetId: string; activePosition: number }> = [];
+	page.on('request', (request) => {
+		if (request.method() === 'POST' && request.url().endsWith('/prewarm')) commands.push(request.postDataJSON());
+	});
+	await page.goto('/share/key/heic-order-production-ref');
+	await expect(page.locator('[id^="asset-"]')).toHaveCount(20);
+	await expect.poll(() => commands.length).toBeGreaterThan(0);
+	expect(await page.locator('[id^="asset-"]').evaluateAll((figures) => figures.slice(0, 3).map((figure) => figure.getAttribute('data-asset-id')))).toEqual([assetId(1), assetId(2), assetId(3)]);
+	expect(commands[0]).toMatchObject({ activeAssetId: assetId(1), activePosition: 0, representation: 'video' });
 });
