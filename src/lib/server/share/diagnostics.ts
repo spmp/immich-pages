@@ -196,6 +196,24 @@ export function logHdrPrewarmRequest({ status, activePosition, activeAssetId, ta
 	}));
 }
 
+/**
+ * HdrAssetRegistry.resolve() discards an existing entry for one of three reasons -- stale
+ * generation (scope revoked), a changed sourceIdentity/width/height (the asset genuinely
+ * changed), or the entry was already 'skipped'. Silently discarding was how CR-01's
+ * divergent-identity defect went unnoticed for so long; logging exactly which reason fired
+ * turns a future "why did this reconvert" report into a fact instead of a re-investigation.
+ */
+export function logHdrRegistryStaleness({ scope, assetId, representation, reason }: {
+	scope: string;
+	assetId: string;
+	representation: 'video' | 'avif';
+	reason: 'generation' | 'identity' | 'revoked';
+}) {
+	const safeScope = scope.replace(/[^A-Za-z0-9._-]/g, '').slice(0, 80);
+	const safeAssetId = assetId.replace(/[^A-Za-z0-9._-]/g, '').slice(0, 80);
+	console.info(JSON.stringify({ event: 'direct-share.hdr-registry-stale', scope: safeScope, assetId: safeAssetId, representation, reason }));
+}
+
 export function logVisitedShareRegistry({ phase, result, entryCount }: {
 	phase: 'register' | 'decode';
 	result: 'success' | 'unavailable' | 'empty';
