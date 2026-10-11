@@ -48,6 +48,24 @@ describe('v3 direct-share matrix', () => {
 		expect(new Headers(calls[1].init?.headers).get('authorization')).toBe('Bearer visitor');
 	});
 
+	it('preserves the ordered nested album asset sequence before metadata fallback', async () => {
+		const second = { ...v3.assets[0], id: '22222222-2222-4222-8222-222222222222' };
+		const ordered = [second, v3.assets[0]];
+		const shared = { ...v3, assets: [], album: { ...v3.album, assetCount: 2, assets: ordered } };
+		const fetchMock = vi.fn(async (input: URL | RequestInfo) => {
+			const url = new URL(input.toString());
+			if (url.pathname === '/api/shared-links/me') return new Response(JSON.stringify(shared));
+			return new Response(JSON.stringify({ albums: {}, assets: { items: [v3.assets[0], v3.assets[1]] } }));
+		});
+
+		const result = await createImmichProvider(fetchMock, 'https://immich.example').getSharedLink({
+			shareRef: { kind: 'key', value: 'opaque-ref' }, cookie: 'visitor=1', authorization: null
+		});
+
+		expect(result.data?.assets.map((asset) => asset.id)).toEqual(ordered.map((asset) => asset.id));
+		expect(fetchMock).toHaveBeenCalledTimes(1);
+	});
+
 	it('retrieves only the exact share-aware map marker contract', async () => {
 		const marker = { id: v3.assets[0].id, lat: 51.5, lon: -0.1, city: null, state: null, country: 'UK' };
 		const fetchMock = vi.fn(async (input: URL | RequestInfo, init?: RequestInit) => {

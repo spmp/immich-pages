@@ -31,6 +31,27 @@ describe('HDR prewarm coordinator', () => {
 		await vi.waitFor(() => expect(convert).toHaveBeenCalledTimes(2));
 	});
 
+	it('drains an all-assets batch beyond the bounded scheduler queue', async () => {
+		const convert = vi.fn(async () => {
+			await new Promise((resolve) => setTimeout(resolve, 1));
+			return { body: new Uint8Array([1]), contentType: 'video/mp4' };
+		});
+		const coordinator = new HdrPrewarmCoordinator({ convert });
+		const assets = Array.from({ length: 40 }, (_, index) => ({
+			id: `asset-${index}`,
+			eligible: true,
+			position: index + 1,
+			sourceIdentity: `source-${index}`,
+			sourceBytes: new Uint8Array([1, 2, 3])
+		}));
+		const snapshot = coordinator.schedule({ assets, activePosition: -1, lookahead: { kind: 'all' }, generation: 0 }, 'video');
+
+		expect(snapshot.targeted).toBe(40);
+		await vi.waitFor(() => expect(coordinator.snapshot().state).toBe('ready'), { timeout: 10_000 });
+		expect(convert).toHaveBeenCalledTimes(40);
+		expect(coordinator.snapshot().failed).toBe(0);
+	});
+
 	it('retries once, then preserves a terminal failure without retaining bytes', async () => {
 		const convert = vi.fn(async () => { throw new Error('native-failed'); });
 		const coordinator = new HdrPrewarmCoordinator({ convert });

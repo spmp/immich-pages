@@ -184,6 +184,14 @@ export class HdrPrewarmCoordinator {
 			if (job.generation !== this.generation) return this.finish(job, 'skipped');
 			this.finish(job, 'succeeded');
 		} catch (error) {
+			if (error instanceof Error && error.message === 'hdr-queue-full') {
+				// `all` is an admission request, not a best-effort batch. Keep the
+				// authorized source owned by this job until queue capacity is available;
+				// the bounded scheduler still limits memory and active work.
+				job.state = 'queued';
+				setTimeout(() => { if (job.generation === this.generation && job.state === 'queued') void this.run(job); }, 25);
+				return;
+			}
 			job.attempts += 1;
 			if (job.generation !== this.generation) return this.finish(job, 'skipped');
 			if (job.attempts < this.maxAttempts) {
