@@ -3,6 +3,16 @@ import https from 'node:https';
 
 const compose = ['compose', '-f', 'tests/e2e/traefik-test.compose.yaml'];
 
+const dockerSocket = process.env.DOCKER_SOCKET ?? (
+  process.env.DOCKER_HOST?.startsWith('unix://')
+    ? process.env.DOCKER_HOST.slice('unix://'.length)
+    : undefined
+);
+const commandEnvironment = {
+  ...process.env,
+  ...(dockerSocket ? { DOCKER_SOCKET: dockerSocket } : {})
+};
+
 function runCommand(command, args, options = {}) {
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, { stdio: 'inherit', ...options });
@@ -11,7 +21,7 @@ function runCommand(command, args, options = {}) {
   });
 }
 
-const run = (args, options) => runCommand('docker', args, options);
+const run = (args, options = {}) => runCommand('docker', args, { env: commandEnvironment, ...options });
 
 async function waitForTraefik() {
   const deadline = Date.now() + 60_000;
@@ -34,12 +44,15 @@ async function waitForTraefik() {
 }
 
 const playwrightArgs = process.argv.slice(2);
+const realFixtureSpecs = playwrightArgs.length > 0
+  ? playwrightArgs
+  : ['tests/e2e/traefik-share-auth.spec.ts'];
 let failure;
 try {
   await run([...compose, 'up', '-d', '--build']);
   await waitForTraefik();
   await run([...compose, 'exec', '-T', 'traefik', 'traefik', 'healthcheck', '--ping']);
-    await runCommand('npx', ['playwright', 'test', ...playwrightArgs], { env: { ...process.env, PLAYWRIGHT_BASE_URL: 'https://pages.example.xyz:18080' } });
+    await runCommand('npx', ['playwright', 'test', ...realFixtureSpecs], { env: { ...commandEnvironment, PLAYWRIGHT_BASE_URL: 'https://pages.example.xyz:18080' } });
 } catch (error) {
   failure = error;
 } finally {
