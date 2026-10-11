@@ -61,6 +61,9 @@ type Job = {
 	scope: string;
 };
 
+/** Status of the ONE asset the viewer currently has open -- see per-asset readiness, hdr-caching-uat-20261010 root_cause (3). */
+export type HdrActiveAssetState = 'ineligible' | 'queued' | 'running' | 'succeeded' | 'failed' | 'skipped' | 'unavailable';
+
 export type HdrProgressSnapshot = {
 	generation: number;
 	representation: HdrRepresentation;
@@ -71,6 +74,8 @@ export type HdrProgressSnapshot = {
 	completed: number;
 	failed: number;
 	skipped: number;
+	/** Computed by the prewarm route for command.activeAssetId, not by the coordinator itself. Absent when not yet known. */
+	activeAssetState?: HdrActiveAssetState;
 };
 
 const DEFAULT_ATTEMPTS = 2;
@@ -130,15 +135,27 @@ export class HdrPrewarmCoordinator {
 		return next;
 	}
 
-	/** Interactive media routes can promote existing work without creating a second conversion. */
-	ensureInteractive(asset: AuthorizedHdrAsset, representation: HdrRepresentation, generation = this.generation): HdrProgressSnapshot {
-		this.enqueue(asset, representation, generation, 'interactive');
-		return this.snapshot(generation, representation);
+	/**
+	 * Interactive media routes can promote existing work without creating a second conversion.
+	 * `scope` must match whatever scope the share's own background schedule() calls use (see
+	 * operationScope() in the prewarm route) -- otherwise a standalone interactive job (one with
+	 * no corresponding background job already queued) is filed under the internal 'default'
+	 * bucket and becomes invisible to that share's own readiness snapshot. See Specialist Review
+	 * finding 1, .planning/debug/hdr-caching-uat-20261010.md.
+	 */
+	ensureInteractive(asset: AuthorizedHdrAsset, representation: HdrRepresentation, generation = this.generation, scope = 'default'): HdrProgressSnapshot {
+		this.enqueue(asset, representation, generation, 'interactive', scope);
+		return this.snapshot(generation, representation, scope);
 	}
 
-	/** Submit one freshly-authorized representation and await the shared result. */
-	submitInteractive(asset: AuthorizedHdrAsset, representation: HdrRepresentation, generation = this.generation): Promise<CachedMedia> {
-		return this.enqueue(asset, representation, generation, 'interactive');
+	/** Submit one freshly-authorized representation and await the shared result. Same scope caveat as ensureInteractive(). */
+	submitInteractive(asset: AuthorizedHdrAsset, representation: HdrRepresentation, generation = this.generation, scope = 'default'): Promise<CachedMedia> {
+		return this.enqueue(asset, representation, generation, 'interactive', scope);
+	}
+
+	/** Per-asset readiness lookup: the status of one job by its exact cache key, or 'none' if nothing has been enqueued for it yet. */
+	jobState(key: string): HdrJobState | 'none' {
+		return this.jobs.get(key)?.state ?? 'none';
 	}
 
 	snapshot(generation = this.generation, representation: HdrRepresentation = 'video', scope = 'default'): HdrProgressSnapshot {
@@ -195,7 +212,7 @@ export class HdrPrewarmCoordinator {
 			await getOrCreateHdr(job.key, () => withHdrConcurrency(
 			(signal) => this.convert(job, signal),
 				{ signal: job.abortController.signal, priority: job.priority, timeoutMs: this.options.timeoutMs, queueKey: job.key }
-			), Date.now(), job.priority);
+			), Date.now(), job.priority, job.asset.id);
 			if (job.generation !== this.generation) return this.finish(job, 'skipped');
 			this.finish(job, 'succeeded');
 		} catch (error) {

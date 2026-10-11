@@ -53,6 +53,43 @@ describe('share HDR AVIF media boundary', () => {
 		extract.mockRestore();
 	});
 
+	// hdr-caching-uat-20261010 finding 4: this route previously never read or forwarded
+	// width/height at all, so its cache key was always 'auto':'auto' while the background prewarm
+	// path for the 'avif' representation keyed on the asset's real dimensions -- a guaranteed,
+	// unconditional miss for every AVIF prewarm entry. The interactive route must key on whatever
+	// width/height it was actually asked for, the same way the video route (/image/hdr) already
+	// does, so a request with matching query dimensions reuses a cached result instead of forcing
+	// a second conversion, and a request with DIFFERENT dimensions is treated as a different asset
+	// representation (bounded cache key, not an unconditional collision).
+	it('keys its cache entry on ?width=/?height= the same way the video route does', async () => {
+		const source = new Uint8Array([0, 0, 0, 0, 102, 116, 121, 112, 104, 101, 105, 99]);
+		const fetchMock = vi.fn(async (input: URL | RequestInfo) => new Response(new URL(input.toString()).pathname.endsWith('/me') ? JSON.stringify(v3) : source, { headers: { 'content-type': 'image/heic' } }));
+		const compositor = await import('../../src/lib/server/media/hdr-compositor');
+		const metadata = await import('../../src/lib/server/media/hdr-metadata');
+		const decode = vi.spyOn(compositor, 'decodeHdrAvifStream').mockResolvedValue(new Uint8Array([1, 2]));
+		const encode = vi.spyOn(compositor, 'encodeHdrAvif').mockResolvedValue(new Uint8Array([3, 4]));
+		const extract = vi.spyOn(metadata, 'extractAppleHdrMetadata').mockResolvedValue({ version: '1.0', auxiliaryType: 'urn:com:apple:photo:2020:aux:hdrgainmap', makerNote33: 0.8, makerNote48: 0.4, headroom: 1.8, hdrGain: 1.25, sourceProfile: 'display-p3', sourceTransfer: 'srgb', orientation: 1 });
+		const request = (query: string) => ({ params, request: new Request(`https://pages.example/share/key/opaque-ref${query}`), cookies: { get: vi.fn(), set: vi.fn() }, fetch: fetchMock });
+
+		const first = await GET(request('?width=800&height=600') as never);
+		expect(first.status).toBe(200);
+		expect(decode).toHaveBeenCalledTimes(1);
+
+		// Same dimensions again -- must reuse the cached entry, not convert a second time.
+		const second = await GET(request('?width=800&height=600') as never);
+		expect(second.status).toBe(200);
+		expect(decode).toHaveBeenCalledTimes(1);
+
+		// Different dimensions -- a distinct cache key, so this is a legitimate miss, not a bug.
+		const third = await GET(request('?width=400&height=300') as never);
+		expect(third.status).toBe(200);
+		expect(decode).toHaveBeenCalledTimes(2);
+
+		decode.mockRestore();
+		encode.mockRestore();
+		extract.mockRestore();
+	});
+
 	it('does not collide with the HEVC/MP4 cache entry for the same asset', async () => {
 		const source = new Uint8Array([0, 0, 0, 0, 102, 116, 121, 112, 104, 101, 105, 99]);
 		const fetchMock = vi.fn(async (input: URL | RequestInfo) => new Response(new URL(input.toString()).pathname.endsWith('/me') ? JSON.stringify(v3) : source, { headers: { 'content-type': 'image/heic' } }));

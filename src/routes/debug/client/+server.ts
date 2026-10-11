@@ -2,7 +2,11 @@ import type { RequestHandler } from './$types';
 import { env } from '$env/dynamic/public';
 
 const eventNames = new Set(['page-model-load', 'hero-load', 'media-load', 'media-failure', 'media-resolution', 'gallery-state', 'fallback', 'empty', 'lightbox', 'presentation-state', 'route-failure', 'hdr-prewarm', 'hdr-media']);
-const fields = new Set(['count', 'category', 'status', 'decision', 'slotWidth', 'intrinsicWidth', 'dpr', 'requiredWidth', 'layoutMeasured', 'measuringCompleted', 'fullsizeAvailable', 'promotionFailed', 'fallbackActive', 'assetCount', 'heroPresent', 'template', 'errorContext', 'failureCategory', 'statusCode', 'durationMs', 'imageCount', 'videoCount', 'assetIndex', 'assetTotal', 'urlKind', 'requestPhase', 'bytes', 'cacheReuse', 'prewarmReuse', 'photoSwipeType', 'srcKind', 'spinner', 'hdrReason', 'nativeErrorCode', 'slideIndex', 'slideTotal']);
+// hdr-caching-uat-20261010 finding 6c: readinessState/targeted/completed/failed/skipped/
+// activeAssetState relay the readiness control-plane's own decision-making for server-side
+// debugging. Deliberately no assetId/activeAssetId field anywhere in this allowlist -- this
+// relay must never accept an asset identifier from the client, regardless of event.
+const fields = new Set(['count', 'category', 'status', 'decision', 'slotWidth', 'intrinsicWidth', 'dpr', 'requiredWidth', 'layoutMeasured', 'measuringCompleted', 'fullsizeAvailable', 'promotionFailed', 'fallbackActive', 'assetCount', 'heroPresent', 'template', 'errorContext', 'failureCategory', 'statusCode', 'durationMs', 'imageCount', 'videoCount', 'assetIndex', 'assetTotal', 'urlKind', 'requestPhase', 'bytes', 'cacheReuse', 'prewarmReuse', 'photoSwipeType', 'srcKind', 'spinner', 'hdrReason', 'nativeErrorCode', 'slideIndex', 'slideTotal', 'readinessState', 'targeted', 'completed', 'failed', 'skipped', 'activeAssetState']);
 
 export const POST: RequestHandler = async ({ request, locals }) => {
 	if (env.PUBLIC_PAGES_DEBUG !== 'true') return new Response(null, { status: 404 });

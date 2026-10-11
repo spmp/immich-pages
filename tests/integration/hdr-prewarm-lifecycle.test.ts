@@ -29,10 +29,16 @@ describe('real HDR prewarm control-route lifecycle', () => {
 			expect(first.status).toBe(200);
 			await vi.waitFor(() => expect(coordinator.snapshot().state).toBe('ready'));
 			const poll = await POST(event({ activeAssetId: ids[0], activePosition: 0, representation: 'video' }, fetchMock) as never);
-			expect(await poll.json()).toMatchObject({ state: 'ready', targeted: 2, completed: 2, failed: 0 });
+			// targetLookahead now includes the viewer's own current position (ids[0], position 0),
+			// not just what's strictly ahead of it -- see hdr-prewarm-policy.ts and
+			// .planning/debug/hdr-caching-uat-20261010.md root_cause (2)/(4). All 3 assets at
+			// positions 0-2 are targeted and converted, not just the 2 ahead of position 0.
+			// activeAssetState (root_cause (3)) must independently confirm the SPECIFIC asset the
+			// viewer has open (ids[0]) has succeeded, not just that the aggregate window is ready.
+			expect(await poll.json()).toMatchObject({ state: 'ready', targeted: 3, completed: 3, failed: 0, activeAssetState: 'succeeded' });
 			const media = await GET_HDR({ params: { kind: 'key', ref: 'opaque-ref', assetId: ids[1] }, request: new Request(`https://pages.example/share/key/opaque-ref/media/${ids[1]}/image/hdr?width=800&height=600`, { headers: { range: 'bytes=0-1' } }), cookies: { get: vi.fn(), set: vi.fn() }, fetch: fetchMock, locals: {} } as never);
 			expect(media.status).toBe(206);
-			expect(convert).toHaveBeenCalledTimes(2);
+			expect(convert).toHaveBeenCalledTimes(3);
 		} finally { extract.mockRestore(); restore(); }
 	});
 });

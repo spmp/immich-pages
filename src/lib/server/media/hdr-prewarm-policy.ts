@@ -51,8 +51,13 @@ export function targetLookahead<T extends HdrProjectionAsset>(
 	if (lookahead === 0) return [];
 	const eligible = eligibleAssets(assets);
 	const position = Number.isInteger(activePosition) ? Math.max(0, activePosition) : 0;
-	const ahead = eligible.filter((asset) => asset.position > position);
-	return lookahead.kind === 'all' ? ahead : ahead.slice(0, lookahead.value);
+	// Inclusive of the current position: the photo the viewer is actually looking at right now
+	// must be in its own prewarm window, not just whatever is strictly ahead of it. Excluding it
+	// here was root_cause (2)/(4) of the hdr-caching-uat-20261010 debug session -- the asset on
+	// screen was never targeted, so opening it always forced a synchronous regeneration even with
+	// a "ready" aggregate window.
+	const fromHere = eligible.filter((asset) => asset.position >= position);
+	return lookahead.kind === 'all' ? fromHere : fromHere.slice(0, lookahead.value);
 }
 
 export function targetAllEligible<T extends HdrProjectionAsset>(assets: readonly T[]): T[] {

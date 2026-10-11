@@ -98,6 +98,23 @@ describe('HDR media cache', () => {
 		await expect(withHdrConcurrency(async () => 'ready')).resolves.toBe('ready');
 	});
 
+	// hdr-caching-uat-20261010 finding 6a: the user explicitly asked for more client-side logging
+	// pushed back to the server to properly debug this class of issue -- direct-share.hdr-cache-
+	// miss/hit/store previously carried only aggregate cacheEntries/cacheBytes, with no way to tell
+	// WHICH asset a given miss/hit/store was for. assetId + the full (already-sanitized) cache key
+	// must be present on all three events.
+	it('logs assetId and the full cache key on miss, store, and hit events', async () => {
+		const info = vi.spyOn(console, 'info').mockImplementation(() => {});
+		const create = vi.fn(async () => ({ body: new Uint8Array([1]), contentType: 'video/mp4' }));
+		await getOrCreateHdr('asset-logged', create, Date.now(), 'background', 'photo-123');
+		await getOrCreateHdr('asset-logged', create, Date.now(), 'background', 'photo-123');
+		const events = info.mock.calls.map(([line]) => JSON.parse(line as string));
+		expect(events.find((event) => event.event === 'direct-share.hdr-cache-miss')).toMatchObject({ assetId: 'photo-123', cacheKey: 'asset-logged' });
+		expect(events.find((event) => event.event === 'direct-share.hdr-cache-store')).toMatchObject({ assetId: 'photo-123', cacheKey: 'asset-logged' });
+		expect(events.find((event) => event.event === 'direct-share.hdr-cache-hit')).toMatchObject({ assetId: 'photo-123', cacheKey: 'asset-logged' });
+		info.mockRestore();
+	});
+
 	it('expires entries based on the supplied clock', async () => {
 		vi.setSystemTime(100);
 		await getOrCreateHdr('asset', async () => ({ body: new Uint8Array([1]), contentType: 'image/jpeg' }));

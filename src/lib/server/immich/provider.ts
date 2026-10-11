@@ -41,7 +41,16 @@ export function createImmichProvider(fetchImpl: typeof fetch = fetch, baseUrl = 
 					if (authoritative.length > 0) {
 						data = { ...data, assets: [...authoritative] };
 					} else {
-						const albumAssets = await fetchAlbumAssets(baseUrl, context, data.album.id, data.album.assetCount ?? 0, fetchImpl);
+						// No version of Immich exposes a manual per-asset album order through this
+						// endpoint or any other (confirmed: GET /api/albums/{id} dropped its own
+						// `assets` field entirely in v3, and manual drag-to-reorder remains an open,
+						// unimplemented Immich feature request). The album's own `order` field is the
+						// only ordering control Immich actually has -- a global chronological
+						// direction, not a position -- so the best recoverable approximation of "the
+						// viewer's album order" is to request the SAME direction the album itself is
+						// configured to display, rather than leaving it unspecified and taking
+						// whatever direction the search endpoint defaults to on its own.
+						const albumAssets = await fetchAlbumAssets(baseUrl, context, data.album.id, data.album.assetCount ?? 0, data.album.order ?? 'desc', fetchImpl);
 						if (!albumAssets) return { status: 502 };
 						data = { ...data, assets: albumAssets };
 					}
@@ -120,12 +129,12 @@ async function getJsonArray<T>(responsePromise: Promise<Response>, schema: { saf
 	try { const value = JSON.parse(await readBoundedText(response)); if (!Array.isArray(value)) return { status: 422, error: 'malformed' }; const data = value.map((item) => schema.safeParse(item)); return data.every((item) => item.success) ? { status: response.status, data: data.map((item) => item.data) as T[] } : { status: 422, error: 'malformed' }; } catch { return { status: 422, error: 'malformed' }; }
 }
 
-async function fetchAlbumAssets(baseUrl: string, context: AuthContext, albumId: string, declaredCount: number, fetchImpl: typeof fetch): Promise<SharedLinkResponse['assets'] | null> {
+async function fetchAlbumAssets(baseUrl: string, context: AuthContext, albumId: string, declaredCount: number, order: 'asc' | 'desc', fetchImpl: typeof fetch): Promise<SharedLinkResponse['assets'] | null> {
 		let response: Response;
 		try {
 			response = await requestImmich(baseUrl, `/api/search/metadata?${shareQuery(context)}`, context, fetchImpl, {
 			method: 'POST',
-			body: JSON.stringify({ albumIds: [albumId], page: 1, size: 1000 }),
+			body: JSON.stringify({ albumIds: [albumId], page: 1, size: 1000, order }),
 			headers: { 'content-type': 'application/json' },
 			endpoint: 'album-assets'
 			});
@@ -142,9 +151,10 @@ async function fetchAlbumAssets(baseUrl: string, context: AuthContext, albumId: 
 				return null;
 			}
 			logAlbumAssetsResponse({ declaredCount, normalizedCount: parsed.data.assets.items.length });
-			// The adapter must preserve the upstream sequence. Search metadata is the
-			// fallback response supplied by Immich; reordering by dates or IDs here
-			// silently changes the viewer's album order and makes ties unstable.
+			// The adapter must preserve the upstream sequence once the requested `order` direction
+			// has been applied server-side by Immich. Search metadata is the fallback response
+			// supplied by Immich; reordering by dates or IDs again here on top of that would
+			// silently change the viewer's album order a second time and make ties unstable.
 			return parsed.data.assets.items;
 		} catch (error) {
 			logAlbumAssetsRequest({ status: 'failure', failureCategory: error instanceof Error && error.message === 'response-too-large' ? 'response-too-large' : 'invalid-response' });

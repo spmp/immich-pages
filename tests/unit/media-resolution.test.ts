@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { chooseResolution, requiredWidth, selectTargetResolution } from '../../src/lib/media/resolution';
+import { boundedQueryDimension, chooseResolution, requiredWidth, selectTargetResolution } from '../../src/lib/media/resolution';
 
 describe('rendered-slot resolution policy', () => {
 	it('caps DPR at two and rounds up required pixels', () => {
@@ -31,5 +31,15 @@ describe('rendered-slot resolution policy', () => {
 	it('rejects unknown dimensions instead of inventing a source size', () => {
 		expect(selectTargetResolution(null, 1000)).toBeNull();
 		expect(selectTargetResolution(Number.NaN, 1000)).toBeNull();
+	});
+
+	// Shared by both /image/hdr and /image/hdr-avif's interactive routes, so a ?width=/?height=
+	// query parameter parses identically on both -- see hdr-caching-uat-20261010 finding 4/5: a
+	// second, divergent copy of this parsing is exactly how the AVIF route's cache key silently
+	// went permanently out of sync with the video route's.
+	it.each([
+		['800', 800], ['1', 1], ['8192', 8192], ['8193', undefined], ['0', undefined], ['-1', undefined], ['abc', undefined], [null, undefined], ['', undefined], ['3.5', undefined]
+	])('parses query dimension %p', (input, expected) => {
+		expect(boundedQueryDimension(input)).toBe(expected);
 	});
 });

@@ -19,8 +19,17 @@ describe('HDR prewarm policy', () => {
 
 	it('counts eligible assets ahead, not album rows', () => {
 		expect(targetLookahead(assets, 0, { kind: 'count', value: 2 }).map((asset) => asset.id)).toEqual(['b', 'd']);
-		expect(targetLookahead(assets, 1, { kind: 'count', value: 1 }).map((asset) => asset.id)).toEqual(['d']);
 		expect(targetLookahead(assets, 0, { kind: 'all' }).map((asset) => asset.id)).toEqual(['b', 'd', 'e']);
+	});
+
+	// Root cause of UAT symptom 2/3 (hdr-caching-uat-20261010): the viewer's own current position
+	// was previously excluded (`position > activePosition`), so the photo actually on screen never
+	// got prewarmed and would always regenerate on open. The window must include the current
+	// position, not just what's strictly ahead of it.
+	it('includes the asset at the current position, not just what is strictly ahead', () => {
+		expect(targetLookahead(assets, 1, { kind: 'count', value: 1 }).map((asset) => asset.id)).toEqual(['b']);
+		expect(targetLookahead(assets, 1, { kind: 'count', value: 2 }).map((asset) => asset.id)).toEqual(['b', 'd']);
+		expect(targetLookahead(assets, 4, { kind: 'count', value: 10 }).map((asset) => asset.id)).toEqual(['e']);
 	});
 
 	it('does no automatic work for zero', () => expect(targetLookahead(assets, 0, 0)).toEqual([]));

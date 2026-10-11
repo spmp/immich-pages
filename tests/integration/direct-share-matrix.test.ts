@@ -43,9 +43,42 @@ describe('v3 direct-share matrix', () => {
 		expect(calls[1].url.pathname).toBe('/api/search/metadata');
 		expect(calls[1].url.search).toBe('?slug=opaque-ref');
 		expect(calls[1].init?.method).toBe('POST');
-		expect(JSON.parse(String(calls[1].init?.body))).toEqual({ albumIds: [v3.album.id], page: 1, size: 1000 });
+		// v3.album carries no explicit `order`, so the fallback must request Immich's own default
+		// chronological direction (desc, newest first) rather than leaving order unspecified and
+		// relying on whatever Immich's search endpoint defaults to on its own.
+		expect(JSON.parse(String(calls[1].init?.body))).toEqual({ albumIds: [v3.album.id], page: 1, size: 1000, order: 'desc' });
 		expect(new Headers(calls[1].init?.headers).get('cookie')).toBe('visitor=1');
 		expect(new Headers(calls[1].init?.headers).get('authorization')).toBe('Bearer visitor');
+	});
+
+	// Immich has no manual per-asset album ordering at any version (confirmed unresolved feature
+	// request as of this cycle's research); the only ordering control it exposes is the album's
+	// own chronological direction toggle (`order`: 'asc' | 'desc'). The nested-assets branch above
+	// only ever exercises a 2-item fixture, and the OTHER existing fallback test above uses a
+	// single asset, where reordering is unobservable either way. This test uses >= 2 assets on the
+	// EMPTY-nested branch (the one that actually runs in production, per this cycle's diagnosis) so
+	// a change to the requested order is actually observable in the result, not just in the request.
+	it('requests the album-configured chronological direction on the empty-nested fallback, observable at cardinality 2', async () => {
+		const second = { ...v3.assets[0], id: '22222222-2222-4222-8222-222222222222' };
+		const shared = { ...v3, assets: [], album: { ...v3.album, assetCount: 2, order: 'asc' as const } };
+		// Deliberately returned in a sequence that would look "wrong" if the adapter silently
+		// resorted by id or by date itself -- the adapter's own contract is to preserve whatever
+		// upstream hands back, not to impose a second client-side sort.
+		const upstreamOrder = [second, v3.assets[0]];
+		const calls: Array<{ url: URL; init?: RequestInit }> = [];
+		const fetchMock = vi.fn(async (input: URL | RequestInfo, init?: RequestInit) => {
+			const url = new URL(input.toString());
+			calls.push({ url, init });
+			if (url.pathname === '/api/shared-links/me') return new Response(JSON.stringify(shared));
+			return new Response(JSON.stringify({ albums: {}, assets: { items: upstreamOrder } }));
+		});
+
+		const result = await createImmichProvider(fetchMock, 'https://immich.example').getSharedLink({
+			shareRef: { kind: 'key', value: 'opaque-ref' }, cookie: 'visitor=1', authorization: null
+		});
+
+		expect(JSON.parse(String(calls[1].init?.body))).toEqual({ albumIds: [shared.album.id], page: 1, size: 1000, order: 'asc' });
+		expect(result.data?.assets.map((asset) => asset.id)).toEqual(upstreamOrder.map((asset) => asset.id));
 	});
 
 	it('preserves the ordered nested album asset sequence before metadata fallback', async () => {

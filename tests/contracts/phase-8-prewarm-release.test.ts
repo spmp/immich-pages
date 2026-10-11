@@ -28,8 +28,12 @@ describe('Phase 8 corrected prewarm release contract', () => {
 
 	it('enforces literal zero, count, all, and advancing active-window semantics', () => {
 		expect(policy).toContain("if (lookahead === 0) return []");
-		expect(policy).toContain("lookahead.kind === 'all' ? ahead : ahead.slice(0, lookahead.value)");
-		expect(policy).toContain('asset.position > position');
+		// hdr-caching-uat-20261010 root_cause (2)/(4): the window must include the viewer's OWN
+		// current position, not just what's strictly ahead of it -- updated from '>' to '>=' and
+		// from the prior variable name 'ahead' to 'fromHere' to make that inclusive semantics
+		// explicit at the call site, not just in a comment.
+		expect(policy).toContain("lookahead.kind === 'all' ? fromHere : fromHere.slice(0, lookahead.value)");
+		expect(policy).toContain('asset.position >= position');
 		expect(coordinator).toContain('targetAllEligible(projection.assets)');
 		expect(coordinator).toContain('targetLookahead(projection.assets, projection.activePosition, projection.lookahead)');
 		expect(coordinator).toContain("representation: HdrRepresentation");
@@ -40,9 +44,13 @@ describe('Phase 8 corrected prewarm release contract', () => {
 		expect(coordinator).toContain("avif: 'avif-gainmap-p3'");
 		expect(coordinator).toContain('outputContract: HDR_OUTPUT_CONTRACT[representation]');
 		expect(videoRoute).toContain("submitInteractive");
-		expect(videoRoute).toContain("}, 'video')");
+		// Specialist Review finding 1: both interactive routes must thread the real per-share scope
+		// (operationScope()) and that scope's own current generation through submitInteractive(),
+		// not rely on the coordinator's unscoped default -- otherwise a standalone interactive job
+		// is filed where that share's own readiness snapshot can never see it.
+		expect(videoRoute).toContain("}, 'video', coordinator.getScopedGeneration(scope), scope)");
 		expect(avifRoute).toContain("submitInteractive");
-		expect(avifRoute).toContain("}, 'avif')");
+		expect(avifRoute).toContain("}, 'avif', coordinator.getScopedGeneration(scope), scope)");
 		expect(browser).toContain("x-hdr-representation");
 		expect(readiness).toContain('preferredHdrRepresentation');
 	});

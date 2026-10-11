@@ -39,6 +39,16 @@ type JournalDebugDetails = {
 	slideTotal?: number;
 	routeWarning?: 'brouter-profile-unsupported' | 'brouter-endpoint-unsafe' | 'brouter-timeout' | 'brouter-response-too-large' | 'map-route-limit' | 'brouter-route-rejected' | 'brouter-request-failed' | 'brouter-response-invalid' | 'map-route-invalid' | 'brouter-permalink-invalid' | 'brouter-permalink-unsupported' | 'map-source-unsupported';
 	routeAction?: 'check-profile' | 'check-endpoint' | 'check-road-access' | 'reduce-route-size' | 'check-permalink' | 'check-map-source';
+	// hdr-caching-uat-20261010 finding 6c: the readiness control-plane's own decision-making,
+	// relayed to the server so a stuck/incorrect dot can be debugged from server logs alone.
+	// Deliberately NO asset ID anywhere here -- this file's own documented convention (see the
+	// comment on the forwarding fetch below) is that no asset IDs cross this boundary client-side.
+	readinessState?: 'idle' | 'unsupported' | 'empty' | 'preparing' | 'ready' | 'partial';
+	targeted?: number;
+	completed?: number;
+	failed?: number;
+	skipped?: number;
+	activeAssetState?: 'ineligible' | 'queued' | 'running' | 'succeeded' | 'failed' | 'skipped' | 'unavailable';
 };
 
 export const journalDebugEnabled = env.PUBLIC_PAGES_DEBUG === 'true';
@@ -91,7 +101,13 @@ export function reportJournalDebug(event: JournalDebugEvent, details: JournalDeb
 		...(details.slideIndex === undefined ? {} : { slideIndex: Math.max(0, Math.min(10000, Math.floor(details.slideIndex))) }),
 		...(details.slideTotal === undefined ? {} : { slideTotal: Math.max(0, Math.min(10000, Math.floor(details.slideTotal))) }),
 		...(details.routeWarning ? { routeWarning: details.routeWarning } : {}),
-		...(details.routeAction ? { routeAction: details.routeAction } : {})
+		...(details.routeAction ? { routeAction: details.routeAction } : {}),
+		...(details.readinessState ? { readinessState: details.readinessState } : {}),
+		...(details.targeted === undefined ? {} : { targeted: Math.max(0, Math.min(10000, Math.floor(details.targeted))) }),
+		...(details.completed === undefined ? {} : { completed: Math.max(0, Math.min(10000, Math.floor(details.completed))) }),
+		...(details.failed === undefined ? {} : { failed: Math.max(0, Math.min(10000, Math.floor(details.failed))) }),
+		...(details.skipped === undefined ? {} : { skipped: Math.max(0, Math.min(10000, Math.floor(details.skipped))) }),
+		...(details.activeAssetState ? { activeAssetState: details.activeAssetState } : {})
 	};
 	console.info('[immich-pages-debug]', JSON.stringify(payload));
 	// Browser console output is not present in the server/container log. Forward only the first

@@ -37,7 +37,11 @@
 	const resolvedThumbnailSource = $derived(resolve(asset.thumbnail as any));
 	const resolvedFullsizeSource = $derived(asset.fullsize ? resolve(asset.fullsize as any) : null);
 	const resolvedHdrSource = $derived(asset.hdrHref ? addResolutionQuery(resolve(asset.hdrHref as any), hdrTarget) : null);
-	const resolvedHdrAvifSource = $derived(asset.hdrAvifHref ? resolve(asset.hdrAvifHref as any) : null);
+	// Same bounded target as the video candidate above -- the AVIF interactive route previously
+	// never received width/height at all, so its cache key was always 'auto':'auto' while the
+	// background prewarm path for the 'avif' representation keyed on the asset's real dimensions,
+	// an unconditional miss for every AVIF prewarm entry (hdr-caching-uat-20261010 finding 4).
+	const resolvedHdrAvifSource = $derived(asset.hdrAvifHref ? addResolutionQuery(resolve(asset.hdrAvifHref as any), hdrTarget) : null);
 	const fullsizeAvailable = $derived(Boolean(asset.fullsize));
 	// AVIF is preferred whenever it's known (or forced) to render as real HDR -- its gain map
 	// degrades to a correct, identical-looking SDR image on any decoder that ignores it, so the

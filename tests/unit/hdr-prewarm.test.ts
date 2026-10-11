@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
-import { HdrPrewarmCoordinator, type AuthorizedHdrProjection } from '../../src/lib/server/media/hdr-prewarm';
+import { HdrPrewarmCoordinator, HDR_OUTPUT_CONTRACT, type AuthorizedHdrProjection } from '../../src/lib/server/media/hdr-prewarm';
+import { buildHdrCacheKey } from '../../src/lib/server/media/hdr-cache';
 import { redactHdrProgress, redactHdrProgressEvent } from '../../src/lib/server/media/hdr-progress';
 
 const projection = (generation = 0, sourceIdentity = 'etag-1'): AuthorizedHdrProjection => ({
@@ -61,10 +62,53 @@ describe('HDR prewarm coordinator', () => {
 		expect(coordinator.inspectSourceBytes()).toBe(0);
 	});
 
+	// Specialist Review finding 1 (hdr-caching-uat-20261010): interactive routes previously called
+	// submitInteractive()/ensureInteractive() with no scope at all, so a standalone interactive job
+	// (one with no corresponding background job already queued, e.g. a representation or asset
+	// outside the current prewarm window) was always filed under the coordinator's own internal
+	// 'default' bucket -- never under the real per-share scope that readiness reporting filters by
+	// (snapshot()). That job byte-serving still worked (the promise still resolves), but it was
+	// permanently invisible to that share's own readiness snapshot. Threading the real scope through
+	// fixes the attribution.
+	it('attributes a standalone interactive job (no prior background job) to the real share scope, not the internal default bucket', async () => {
+		const convert = vi.fn(async () => ({ body: new Uint8Array([9]), contentType: 'video/mp4' }));
+		const coordinator = new HdrPrewarmCoordinator({ convert });
+		const scope = 'share-key-standalone';
+		const asset = { id: 'asset-standalone', eligible: true, position: 0, sourceIdentity: 'standalone-etag', sourceBytes: new Uint8Array([1, 2, 3]) };
+		const generation = coordinator.getScopedGeneration(scope);
+		await coordinator.submitInteractive(asset, 'video', generation, scope);
+		expect(convert).toHaveBeenCalledTimes(1);
+		expect(coordinator.snapshot(generation, 'video', scope)).toMatchObject({ targeted: 1, completed: 1 });
+		expect(coordinator.snapshot(coordinator.getGeneration(), 'video', 'default')).toMatchObject({ targeted: 0 });
+	});
+
+	it('jobState exposes a job status by cache key for per-asset readiness, and "none" for an unknown key', async () => {
+		const convert = vi.fn(async () => ({ body: new Uint8Array([1]), contentType: 'video/mp4' }));
+		const coordinator = new HdrPrewarmCoordinator({ convert });
+		const asset = { id: 'asset-state', eligible: true, position: 0, sourceIdentity: 'state-etag', sourceBytes: new Uint8Array([4, 5, 6]), width: undefined, height: undefined };
+		const key = buildHdrCacheKey({ assetId: asset.id, sourceIdentity: asset.sourceIdentity, width: asset.width, height: asset.height, outputContract: HDR_OUTPUT_CONTRACT.video });
+		expect(coordinator.jobState(key)).toBe('none');
+		coordinator.schedule({ assets: [asset], activePosition: -1, lookahead: { kind: 'all' }, generation: 0, scope: 'share-key-state' }, 'video', 'background');
+		// run() flips a job straight to 'running' synchronously (before its first await), so
+		// 'queued' is only ever observable for a job still waiting on the bounded scheduler.
+		expect(['running', 'queued']).toContain(coordinator.jobState(key));
+		await vi.waitFor(() => expect(coordinator.jobState(key)).toBe('succeeded'));
+	});
+
 	it('redacts progress to bounded representation-specific aggregates and safe event IDs', () => {
 		const snapshot = redactHdrProgress({ generation: 99, representation: 'avif', state: 'ready', targeted: 1_000_000, queued: -1, running: 2, completed: 3, failed: 4, skipped: 5 });
 		expect(snapshot).toEqual({ generation: 99, representation: 'avif', state: 'ready', targeted: 100_000, queued: 0, running: 2, completed: 3, failed: 4, skipped: 5 });
 		expect(redactHdrProgressEvent('completed', 'avif', 'req-123')).toEqual({ category: 'completed', representation: 'avif', requestId: 'req-123' });
 		expect(redactHdrProgressEvent('failed', 'video', 'https://secret/share/key')).toEqual({ category: 'failed', representation: 'video' });
+	});
+
+	// Per-asset readiness (hdr-caching-uat-20261010 root_cause (3)): activeAssetState must survive
+	// redaction when present, but stay absent entirely (not even as `undefined`) when the caller
+	// never computed one -- existing callers' exact-shape `toEqual` assertions above must keep
+	// passing unchanged.
+	it('passes activeAssetState through redaction when present, restricted to the known enum', () => {
+		expect(redactHdrProgress({ generation: 1, representation: 'video', state: 'ready', targeted: 1, queued: 0, running: 0, completed: 1, failed: 0, skipped: 0, activeAssetState: 'succeeded' })).toMatchObject({ activeAssetState: 'succeeded' });
+		expect(redactHdrProgress({ generation: 1, representation: 'video', state: 'ready', targeted: 1, queued: 0, running: 0, completed: 1, failed: 0, skipped: 0, activeAssetState: 'not-a-real-state' as never })).not.toHaveProperty('activeAssetState');
+		expect(redactHdrProgress({ generation: 1, representation: 'video', state: 'ready', targeted: 0, queued: 0, running: 0, completed: 0, failed: 0, skipped: 0 })).not.toHaveProperty('activeAssetState');
 	});
 });

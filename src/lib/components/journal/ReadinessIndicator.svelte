@@ -2,8 +2,13 @@
 	import { onMount } from 'svelte';
 	import { preferredHdrRepresentation } from '$lib/media/capabilities';
 	import { resolveHdrReadiness } from '$lib/media/hdr-readiness';
+	import { reportJournalDebug } from './journal-debug';
 
 	type ReadinessState = 'idle' | 'unsupported' | 'empty' | 'preparing' | 'ready' | 'partial';
+	// Status of the ONE asset the viewer currently has open -- computed server-side, see
+	// prewarm/+server.ts and hdr-caching-uat-20261010 root_cause (3). Absent on an older/degraded
+	// response, in which case resolveHdrReadiness falls back to the aggregate window math alone.
+	type ActiveAssetState = 'ineligible' | 'queued' | 'running' | 'succeeded' | 'failed' | 'skipped' | 'unavailable';
 	type Progress = {
 		state: ReadinessState;
 		targeted: number;
@@ -12,6 +17,7 @@
 		completed: number;
 		failed: number;
 		skipped: number;
+		activeAssetState?: ActiveAssetState;
 	};
 
 	let { enabled, activeAssetId, activePosition = 0 }: { enabled: boolean; activeAssetId?: string; activePosition?: number } = $props();
@@ -19,10 +25,13 @@
 	let progress = $state<Progress>({ state: 'ready', targeted: 0, queued: 0, running: 0, completed: 0, failed: 0, skipped: 0 });
 
 	const isState = (value: unknown): value is ReadinessState => value === 'preparing' || value === 'ready' || value === 'partial' || value === 'empty' || value === 'unsupported' || value === 'idle';
+	const isActiveAssetState = (value: unknown): value is ActiveAssetState => value === 'ineligible' || value === 'queued' || value === 'running' || value === 'succeeded' || value === 'failed' || value === 'skipped' || value === 'unavailable';
 	const isProgress = (value: unknown): value is Progress => {
 		if (!value || typeof value !== 'object') return false;
 		const candidate = value as Record<string, unknown>;
-		return isState(candidate.state) && ['targeted', 'queued', 'running', 'completed', 'failed', 'skipped'].every((key) => typeof candidate[key] === 'number' && Number.isSafeInteger(candidate[key]) && candidate[key] >= 0);
+		if (!isState(candidate.state)) return false;
+		if (!['targeted', 'queued', 'running', 'completed', 'failed', 'skipped'].every((key) => typeof candidate[key] === 'number' && Number.isSafeInteger(candidate[key]) && candidate[key] >= 0)) return false;
+		return candidate.activeAssetState === undefined || isActiveAssetState(candidate.activeAssetState);
 	};
 
 	onMount(() => {
@@ -55,9 +64,24 @@
 				const value: unknown = await response.json();
 				if (isProgress(value)) {
 					progress = resolveHdrReadiness(value, { supported: true });
-					readinessState = value.targeted === 0 ? 'empty' : progress.state;
+					// 'empty' (dot hidden entirely) covers two distinct cases: the legacy aggregate
+					// signal of "nothing in the whole window" (only meaningful when the server
+					// hasn't computed a per-asset signal at all), and "this specific photo isn't an
+					// HDR candidate" (activeAssetState: 'ineligible'). Anything else defers to the
+					// already-resolved, per-asset-aware progress.state from resolveHdrReadiness.
+					readinessState = value.activeAssetState === 'ineligible' || (value.activeAssetState === undefined && value.targeted === 0) ? 'empty' : progress.state;
+					// Readiness/control-plane debug event (hdr-caching-uat-20261010 finding 6c, user-
+					// requested): built field-by-field from only the already-bounded Progress fields,
+					// never spread -- no asset ID crosses this boundary, matching journal-debug.ts's
+					// own documented convention for every other client-debug event.
+					reportJournalDebug('hdr-prewarm', { readinessState: progress.state, targeted: progress.targeted, completed: progress.completed, failed: progress.failed, skipped: progress.skipped, ...(progress.activeAssetState ? { activeAssetState: progress.activeAssetState } : {}) });
+					// Re-poll on the resolved, per-asset-aware state, not the raw aggregate
+					// value.state -- see hdr-caching-uat-20261010 root_cause (3): a window that
+					// reports 'ready' while the one asset the viewer is actually waiting on is
+					// still queued or running must not stop polling before that photo specifically
+					// is confirmed ready.
+					if (!stopped && progress.state === 'preparing') timer = window.setTimeout(() => void poll(), 2000);
 				}
-				if (!stopped && isProgress(value) && value.state === 'preparing') timer = window.setTimeout(() => void poll(), 2000);
 			} catch {
 				if (!stopped) {
 					readinessState = 'partial';

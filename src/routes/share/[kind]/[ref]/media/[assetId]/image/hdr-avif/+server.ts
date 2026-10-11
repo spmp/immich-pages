@@ -2,7 +2,7 @@ import type { RequestHandler } from './$types';
 import { authContextFromRequest } from '$server/immich/auth-context';
 import { createImmichProvider } from '$server/immich/provider';
 import { inferSafeImageMime, readBoundedBytes, IMMICH_MAX_ORIGINAL_BYTES } from '$server/immich/client';
-import { parseSharedLinkRef } from '$server/share/ref';
+import { operationScope, parseSharedLinkRef } from '$server/share/ref';
 import { z } from 'zod';
 import { extractImmichShareToken, PAGES_SESSION_COOKIE, sessionForShare } from '$server/share/session';
 import { logHdrDiagnostic, logShareMediaStatus } from '$server/share/diagnostics';
@@ -11,6 +11,7 @@ import { buildHdrCacheKey, buildHdrSourceIdentity, getCachedHdr, HDR_CACHE_TTL_M
 import { getHdrInteractiveCoordinator } from '$server/media/hdr-prewarm';
 import { extractAppleHdrMetadata } from '$server/media/hdr-metadata';
 import { buildHdrMetadataCacheKey, getCachedHdrMetadata, getOrExtractHdrMetadata } from '$server/media/hdr-metadata-cache';
+import { boundedQueryDimension } from '$lib/media/resolution';
 
 const noStore = { 'cache-control': 'private, no-store' };
 const unavailable = () => new Response('HDR unavailable', { status: 404, headers: noStore });
@@ -44,7 +45,14 @@ export const GET: RequestHandler = async ({ params, request, cookies, fetch, loc
 		source.response.headers.get('content-length')
 	].filter(Boolean).join('|') || `asset-${params.assetId}`;
 	const metadataCacheKey = buildHdrMetadataCacheKey({ assetId: params.assetId, sourceIdentity: headerSourceIdentity });
-	logHdrDiagnostic({ event: 'request', assetId: params.assetId, requestId, phase: 'lookup', status: 'started', source: 'upstream' });
+	// hdr-caching-uat-20261010 finding 4: this route previously never read width/height at all, so
+	// its cache key was always 'auto':'auto' while the background prewarm path for the 'avif'
+	// representation keyed on the asset's real dimensions -- a guaranteed, unconditional miss for
+	// every AVIF prewarm entry. Parse the SAME way the video route (/image/hdr) already does.
+	const requestUrl = new URL(request.url);
+	const requestedWidth = boundedQueryDimension(requestUrl.searchParams.get('width'));
+	const requestedHeight = boundedQueryDimension(requestUrl.searchParams.get('height'));
+	logHdrDiagnostic({ event: 'request', assetId: params.assetId, requestId, phase: 'lookup', status: 'started', source: 'upstream', width: requestedWidth, height: requestedHeight });
 	const cachedMetadata = getCachedHdrMetadata(metadataCacheKey);
 	if (cachedMetadata.hit && !cachedMetadata.value) {
 		logShareMediaStatus({ media: 'fullsize', status: 'failure', statusCode: 404, failureCategory: 'not-found', failureReason: 'metadata-invalid' });
@@ -57,7 +65,7 @@ export const GET: RequestHandler = async ({ params, request, cookies, fetch, loc
 	if (cachedMetadata.hit && cachedMetadata.value) {
 		const metadata = cachedMetadata.value;
 		const sourceIdentity = buildHdrSourceIdentity({ headers: source.response.headers, assetId: params.assetId, metadata });
-		const cached = sourceIdentity ? getCachedHdr(buildHdrCacheKey({ assetId: params.assetId, sourceIdentity, outputContract: 'avif-gainmap-p3' })) : undefined;
+		const cached = sourceIdentity ? getCachedHdr(buildHdrCacheKey({ assetId: params.assetId, sourceIdentity, width: requestedWidth, height: requestedHeight, outputContract: 'avif-gainmap-p3' })) : undefined;
 		if (cached) {
 			await source.response.body?.cancel().catch(() => {});
 			logHdrDiagnostic({ event: 'source', assetId: params.assetId, requestId, phase: 'lookup', source: 'cache', status: 'hit', contentType: cached.contentType, byteLength: cached.body.byteLength, durationMs: Date.now() - requestStartedAt });
@@ -90,7 +98,12 @@ export const GET: RequestHandler = async ({ params, request, cookies, fetch, loc
 		let output;
 		try {
 			const sourceIdentity = buildHdrSourceIdentity({ headers: source.response.headers, assetId: params.assetId, metadata, byteLength: input.byteLength });
-			output = await getHdrInteractiveCoordinator().submitInteractive({ id: params.assetId, eligible: true, position: 0, sourceIdentity, sourceBytes: input.slice(), metadata }, 'avif');
+			// scope/generation must match the background prewarm schedule() call for this exact
+			// share (operationScope()) -- see the identical comment in /image/hdr's +server.ts and
+			// Specialist Review finding 1, .planning/debug/hdr-caching-uat-20261010.md.
+			const scope = operationScope(shareRef);
+			const coordinator = getHdrInteractiveCoordinator();
+			output = await coordinator.submitInteractive({ id: params.assetId, eligible: true, position: 0, sourceIdentity, sourceBytes: input.slice(), metadata, width: requestedWidth, height: requestedHeight }, 'avif', coordinator.getScopedGeneration(scope), scope);
 		} catch (error) {
 			const failureReason = nativeFailureReason(error);
 			logHdrDiagnostic({ event: 'conversion', assetId: params.assetId, requestId, phase: 'failed', source: 'conversion', status: 'failure', reason: nativeFailureDetail(error), durationMs: Date.now() - requestStartedAt });

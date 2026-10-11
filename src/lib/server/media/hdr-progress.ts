@@ -9,6 +9,7 @@ export type HdrProgressCategory = 'queued' | 'started' | 'completed' | 'skipped'
 
 const representations = new Set<HdrRepresentation>(['video', 'avif']);
 const states = new Set<HdrProgressSnapshot['state']>(['preparing', 'ready', 'partial']);
+const activeAssetStates = new Set<NonNullable<HdrProgressSnapshot['activeAssetState']>>(['ineligible', 'queued', 'running', 'succeeded', 'failed', 'skipped', 'unavailable']);
 
 /**
  * Copy only the aggregate fields that are safe to return to a browser. In
@@ -20,6 +21,7 @@ export function redactHdrProgress(snapshot: HdrProgressSnapshot): HdrProgressSna
 	const generation = Number.isSafeInteger(snapshot.generation) ? Math.max(0, Math.min(snapshot.generation, HDR_PREWARM_MAX_GENERATION)) : 0;
 	const representation = representations.has(snapshot.representation) ? snapshot.representation : 'video';
 	const state = states.has(snapshot.state) ? snapshot.state : 'partial';
+	const activeAssetState = snapshot.activeAssetState && activeAssetStates.has(snapshot.activeAssetState) ? snapshot.activeAssetState : undefined;
 	return {
 		generation,
 		representation,
@@ -29,7 +31,8 @@ export function redactHdrProgress(snapshot: HdrProgressSnapshot): HdrProgressSna
 		running: bounded(snapshot.running),
 		completed: bounded(snapshot.completed),
 		failed: bounded(snapshot.failed),
-		skipped: bounded(snapshot.skipped)
+		skipped: bounded(snapshot.skipped),
+		...(activeAssetState ? { activeAssetState } : {})
 	};
 }
 

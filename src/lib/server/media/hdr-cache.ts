@@ -95,7 +95,7 @@ export function getHdrCacheState(): { entries: number; bytes: number; inFlight: 
 	return { entries: entries.size, bytes: totalBytes, inFlight: inFlight.size, activeConversions, waitingConversions: waitingConversions.length, interactiveWaitingConversions: waitingConversions.filter((item) => item.priority === 'interactive').length };
 }
 
-function cacheSuccessful(key: string, value: CachedMedia): CachedMedia {
+function cacheSuccessful(key: string, value: CachedMedia, assetId?: string): CachedMedia {
 	if (!(value.body instanceof Uint8Array) || value.body.byteLength === 0 || value.body.byteLength > HDR_CACHE_MAX_BYTES) return value;
 	if (!/^(video\/mp4|image\/avif)$/i.test(value.contentType)) return value;
 	const old = entries.get(key);
@@ -103,15 +103,19 @@ function cacheSuccessful(key: string, value: CachedMedia): CachedMedia {
 	entries.delete(key);
 	entries.set(key, { value, expiresAt: Date.now() + HDR_CACHE_TTL_MS, bytes: value.body.byteLength });
 	totalBytes += value.body.byteLength;
-	console.info(JSON.stringify({ event: 'direct-share.hdr-cache-store', bytes: value.body.byteLength, cacheEntries: entries.size, cacheBytes: totalBytes }));
+	// assetId + the full cache key (hdr-caching-uat-20261010 finding 6a): without these, no log
+	// could identify WHICH asset a given miss/hit/store was for. The key is already sanitized by
+	// buildHdrCacheKey's own safe() escaping -- it contains pipeline/output facts, never auth
+	// material -- so it is safe to log verbatim, same as the rest of this module's diagnostics.
+	console.info(JSON.stringify({ event: 'direct-share.hdr-cache-store', assetId, cacheKey: key, bytes: value.body.byteLength, cacheEntries: entries.size, cacheBytes: totalBytes }));
 	evict(Date.now());
 	return value;
 }
 
-export function getOrCreateHdr(key: string, create: () => Promise<CachedMedia>, now = Date.now(), priority: HdrConversionPriority = 'background'): Promise<CachedMedia> {
+export function getOrCreateHdr(key: string, create: () => Promise<CachedMedia>, now = Date.now(), priority: HdrConversionPriority = 'background', assetId?: string): Promise<CachedMedia> {
 	const cached = getCachedHdr(key, now);
 	if (cached) {
-		console.info(JSON.stringify({ event: 'direct-share.hdr-cache-hit', cacheEntries: entries.size, cacheBytes: totalBytes }));
+		console.info(JSON.stringify({ event: 'direct-share.hdr-cache-hit', assetId, cacheKey: key, cacheEntries: entries.size, cacheBytes: totalBytes }));
 		return Promise.resolve(cached);
 	}
 	const current = inFlight.get(key);
@@ -120,11 +124,11 @@ export function getOrCreateHdr(key: string, create: () => Promise<CachedMedia>, 
 			const queued = queuedConversions.get(key);
 			if (queued) queued.priority = 'interactive';
 		}
-		console.info(JSON.stringify({ event: 'direct-share.hdr-cache-inflight-join', inFlight: inFlight.size }));
+		console.info(JSON.stringify({ event: 'direct-share.hdr-cache-inflight-join', assetId, cacheKey: key, inFlight: inFlight.size }));
 		return current;
 	}
-	console.info(JSON.stringify({ event: 'direct-share.hdr-cache-miss', cacheEntries: entries.size, cacheBytes: totalBytes }));
-	const promise = create().then((value) => cacheSuccessful(key, value)).finally(() => inFlight.delete(key));
+	console.info(JSON.stringify({ event: 'direct-share.hdr-cache-miss', assetId, cacheKey: key, cacheEntries: entries.size, cacheBytes: totalBytes }));
+	const promise = create().then((value) => cacheSuccessful(key, value, assetId)).finally(() => inFlight.delete(key));
 	inFlight.set(key, promise);
 	return promise;
 }
@@ -192,7 +196,9 @@ export function getHdrCacheBackendConfig(): { backend: HdrCacheBackendName; dire
 
 export const memoryHdrCacheBackend: HdrCacheBackend = {
 	get: getCachedHdr,
-	put: cacheSuccessful,
+	// cacheSuccessful's 3rd parameter is an optional assetId (for logging), not the backend
+	// interface's own optional `now` -- adapt rather than widen the public interface's shape.
+	put: (key, value) => cacheSuccessful(key, value),
 	delete: (key) => { const entry = entries.get(key); entries.delete(key); totalBytes -= entry?.bytes ?? 0; },
 	clear: clearHdrCache,
 	stats: () => ({ entries: entries.size, bytes: totalBytes, inFlight: inFlight.size })

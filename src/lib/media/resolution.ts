@@ -34,3 +34,10 @@ export function selectTargetResolution(
 	const targetHeight = Math.max(1, Math.floor(height * scale));
 	return { width: targetWidth, height: targetHeight, requestedWidth, requestedHeight, bounded: scale < 1, aspectRatio: width / height };
 }
+
+/** Parse a ?width=/?height= query string value into a bounded positive integer, or undefined. Shared by both interactive HDR media routes so their cache-key dimension parsing stays identical. */
+export function boundedQueryDimension(value: string | null): number | undefined {
+	if (!value || !/^\d+$/.test(value)) return undefined;
+	const parsed = Number(value);
+	return Number.isSafeInteger(parsed) && parsed >= 1 && parsed <= 8192 ? parsed : undefined;
+}

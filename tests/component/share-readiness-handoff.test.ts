@@ -40,4 +40,24 @@ describe('share readiness handoff', () => {
 		expect(indicator).toContain('if (!response.ok)');
 		expect(indicator).not.toMatch(/sourceIdentity|sourceBytes|cookie|authorization|requestId/);
 	});
+
+	// hdr-caching-uat-20261010 root_cause (3): the dot must reflect the status of the viewer's OWN
+	// active asset, not only the aggregate prewarm window -- the server-computed activeAssetState
+	// must be accepted by the response validator and passed through to resolveHdrReadiness, not
+	// silently dropped by a shape check that only knows about the older aggregate fields.
+	it('accepts and forwards the server\'s per-asset activeAssetState, not just the aggregate window', () => {
+		const indicator = read('src/lib/components/journal/ReadinessIndicator.svelte');
+		expect(indicator).toContain('activeAssetState');
+		expect(indicator).toContain('resolveHdrReadiness(value,');
+	});
+
+	it('hides the dot only for an ineligible active asset or a genuinely empty legacy window, and re-polls on the per-asset state, not the raw aggregate one', () => {
+		const indicator = read('src/lib/components/journal/ReadinessIndicator.svelte');
+		expect(indicator).toContain("value.activeAssetState === 'ineligible'");
+		// The re-poll decision must use the already-resolved, per-asset-aware progress.state --
+		// using the raw aggregate value.state here would re-introduce root_cause (3): a window
+		// that reports 'ready' while the one asset the viewer is actually waiting on is still
+		// queued or running would stop polling before that photo is actually confirmed ready.
+		expect(indicator).toContain("progress.state === 'preparing'");
+	});
 });

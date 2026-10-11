@@ -170,6 +170,32 @@ export function logShareHeroSelection({ selection }: { selection: 'configured-fi
 	console.info(JSON.stringify({ event: 'direct-share.hero-selection', selection }));
 }
 
+/**
+ * hdr-caching-uat-20261010 finding 6b: no /prewarm POST was previously logged server-side at all,
+ * so a 400/403/409/502 from this exact control-plane endpoint -- or simply which assets a given
+ * poll targeted -- was invisible. activeAssetId/targetedAssetIds are share-scoped Immich asset
+ * UUIDs, already an established precedent elsewhere in this module (logHdrDiagnostic's assetId).
+ */
+export function logHdrPrewarmRequest({ status, activePosition, activeAssetId, targetedAssetIds, activeAssetState }: {
+	status: number;
+	activePosition?: number;
+	activeAssetId?: string;
+	targetedAssetIds?: readonly string[];
+	activeAssetState?: 'ineligible' | 'queued' | 'running' | 'succeeded' | 'failed' | 'skipped' | 'unavailable';
+}) {
+	const safeId = (value: string) => value.replace(/[^A-Za-z0-9._-]/g, '').slice(0, 80);
+	const safeActiveAssetId = activeAssetId ? safeId(activeAssetId) : undefined;
+	const safeTargeted = targetedAssetIds ? targetedAssetIds.slice(0, 200).map(safeId) : undefined;
+	console.info(JSON.stringify({
+		event: 'direct-share.hdr-prewarm-request',
+		statusCode: Math.max(0, Math.min(999, Math.trunc(status))),
+		...(activePosition === undefined ? {} : { activePosition: Math.max(0, Math.min(100_000, Math.trunc(activePosition))) }),
+		...(safeActiveAssetId ? { activeAssetId: safeActiveAssetId } : {}),
+		...(activeAssetState ? { activeAssetState } : {}),
+		...(safeTargeted ? { targetedAssetIds: safeTargeted, targetedCount: safeTargeted.length } : {})
+	}));
+}
+
 export function logVisitedShareRegistry({ phase, result, entryCount }: {
 	phase: 'register' | 'decode';
 	result: 'success' | 'unavailable' | 'empty';

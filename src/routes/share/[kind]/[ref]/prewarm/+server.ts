@@ -5,12 +5,14 @@ import { authContextFromRequest } from '$server/immich/auth-context';
 import { createImmichProvider } from '$server/immich/provider';
 import { inferSafeImageMime, IMMICH_MAX_ORIGINAL_BYTES, readBoundedBytes } from '$server/immich/client';
 import { extractAppleHdrMetadata } from '$server/media/hdr-metadata';
-import { getHdrInteractiveCoordinator, type AuthorizedHdrAsset, type HdrProgressSnapshot } from '$server/media/hdr-prewarm';
-import { buildHdrSourceIdentity } from '$server/media/hdr-cache';
+import { getHdrInteractiveCoordinator, HDR_OUTPUT_CONTRACT, type AuthorizedHdrAsset, type HdrActiveAssetState, type HdrProgressSnapshot } from '$server/media/hdr-prewarm';
+import { buildHdrCacheKey, buildHdrSourceIdentity } from '$server/media/hdr-cache';
 import { parseHdrLookahead, targetLookahead, type HdrProjectionAsset } from '$server/media/hdr-prewarm-policy';
 import { emptyHdrProgress, emitHdrProgressEvent, HDR_PREWARM_MAX_BODY_BYTES, HDR_PREWARM_MAX_GENERATION, HDR_PREWARM_MAX_POLL, HDR_PREWARM_MAX_POSITION, progressHeaders, redactHdrProgress } from '$server/media/hdr-progress';
-import { parseSharedLinkRef } from '$server/share/ref';
+import { operationScope, parseSharedLinkRef } from '$server/share/ref';
 import { extractImmichShareToken, PAGES_SESSION_COOKIE, sessionForShare } from '$server/share/session';
+import { logHdrPrewarmRequest } from '$server/share/diagnostics';
+import { selectTargetResolution } from '$lib/media/resolution';
 
 const CommandSchema = z.object({
 	activeAssetId: z.string().uuid().max(64),
@@ -21,10 +23,6 @@ const CommandSchema = z.object({
 }).strict();
 
 type EndpointEvent = Parameters<RequestHandler>[0];
-
-function operationScope(ref: NonNullable<ReturnType<typeof parseSharedLinkRef>>): string {
-	return `share-${ref.kind}-${ref.value}`.replace(/[^A-Za-z0-9._:-]/g, '_').slice(0, 160);
-}
 
 function response(snapshot: HdrProgressSnapshot, status = 200): Response {
 	return json(redactHdrProgress(snapshot), { status, headers: progressHeaders() });
@@ -66,7 +64,7 @@ function projectionAsset(asset: { id: string; type: string; originalMimeType?: s
 	return { id: asset.id, position, eligible: asset.type === 'IMAGE' && (mime === 'image/heic' || mime === 'image/heif'), sourceIdentity: `${asset.id}:${mime ?? 'unknown'}:${asset.width ?? 'auto'}x${asset.height ?? 'auto'}`, width: asset.width ?? undefined, height: asset.height ?? undefined };
 }
 
-async function authorizedAssets(event: EndpointEvent, command: z.infer<typeof CommandSchema>, provider: ReturnType<typeof createImmichProvider>, context: Parameters<ReturnType<typeof createImmichProvider>['getSharedLink']>[0], scope: string): Promise<{ status: number; generation: number; assets?: AuthorizedHdrAsset[]; snapshot?: HdrProgressSnapshot }> {
+async function authorizedAssets(event: EndpointEvent, command: z.infer<typeof CommandSchema>, provider: ReturnType<typeof createImmichProvider>, context: Parameters<ReturnType<typeof createImmichProvider>['getSharedLink']>[0], scope: string): Promise<{ status: number; generation: number; assets?: AuthorizedHdrAsset[]; activeEligible?: boolean; snapshot?: HdrProgressSnapshot }> {
 	const coordinator = getHdrInteractiveCoordinator();
 	const generation = coordinator.getScopedGeneration(scope);
 	if (command.generation !== undefined && command.generation !== generation) return { status: 409, generation, snapshot: emptyHdrProgress(generation, command.representation, 'partial') };
@@ -77,6 +75,10 @@ async function authorizedAssets(event: EndpointEvent, command: z.infer<typeof Co
 	const active = sourceAssets[command.activePosition];
 	if (!active || active.id !== command.activeAssetId) return { status: 400, generation, snapshot: emptyHdrProgress(generation, command.representation, 'partial') };
 	const projection = sourceAssets.map((asset, position) => projectionAsset(asset, position));
+	// Per-asset readiness (root_cause (3), hdr-caching-uat-20261010): the viewer's own active asset
+	// may simply not be an HDR candidate at all (not HEIC/HEIF) -- that must report 'ineligible'
+	// up front, distinct from 'unavailable' (eligible but this specific fetch/extraction failed).
+	const activeEligible = projection[command.activePosition]?.eligible ?? false;
 	const targets = targetLookahead(projection, command.activePosition, parseHdrLookahead());
 	const assets: AuthorizedHdrAsset[] = [];
 	for (const target of targets) {
@@ -93,27 +95,40 @@ async function authorizedAssets(event: EndpointEvent, command: z.infer<typeof Co
 				// routes. A MIME/dimension identity is not equivalent to the media route's
 				// upstream identity and silently causes a second conversion on swipe.
 				const sourceIdentity = buildHdrSourceIdentity({ headers: source.response.headers, assetId: target.id, metadata, byteLength: bytes.byteLength });
-				assets.push({ ...target, sourceIdentity, sourceBytes: bytes, metadata });
+				// Bound to the SAME scaled target the interactive route's client computes via
+				// selectTargetResolution before it ever sends a ?width=/?height= query -- keying
+				// on the raw Immich asset dimensions here only coincided with the interactive
+				// route's key while the source stayed under 8192px/32MP, where scale is exactly 1.
+				// Any larger source would otherwise permanently miss. See hdr-caching-uat-20261010
+				// finding 5.
+				const bounded = selectTargetResolution(target.width, target.height);
+				assets.push({ ...target, sourceIdentity, width: bounded?.width ?? target.width, height: bounded?.height ?? target.height, sourceBytes: bytes, metadata });
 			}
 			else bytes.fill(0);
 		} catch {
 			await source.response.body?.cancel().catch(() => {});
 		}
 	}
-	return { status: 200, generation, assets };
+	return { status: 200, generation, assets, activeEligible };
 }
 
 export const POST: RequestHandler = async (event) => {
 	const shareRef = parseSharedLinkRef(event.params.kind, event.params.ref);
 	const representation = event.request.headers.get('x-hdr-representation') === 'avif' ? 'avif' : 'video';
-	if (!shareRef) return response(emptyHdrProgress(0, representation, 'partial'), 404);
+	// hdr-caching-uat-20261010 finding 6b: no /prewarm POST was previously logged server-side at
+	// all, so a rejection from this exact control-plane endpoint was invisible. Every return path
+	// below logs its own outcome -- status, activePosition, activeAssetId, targetedAssetIds, and
+	// (only once known) activeAssetState.
+	if (!shareRef) { logHdrPrewarmRequest({ status: 404 }); return response(emptyHdrProgress(0, representation, 'partial'), 404); }
 	let command: z.infer<typeof CommandSchema>;
 	try {
 		const parsed = CommandSchema.safeParse(await readJson(event.request));
-		if (!parsed.success) return response(emptyHdrProgress(getHdrInteractiveCoordinator().getGeneration(), representation, 'partial'), 400);
+		if (!parsed.success) { logHdrPrewarmRequest({ status: 400 }); return response(emptyHdrProgress(getHdrInteractiveCoordinator().getGeneration(), representation, 'partial'), 400); }
 		command = parsed.data;
 	} catch (error) {
-		return response(emptyHdrProgress(getHdrInteractiveCoordinator().getGeneration(), representation, 'partial'), error instanceof Error && error.message === 'body-too-large' ? 413 : 400);
+		const status = error instanceof Error && error.message === 'body-too-large' ? 413 : 400;
+		logHdrPrewarmRequest({ status });
+		return response(emptyHdrProgress(getHdrInteractiveCoordinator().getGeneration(), representation, 'partial'), status);
 	}
 	const context = requestContext(event, shareRef);
 	const coordinator = getHdrInteractiveCoordinator();
@@ -121,18 +136,41 @@ export const POST: RequestHandler = async (event) => {
 		const result = await authorizedAssets(event, command, createImmichProvider(event.fetch), context, operationScope(shareRef));
 		if (result.status !== 200) {
 			if (result.status === 403) event.cookies.set(PAGES_SESSION_COOKIE, '', { path: '/', httpOnly: true, secure: true, sameSite: 'lax', maxAge: 0 });
+			logHdrPrewarmRequest({ status: result.status, activePosition: command.activePosition, activeAssetId: command.activeAssetId });
 			return response(result.snapshot ?? emptyHdrProgress(result.generation, command.representation, 'partial'), result.status);
 		}
-		if (!result.assets?.length) return response(emptyHdrProgress(result.generation, command.representation));
-		const snapshot = coordinator.schedule({ assets: result.assets, activePosition: -1, lookahead: { kind: 'all' }, generation: result.generation, scope: operationScope(shareRef) }, command.representation, 'background');
+		const scope = operationScope(shareRef);
+		const assets = result.assets ?? [];
+		// 'all' here targets exactly the (already window-bounded) assets authorizedAssets() fetched
+		// -- not a second, independent lookahead decision. See hdr-caching-uat-20261010 evidence
+		// 2026-10-10T22:33:00Z on why a second cap here would be an inert passthrough either way.
+		const snapshot = coordinator.schedule({ assets, activePosition: -1, lookahead: { kind: 'all' }, generation: result.generation, scope }, command.representation, 'background');
 		const requestId = event.locals?.requestId;
 		if (snapshot.queued > 0) emitHdrProgressEvent('queued', command.representation, requestId);
 		if (snapshot.running > 0) emitHdrProgressEvent('started', command.representation, requestId);
 		if (snapshot.completed > 0) emitHdrProgressEvent('completed', command.representation, requestId);
 		if (snapshot.failed > 0) emitHdrProgressEvent('failed', command.representation, requestId);
 		if (snapshot.skipped > 0) emitHdrProgressEvent('skipped', command.representation, requestId);
-		return response(snapshot);
+		// Per-asset readiness (root_cause (3)): the status of the ONE asset the viewer currently
+		// has open, independent of the aggregate window's own terminal/partial/preparing math --
+		// see resolveHdrReadiness in hdr-readiness.ts, which treats this as the primary signal.
+		let activeAssetState: HdrActiveAssetState;
+		if (!result.activeEligible) {
+			activeAssetState = 'ineligible';
+		} else {
+			const activeAsset = assets.find((asset) => asset.id === command.activeAssetId);
+			if (!activeAsset) {
+				activeAssetState = 'unavailable';
+			} else {
+				const key = buildHdrCacheKey({ assetId: activeAsset.id, sourceIdentity: activeAsset.sourceIdentity, width: activeAsset.width, height: activeAsset.height, outputContract: HDR_OUTPUT_CONTRACT[command.representation] });
+				const jobState = coordinator.jobState(key);
+				activeAssetState = jobState === 'none' ? 'unavailable' : jobState;
+			}
+		}
+		logHdrPrewarmRequest({ status: 200, activePosition: command.activePosition, activeAssetId: command.activeAssetId, targetedAssetIds: assets.map((asset) => asset.id), activeAssetState });
+		return response({ ...snapshot, activeAssetState });
 	} catch {
+		logHdrPrewarmRequest({ status: 502, activePosition: command.activePosition, activeAssetId: command.activeAssetId });
 		return response(emptyHdrProgress(coordinator.getGeneration(), command.representation, 'partial'), 502);
 	}
 };
