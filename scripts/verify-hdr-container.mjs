@@ -73,7 +73,10 @@ try {
   image = `immich-pages:hdr-release-${process.pid}`;
   await exec('docker', ['build', '--tag', image, '.'], { maxBuffer: 4 * 1024 * 1024 });
   record.container.image = image;
-  record.container.imageDigest = (await exec('docker', ['image', 'inspect', '--format', '{{index .RepoDigests 0}}', image])).stdout.trim() || 'local-image-digest-unavailable';
+   // Locally built images normally have no RepoDigests. The immutable image ID
+   // is still useful redacted evidence and works for both local and registry
+   // tagged images.
+   record.container.imageDigest = (await exec('docker', ['image', 'inspect', '--format', '{{.Id}}', image])).stdout.trim() || 'local-image-id-unavailable';
   record.container.toolVersions = await toolVersions(image);
   record.container.status = 'PASS';
   if (record.fixtures.length > 0) {
