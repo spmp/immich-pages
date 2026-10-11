@@ -94,6 +94,13 @@ remaining stateless: `HDR_PREWARM_LOOKAHEAD` defaults to `10`,
 implementation never writes it. The Compose service declares no application
 volume, database, media store, or correctness-critical persistent state.
 
+The focused stateless recovery harness passed on 2026-10-10: it built the
+production image, captured the direct-share projection, removed containers,
+networks, and volumes with `docker compose down --volumes --remove-orphans`,
+recreated the stack, and matched the pre/post page bodies byte-for-byte. This
+proves reconstruction from the fixture Immich service and deployment
+configuration; it does not provide native HDR pixels or physical HDR evidence.
+
 `tests/resources/hdr/` is ignored and must contain operator-supplied local fixtures
 only. Acquire them with `scripts/acquire-hdr-fixtures.mjs`, supplying
 `--source-dir "$HDR_FIXTURE_SOURCE_DIR"`, the preserved `2.HEIF` reference, and
