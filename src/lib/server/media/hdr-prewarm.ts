@@ -238,7 +238,7 @@ export function createHdrPrewarmCoordinator(options: HdrPrewarmOptions): HdrPrew
 	return new HdrPrewarmCoordinator(options);
 }
 
-const interactiveCoordinator = createHdrPrewarmCoordinator({
+let interactiveCoordinator = createHdrPrewarmCoordinator({
 	convert: async ({ assetId, representation, sourceBytes, metadata, signal }) => {
 		if (!metadata) throw new Error('hdr-metadata-invalid');
 		if (representation === 'video') {
@@ -256,4 +256,11 @@ const interactiveCoordinator = createHdrPrewarmCoordinator({
 
 export function getHdrInteractiveCoordinator(): HdrPrewarmCoordinator {
 	return interactiveCoordinator;
+}
+
+/** Test-only server seam: the route remains real while conversion work is deterministic. */
+export function setHdrInteractiveCoordinatorForTests(coordinator: HdrPrewarmCoordinator): () => void {
+	const previous = interactiveCoordinator;
+	interactiveCoordinator = coordinator;
+	return () => { interactiveCoordinator = previous; };
 }

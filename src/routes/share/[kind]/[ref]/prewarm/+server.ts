@@ -83,7 +83,22 @@ async function authorizedAssets(event: EndpointEvent, command: z.infer<typeof Co
 			const mime = inferSafeImageMime(bytes, source.response.headers.get('content-type'));
 			if (mime !== 'image/heif' && mime !== 'image/heic') continue;
 			const metadata = await extractAppleHdrMetadata(bytes);
-			assets.push({ ...target, sourceBytes: bytes, ...(metadata ? { metadata } : {}) });
+			if (metadata) {
+				// Keep the prewarm key byte-for-byte compatible with both interactive media
+				// routes. A MIME/dimension identity is not equivalent to the media route's
+				// upstream identity and silently causes a second conversion on swipe.
+				const sourceIdentity = [
+					source.response.headers.get('etag'),
+					source.response.headers.get('last-modified'),
+					source.response.headers.get('content-length'),
+					metadata.version,
+					metadata.sourceProfile,
+					metadata.sourceTransfer,
+					metadata.orientation
+				].filter(Boolean).join('|') || `bytes-${bytes.byteLength}`;
+				assets.push({ ...target, sourceIdentity, sourceBytes: bytes, metadata });
+			}
+			else bytes.fill(0);
 		} catch {
 			await source.response.body?.cancel().catch(() => {});
 		}

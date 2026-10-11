@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { preferredHdrRepresentation } from '$lib/media/capabilities';
+	import { resolveHdrReadiness } from '$lib/media/hdr-readiness';
 
 	type ReadinessState = 'preparing' | 'ready' | 'partial';
 	type Progress = {
@@ -14,8 +15,8 @@
 	};
 
 	let { enabled, activeAssetId, activePosition = 0 }: { enabled: boolean; activeAssetId?: string; activePosition?: number } = $props();
-	let readinessState = $state<ReadinessState>('preparing');
-	let progress = $state<Progress>({ state: 'preparing', targeted: 1, queued: 0, running: 0, completed: 0, failed: 0, skipped: 0 });
+	let readinessState = $state<ReadinessState>('ready');
+	let progress = $state<Progress>({ state: 'ready', targeted: 0, queued: 0, running: 0, completed: 0, failed: 0, skipped: 0 });
 
 	const isState = (value: unknown): value is ReadinessState => value === 'preparing' || value === 'ready' || value === 'partial';
 	const isProgress = (value: unknown): value is Progress => {
@@ -26,7 +27,12 @@
 
 	onMount(() => {
 		const representation = preferredHdrRepresentation();
-		if (!enabled || !activeAssetId || !representation) return;
+		if (!enabled || !activeAssetId) return;
+		if (!representation) {
+			progress = resolveHdrReadiness(progress, { supported: false });
+			readinessState = progress.state;
+			return;
+		}
 		let stopped = false;
 		let timer: number | undefined;
 		let currentAssetId = activeAssetId;
@@ -42,20 +48,20 @@
 					body: JSON.stringify({ activeAssetId: currentAssetId, activePosition: currentPosition })
 				});
 				if (!response.ok) {
-					readinessState = 'partial';
-					progress = { ...progress, state: 'partial' };
+					progress = resolveHdrReadiness(progress, { supported: true, controlFailed: true });
+					readinessState = progress.state;
 					return;
 				}
 				const value: unknown = await response.json();
 				if (isProgress(value)) {
-					progress = value;
-					readinessState = value.state;
+					progress = resolveHdrReadiness(value, { supported: true });
+					readinessState = progress.state;
 				}
 				if (!stopped && isProgress(value) && value.state === 'preparing') timer = window.setTimeout(() => void poll(), 2000);
 			} catch {
 				if (!stopped) {
-					readinessState = 'partial';
-					progress = { ...progress, state: 'partial' };
+					progress = resolveHdrReadiness(progress, { supported: true, controlFailed: true });
+					readinessState = progress.state;
 				}
 			}
 		};
