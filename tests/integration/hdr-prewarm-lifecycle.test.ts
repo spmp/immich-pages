@@ -41,4 +41,27 @@ describe('real HDR prewarm control-route lifecycle', () => {
 			expect(convert).toHaveBeenCalledTimes(3);
 		} finally { extract.mockRestore(); restore(); }
 	});
+
+	// hdr-caching-uat-20261010 CR-01 / 08-21-PLAN.md Task 1, Behavior Test 5: a background
+	// schedule() and a later interactive submitInteractive() call for the SAME asset/
+	// representation/scope, while the background conversion is still in flight, must join the
+	// identical HdrAssetRegistry entry rather than starting a second native conversion. Before
+	// this fix, the two call sites derived their cache identity independently and could diverge.
+	it('joins the same registry entry for a background schedule() and a later interactive call on the same in-flight asset', async () => {
+		let resolveConvert!: (value: { body: Uint8Array; contentType: string }) => void;
+		const convert = vi.fn(() => new Promise<{ body: Uint8Array; contentType: string }>((resolve) => { resolveConvert = resolve; }));
+		const coordinator = new HdrPrewarmCoordinator({ convert });
+		const asset = { id: ids[0], eligible: true, position: 0, sourceIdentity: 'source-shared', sourceBytes: new Uint8Array([4, 5, 6]) };
+		const scope = 'share-scope-x';
+
+		coordinator.schedule({ assets: [asset], activePosition: -1, lookahead: { kind: 'all' }, generation: 0, scope }, 'video', 'background');
+		await vi.waitFor(() => expect(convert).toHaveBeenCalledTimes(1));
+
+		const interactive = coordinator.submitInteractive(asset, 'video', coordinator.getScopedGeneration(scope), scope);
+		resolveConvert({ body: new Uint8Array([9]), contentType: 'video/mp4' });
+		const result = await interactive;
+
+		expect(result.body).toEqual(new Uint8Array([9]));
+		expect(convert).toHaveBeenCalledTimes(1);
+	});
 });

@@ -9,6 +9,7 @@ import {
 import { targetLookahead, targetAllEligible, type HdrLookahead, type HdrProjectionAsset } from './hdr-prewarm-policy';
 import type { AppleHdrMetadata } from './hdr-metadata';
 import { composeHdr, decodeHdrAvifStream, encodeHdrAvif, encodeHdrMp4 } from './hdr-compositor';
+import { createHdrAssetRegistry, type HdrRegistryEntry } from './hdr-registry';
 
 export type HdrRepresentation = 'video' | 'avif';
 export const HDR_OUTPUT_CONTRACT: Record<HdrRepresentation, string> = { video: 'mp4-hevc-main10-pq-bt2020', avif: 'avif-gainmap-p3' };
@@ -61,6 +62,22 @@ type Job = {
 	scope: string;
 };
 
+// The video representation's job bookkeeping (Task 1 of 08-21-PLAN.md -- AVIF migrates in
+// Task 2) lives on the HdrAssetRegistry entry itself, decorated with the same
+// deferred-promise/source-buffer fields the AVIF `Job` type above carries, rather than a
+// second parallel map. `entry.result`/`resolveResult`/`rejectResult` are absent exactly when
+// no attempt has ever started for that entry (a brand-new 'pending' entry resolve() just
+// created); present for every entry that has.
+type DecoratedVideoEntry = HdrRegistryEntry & {
+	result?: Promise<CachedMedia>;
+	resolveResult?: (value: CachedMedia) => void;
+	rejectResult?: (error: unknown) => void;
+	source?: SourceBuffer;
+	asset?: AuthorizedHdrAsset;
+	priority?: HdrConversionPriority;
+	scope?: string;
+};
+
 /** Status of the ONE asset the viewer currently has open -- see per-asset readiness, hdr-caching-uat-20261010 root_cause (3). */
 export type HdrActiveAssetState = 'ineligible' | 'queued' | 'running' | 'succeeded' | 'failed' | 'skipped' | 'unavailable';
 
@@ -86,6 +103,14 @@ function safeReason(error: unknown): string {
 
 export class HdrPrewarmCoordinator {
 	private readonly jobs = new Map<string, Job>();
+	private readonly registry = createHdrAssetRegistry();
+	// inspectSourceBytes() needs to sum retained video source bytes too; the registry's own
+	// public entry type deliberately carries no `source` field (hdr-registry.ts keeps that
+	// decoration private to this module), so the decorated entries that exist are tracked
+	// here instead of walking private registry internals. Released buffers contribute 0 and
+	// are left in place rather than removed -- a list of already-emptied Uint8Array(0)
+	// references is a negligible, bounded cost for this coordinator's lifetime.
+	private readonly videoSourceEntries = new Set<DecoratedVideoEntry>();
 	private generation = 0;
 	private readonly scopedGenerations = new Map<string, number>();
 	private readonly maxAttempts: number;
@@ -102,6 +127,12 @@ export class HdrPrewarmCoordinator {
 				this.finish(job, 'skipped');
 			}
 		}
+		// Mirrors the AVIF loop above for the video representation's own bookkeeping (Task 1).
+		// This global, unscoped revoke only has production meaning for the 'default' scope
+		// (every scoped schedule()/submitInteractive() call carries its own real scope and is
+		// correctly revoked via newScopedGeneration instead); see revokeScope's scope-only
+		// contract in hdr-registry.ts.
+		this.registry.revokeScope('default');
 		return this.generation;
 	}
 
@@ -132,6 +163,12 @@ export class HdrPrewarmCoordinator {
 		const next = this.getScopedGeneration(scope) + 1;
 		this.scopedGenerations.set(scope, next);
 		for (const job of this.jobs.values()) if (job.scope === scope && (job.state === 'queued' || job.state === 'running')) { job.abortController.abort(); this.finish(job, 'skipped'); }
+		// Keeps the registry's own per-scope generation counter (hdr-registry.ts's
+		// generationFor/revokeScope) in lockstep with this one -- both are bumped by exactly 1
+		// here and nowhere else for a scoped bump, so entry.generation (stamped from the
+		// registry's counter) and this coordinator's own scopedGenerations value stay
+		// numerically interchangeable for any given scope.
+		this.registry.revokeScope(scope);
 		return next;
 	}
 
@@ -153,12 +190,51 @@ export class HdrPrewarmCoordinator {
 		return this.enqueue(asset, representation, generation, 'interactive', scope);
 	}
 
-	/** Per-asset readiness lookup: the status of one job by its exact cache key, or 'none' if nothing has been enqueued for it yet. */
+	/** Per-asset readiness lookup: the status of one AVIF job by its exact cache key, or 'none' if nothing has been enqueued for it yet. Video uses activeState() instead -- see hdr-caching-uat-20261010 root_cause (1)/CR-01. */
 	jobState(key: string): HdrJobState | 'none' {
 		return this.jobs.get(key)?.state ?? 'none';
 	}
 
+	/**
+	 * Direct O(1) per-asset status lookup through the registry -- the replacement for the
+	 * prewarm route's old buildHdrCacheKey(...) + jobState(key) reconstruction. Only video is
+	 * registry-backed in this task (Task 2 migrates AVIF); an AVIF query here always answers
+	 * 'none' until then, which is a known, temporary, same-session gap -- not a production gap,
+	 * since Task 2 executes immediately after this one.
+	 */
+	activeState(scope: string, assetId: string, representation: HdrRepresentation): HdrActiveAssetState | 'none' {
+		const entry = this.registry.read(scope, assetId, representation);
+		if (!entry) return 'none';
+		switch (entry.status) {
+			case 'pending': return 'queued';
+			case 'converting': return 'running';
+			case 'ready': return 'succeeded';
+			case 'failed': return 'failed';
+			case 'skipped': return 'skipped';
+		}
+	}
+
 	snapshot(generation = this.generation, representation: HdrRepresentation = 'video', scope = 'default'): HdrProgressSnapshot {
+		if (representation === 'video') {
+			const entries = this.registry.entriesFor(scope, 'video').filter((entry) => entry.generation === generation);
+			const completed = entries.filter((entry) => entry.status === 'ready').length;
+			const failed = entries.filter((entry) => entry.status === 'failed').length;
+			const skipped = entries.filter((entry) => entry.status === 'skipped').length;
+			const queued = entries.filter((entry) => entry.status === 'pending').length;
+			const running = entries.filter((entry) => entry.status === 'converting').length;
+			const terminal = completed + failed + skipped;
+			return {
+				generation,
+				representation,
+				state: terminal < entries.length ? 'preparing' : failed + skipped > 0 ? 'partial' : 'ready',
+				targeted: entries.length,
+				queued,
+				running,
+				completed,
+				failed,
+				skipped
+			};
+		}
 		const jobs = [...this.jobs.values()].filter((job) => job.scope === scope && job.generation === generation && job.representation === representation);
 		const completed = jobs.filter((job) => job.state === 'succeeded').length;
 		const failed = jobs.filter((job) => job.state === 'failed').length;
@@ -182,10 +258,120 @@ export class HdrPrewarmCoordinator {
 	inspectSourceBytes(): number {
 		let bytes = 0;
 		for (const job of this.jobs.values()) if (!job.source.released) bytes += job.source.bytes.byteLength;
+		for (const entry of this.videoSourceEntries) if (entry.source && !entry.source.released) bytes += entry.source.bytes.byteLength;
 		return bytes;
 	}
 
+	/** Dispatches to the registry-backed video path (Task 1) or the unchanged AVIF jobs-map path (Task 2 migrates this). */
 	private enqueue(asset: AuthorizedHdrAsset, representation: HdrRepresentation, generation: number, priority: HdrConversionPriority, scope = 'default'): Promise<CachedMedia> {
+		return representation === 'video'
+			? this.enqueueVideo(asset, priority, scope)
+			: this.enqueueAvif(asset, representation, generation, priority, scope);
+	}
+
+	private enqueueVideo(asset: AuthorizedHdrAsset, priority: HdrConversionPriority, scope: string): Promise<CachedMedia> {
+		const entry = this.registry.resolve(scope, asset.id, 'video', { sourceIdentity: asset.sourceIdentity, width: asset.width, height: asset.height }) as DecoratedVideoEntry;
+		entry.scope = scope;
+		this.videoSourceEntries.add(entry);
+		if (entry.status === 'converting' && entry.result) {
+			// Already in flight for this exact (scope, assetId, identity) -- join it, the CR-01
+			// structural proof: a background schedule() call and a later interactive call for
+			// the same asset resolve through this identical entry, not a second conversion.
+			if (priority === 'interactive') entry.priority = priority;
+			return entry.result;
+		}
+		if (entry.status === 'ready' && entry.cacheKey) {
+			const cached = getCachedHdr(entry.cacheKey);
+			if (cached) return entry.result ?? Promise.resolve(cached);
+			// Cached bytes were evicted since this entry was marked ready (TTL/capacity) --
+			// fall through and start a fresh attempt rather than returning a stale promise.
+		}
+		// Fresh attempt: a brand-new 'pending' entry, a retry of a 'failed' one, or redoing a
+		// 'ready' one whose cache entry no longer exists. A prior attempt's AbortController
+		// cannot be un-aborted, so this attempt gets its own.
+		entry.abortController = new AbortController();
+		entry.asset = asset;
+		entry.priority = priority;
+		entry.source = { bytes: asset.sourceBytes, released: false };
+		let resolveResult!: (value: CachedMedia) => void;
+		let rejectResult!: (error: unknown) => void;
+		const result = new Promise<CachedMedia>((resolve, reject) => { resolveResult = resolve; rejectResult = reject; });
+		// Background schedule() calls intentionally do not await individual entries.
+		result.catch(() => {});
+		entry.result = result;
+		entry.resolveResult = resolveResult;
+		entry.rejectResult = rejectResult;
+		this.registry.transition(entry, { status: 'converting', error: undefined });
+		void this.runRegistryEntry(entry);
+		return result;
+	}
+
+	private async runRegistryEntry(entry: DecoratedVideoEntry): Promise<void> {
+		const scope = entry.scope!;
+		const asset = entry.asset!;
+		if (entry.generation !== this.registry.generationFor(scope)) return this.finishRegistryEntry(entry, 'skipped');
+		const key = buildHdrCacheKey({ assetId: asset.id, sourceIdentity: entry.sourceIdentity, width: entry.width, height: entry.height, outputContract: HDR_OUTPUT_CONTRACT.video });
+		try {
+			await getOrCreateHdr(key, () => withHdrConcurrency(
+				(signal) => this.convertRegistryEntry(entry, key, signal),
+				{ signal: entry.abortController.signal, priority: entry.priority, timeoutMs: this.options.timeoutMs, queueKey: key }
+			), Date.now(), entry.priority, asset.id);
+			if (entry.generation !== this.registry.generationFor(scope)) return this.finishRegistryEntry(entry, 'skipped');
+			this.registry.transition(entry, { status: 'ready', cacheKey: key });
+			this.finishRegistryEntry(entry, 'ready');
+		} catch (error) {
+			if (error instanceof Error && error.message === 'hdr-queue-full') {
+				// `all` is an admission request, not a best-effort batch. Keep the authorized
+				// source owned by this entry until queue capacity is available; the bounded
+				// scheduler still limits memory and active work.
+				setTimeout(() => { if (entry.generation === this.registry.generationFor(scope) && entry.status === 'converting') void this.runRegistryEntry(entry); }, 25);
+				return;
+			}
+			this.registry.transition(entry, { attempts: entry.attempts + 1 });
+			if (entry.generation !== this.registry.generationFor(scope)) return this.finishRegistryEntry(entry, 'skipped');
+			if (entry.attempts < this.maxAttempts) {
+				queueMicrotask(() => void this.runRegistryEntry(entry));
+				return;
+			}
+			this.registry.transition(entry, { status: 'failed', error: safeReason(error) });
+			this.finishRegistryEntry(entry, 'failed');
+		}
+	}
+
+	private async convertRegistryEntry(entry: DecoratedVideoEntry, key: string, signal?: AbortSignal): Promise<CachedMedia> {
+		if (entry.generation !== this.registry.generationFor(entry.scope!)) throw new Error('stale-generation');
+		// Same rationale as convert()'s identical comment below: native adapters receive a
+		// short-lived view, the entry-owned source buffer is cleared independently on every
+		// terminal path.
+		return this.options.convert({ assetId: entry.asset!.id, representation: 'video', sourceBytes: entry.source!.bytes.slice(), metadata: entry.asset!.metadata, width: entry.width, height: entry.height, cacheKey: key, signal: signal ?? entry.abortController.signal });
+	}
+
+	private finishRegistryEntry(entry: DecoratedVideoEntry, outcome: 'ready' | 'failed' | 'skipped'): void {
+		if (!entry.resolveResult || !entry.rejectResult) return;
+		this.releaseRegistryEntry(entry);
+		const resolveResult = entry.resolveResult;
+		const rejectResult = entry.rejectResult;
+		entry.resolveResult = undefined;
+		entry.rejectResult = undefined;
+		if (outcome === 'ready') {
+			const cached = entry.cacheKey ? getCachedHdr(entry.cacheKey) : undefined;
+			if (cached) resolveResult(cached);
+			else rejectResult(new Error('hdr-result-missing'));
+		} else {
+			if (outcome === 'skipped' && entry.status !== 'skipped') this.registry.transition(entry, { status: 'skipped' });
+			rejectResult(new Error(`hdr-${outcome}`));
+		}
+		this.options.onComplete?.(this.snapshot(entry.generation, 'video', entry.scope));
+	}
+
+	private releaseRegistryEntry(entry: DecoratedVideoEntry): void {
+		if (!entry.source || entry.source.released) return;
+		entry.source.bytes.fill(0);
+		entry.source.bytes = new Uint8Array(0);
+		entry.source.released = true;
+	}
+
+	private enqueueAvif(asset: AuthorizedHdrAsset, representation: HdrRepresentation, generation: number, priority: HdrConversionPriority, scope = 'default'): Promise<CachedMedia> {
 		const key = buildHdrCacheKey({ assetId: asset.id, sourceIdentity: asset.sourceIdentity, width: asset.width, height: asset.height, outputContract: HDR_OUTPUT_CONTRACT[representation] });
 		const existing = this.jobs.get(key);
 		if (existing && existing.generation === generation && existing.state !== 'failed' && existing.state !== 'skipped' && (existing.state !== 'succeeded' || getCachedHdr(existing.key))) {

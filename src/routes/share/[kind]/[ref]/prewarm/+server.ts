@@ -5,8 +5,8 @@ import { authContextFromRequest } from '$server/immich/auth-context';
 import { createImmichProvider } from '$server/immich/provider';
 import { inferSafeImageMime, IMMICH_MAX_ORIGINAL_BYTES, readBoundedBytes } from '$server/immich/client';
 import { extractAppleHdrMetadata } from '$server/media/hdr-metadata';
-import { getHdrInteractiveCoordinator, HDR_OUTPUT_CONTRACT, type AuthorizedHdrAsset, type HdrActiveAssetState, type HdrProgressSnapshot } from '$server/media/hdr-prewarm';
-import { buildHdrCacheKey, buildHdrSourceIdentity } from '$server/media/hdr-cache';
+import { getHdrInteractiveCoordinator, type AuthorizedHdrAsset, type HdrActiveAssetState, type HdrProgressSnapshot } from '$server/media/hdr-prewarm';
+import { buildHdrSourceIdentity } from '$server/media/hdr-cache';
 import { parseHdrLookahead, targetLookahead, type HdrProjectionAsset } from '$server/media/hdr-prewarm-policy';
 import { emptyHdrProgress, emitHdrProgressEvent, HDR_PREWARM_MAX_BODY_BYTES, HDR_PREWARM_MAX_GENERATION, HDR_PREWARM_MAX_POLL, HDR_PREWARM_MAX_POSITION, progressHeaders, redactHdrProgress } from '$server/media/hdr-progress';
 import { operationScope, parseSharedLinkRef } from '$server/share/ref';
@@ -162,9 +162,10 @@ export const POST: RequestHandler = async (event) => {
 			if (!activeAsset) {
 				activeAssetState = 'unavailable';
 			} else {
-				const key = buildHdrCacheKey({ assetId: activeAsset.id, sourceIdentity: activeAsset.sourceIdentity, width: activeAsset.width, height: activeAsset.height, outputContract: HDR_OUTPUT_CONTRACT[command.representation] });
-				const jobState = coordinator.jobState(key);
-				activeAssetState = jobState === 'none' ? 'unavailable' : jobState;
+				// Direct O(1) registry lookup, not a cache-key reconstruction -- see
+				// activeState()'s own contract and hdr-caching-uat-20261010 root_cause (1)/CR-01.
+				const state = coordinator.activeState(scope, activeAsset.id, command.representation);
+				activeAssetState = state === 'none' ? 'unavailable' : state;
 			}
 		}
 		logHdrPrewarmRequest({ status: 200, activePosition: command.activePosition, activeAssetId: command.activeAssetId, targetedAssetIds: assets.map((asset) => asset.id), activeAssetState });
