@@ -388,4 +388,16 @@ describe('journal gallery contract', () => {
 		expect(page).toContain('markerActivation');
 		expect(page).toContain('mapStyle?.url');
 	});
+
+	// WR-02 lock-in (08-21-PLAN.md Task 4): JournalGallery itself must never become a second
+	// /prewarm producer -- ReadinessIndicator is the sole control-loop owner (see the
+	// "HDR control ownership moved to ReadinessIndicator" comment this test enforces, not just
+	// documents). Source-text, matching this file's own established convention (see header
+	// comment) rather than a render-based fetch spy: a reintroduced `fetch('/prewarm'...)` call
+	// anywhere in this component's script would fail this assertion.
+	it('never issues its own /prewarm control-loop request', () => {
+		const gallery = source('JournalGallery');
+		expect(gallery).not.toMatch(/prewarm/i);
+		expect(gallery).not.toMatch(/\bfetch\(/);
+	});
 });

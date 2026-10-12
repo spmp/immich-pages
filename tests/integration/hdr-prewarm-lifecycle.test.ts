@@ -10,8 +10,8 @@ const ids = ['70000000-0000-4000-8000-000000000001', '70000000-0000-4000-8000-00
 const source = new Uint8Array([0, 0, 0, 0, 102, 116, 121, 112, 104, 101, 105, 99]);
 const metadata: AppleHdrMetadata = { version: '1.0', auxiliaryType: 'urn:com:apple:photo:2020:aux:hdrgainmap', makerNote33: 0.8, makerNote48: 0.4, headroom: 1.8, hdrGain: 1.25, sourceProfile: 'display-p3', sourceTransfer: 'srgb', orientation: 1 };
 
-function event(body: unknown, fetch: typeof globalThis.fetch) {
-	return { params: { kind: 'key', ref: 'opaque-ref' }, request: new Request('https://pages.example/share/key/opaque-ref/prewarm', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }), cookies: { get: vi.fn(), set: vi.fn() }, fetch };
+function event(body: unknown, fetch: typeof globalThis.fetch, ref = 'opaque-ref') {
+	return { params: { kind: 'key', ref }, request: new Request(`https://pages.example/share/key/${ref}/prewarm`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }), cookies: { get: vi.fn(), set: vi.fn() }, fetch };
 }
 
 describe('real HDR prewarm control-route lifecycle', () => {
@@ -63,5 +63,42 @@ describe('real HDR prewarm control-route lifecycle', () => {
 
 		expect(result.body).toEqual(new Uint8Array([9]));
 		expect(convert).toHaveBeenCalledTimes(1);
+	});
+
+	// WR-03 close (08-21-PLAN.md Task 4, Behavior Test 2): two distinct scopes (two different
+	// share refs) authorized and scheduled concurrently, each with a setTimeout-delayed
+	// conversion, must reach 'ready' independently -- own target/completed counts, no
+	// cross-scope leakage. The integration-level (non-Playwright) equivalent of the existing
+	// E2E "all lookahead drains... keeps progress scoped" test; proves CR-02's fix structurally,
+	// not just via the mock-only control-plane coverage WR-03 named as insufficient on its own.
+	it('keeps two concurrently-authorized scopes independent through terminal readiness', async () => {
+		const idsA = ['70000000-0000-4000-8000-00000000000a', '70000000-0000-4000-8000-00000000000b'];
+		const idsB = ['70000000-0000-4000-8000-00000000000c'];
+		const convert = vi.fn(() => new Promise<{ body: Uint8Array; contentType: string }>((resolve) => {
+			setTimeout(() => resolve({ body: new Uint8Array([1]), contentType: 'video/mp4' }), 5);
+		}));
+		const coordinator = new HdrPrewarmCoordinator({ convert });
+		const restore = setHdrInteractiveCoordinatorForTests(coordinator);
+		const shareFor = (albumId: string, ids: string[]) => ({ ...v3, type: 'ALBUM', album: { ...v3.album, id: albumId }, assets: ids.map((id, position) => ({ ...v3.assets[0], id, type: 'IMAGE', originalMimeType: 'image/heic', width: 800, height: 600, position })) });
+		const fetchFor = (albumId: string, ids: string[]) => vi.fn(async (input: URL | RequestInfo) => new Response(new URL(input.toString()).pathname.endsWith('/me') ? JSON.stringify(shareFor(albumId, ids)) : source, { headers: { 'content-type': 'image/heic' } }));
+		const extract = vi.spyOn(await import('../../src/lib/server/media/hdr-metadata'), 'extractAppleHdrMetadata').mockResolvedValue(metadata);
+		try {
+			const [responseA, responseB] = await Promise.all([
+				POST(event({ activeAssetId: idsA[0], activePosition: 0, representation: 'video' }, fetchFor('11111111-1111-4111-8111-00000000000a', idsA), 'ref-scope-a') as never),
+				POST(event({ activeAssetId: idsB[0], activePosition: 0, representation: 'video' }, fetchFor('11111111-1111-4111-8111-00000000000b', idsB), 'ref-scope-b') as never)
+			]);
+			expect(responseA.status).toBe(200);
+			expect(responseB.status).toBe(200);
+			const scopeA = 'share-key-ref-scope-a';
+			const scopeB = 'share-key-ref-scope-b';
+			await vi.waitFor(() => {
+				expect(coordinator.snapshot(coordinator.getScopedGeneration(scopeA), 'video', scopeA)).toMatchObject({ state: 'ready', targeted: 2, completed: 2 });
+				expect(coordinator.snapshot(coordinator.getScopedGeneration(scopeB), 'video', scopeB)).toMatchObject({ state: 'ready', targeted: 1, completed: 1 });
+			});
+			// No leakage in either direction: scope A's count is unaffected by scope B's work and vice versa.
+			expect(coordinator.snapshot(coordinator.getScopedGeneration(scopeA), 'video', scopeA).targeted).toBe(2);
+			expect(coordinator.snapshot(coordinator.getScopedGeneration(scopeB), 'video', scopeB).targeted).toBe(1);
+			expect(convert).toHaveBeenCalledTimes(3);
+		} finally { extract.mockRestore(); restore(); }
 	});
 });

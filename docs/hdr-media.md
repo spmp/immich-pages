@@ -64,6 +64,35 @@ Validate representative portrait and landscape files on a physical HDR-capable
 device against Apple Photos or an equivalent trusted reference before making a
 production HDR claim.
 
+## Prewarm scheduling and cache identity
+
+A single `HdrAssetRegistry` (`src/lib/server/media/hdr-registry.ts`) is the one
+source of truth for "what is the status of this asset's HDR representation right
+now" -- one entry per `(shareScope, assetId, representation)`, holding its status
+(`pending|converting|ready|failed|skipped`), the content-addressed cache key it
+produced once ready, and an `AbortController` tied to the share scope that
+authorized it. `HdrPrewarmCoordinator` (`hdr-prewarm.ts`) has no bookkeeping of its
+own outside this registry: the background control-plane POST
+(`/share/[kind]/[ref]/prewarm`) and both interactive media routes
+(`/image/hdr`, `/image/hdr-avif`) read and write the identical registry entry for
+the same asset, so a background prewarm and a later interactive request for that
+asset always observe the same in-flight work or the same completed result -- never
+two independently-derived identities that happen to coincide only by convention.
+Revoking a share scope (`revokeScope()`) aborts every entry's own controller and
+marks it `skipped`, so authorization-scoped source bytes never outlive the scope
+that authorized them. This replaced three previously independent mechanisms (a
+content-addressed byte cache, a separate job-tracking map keyed by cache-key plus
+scope plus generation, and a now-deleted SSR-triggered path with its own divergent
+identity) that could silently disagree -- see
+`.planning/debug/hdr-caching-uat-20261010.md` for the full diagnosis.
+
+**Known, deliberately deferred follow-up:** there is no real end-to-end WebKit test
+proving a successful HDR-video promotion (load → `loadeddata` → `play()` →
+promote) on that engine -- existing WebKit coverage either stubs the control plane
+or exercises a forced-failure/SDR-fallback path only. Physical-device validation
+(above) remains the actual acceptance evidence for WebKit/Safari; this gap is
+tracked, not silently dropped.
+
 ## Browser state machine and failure evidence
 
 The browser path is monotonic: `thumbnail -> SDR poster -> HDR candidate` is the

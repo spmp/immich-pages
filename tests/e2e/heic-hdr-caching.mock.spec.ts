@@ -152,12 +152,12 @@ test('real-route evidence: prewarm completion is reused by first and later HDR m
 	await expect(page.locator('[id^="asset-"]')).toHaveCount(20);
 	await expect(page.locator('[data-hdr-representation="video"]')).toHaveCount(20);
 	await expect.poll(() => prewarmResponses.some(({ status }) => status === 200)).toBe(true);
-	expect(prewarmResponses.map(({ body }) => ({ state: body.state, targeted: body.targeted, completed: body.completed }))).toContainEqual(expect.objectContaining({ state: 'preparing', targeted: 19 }));
-	await expect.poll(() => prewarmResponses.some(({ body }) => body.state === 'ready' && body.targeted === 19 && body.completed === 19), { timeout: 100_000 }).toBe(true);
+	expect(prewarmResponses.map(({ body }) => ({ state: body.state, targeted: body.targeted, completed: body.completed }))).toContainEqual(expect.objectContaining({ state: 'preparing', targeted: 20 }));
+	await expect.poll(() => prewarmResponses.some(({ body }) => body.state === 'ready' && body.targeted === 20 && body.completed === 20), { timeout: 100_000 }).toBe(true);
 	await expect(page.locator('[aria-label="Enhanced photos ready"]')).toBeVisible();
 
 	const completed = bridgeEvents().slice(before).filter((event) => event.method === 'encodeHdrMp4');
-	expect(new Set(completed.map((event) => event.assetId)).size).toBe(19);
+	expect(new Set(completed.map((event) => event.assetId)).size).toBe(20);
 	const conversionsBeforeMedia = completed.length;
 	for (const number of [2, 20]) {
 		const response = await page.evaluate(({ id }) => fetch(`/share/key/heic-forward-ref/media/${id}/image/hdr?key=heic-forward-ref&width=1200&height=800`, { headers: { range: 'bytes=0-1' } }).then((result) => ({ status: result.status, contentRange: result.headers.get('content-range') })), { id: assetId(number) });
@@ -180,7 +180,7 @@ test('real-route evidence: all lookahead drains beyond queue capacity and keeps 
 	});
 	await Promise.all([first.goto('/share/key/heic-forward-ref'), second.goto('/share/key/heic-second-ref')]);
 	await expect.poll(() => responses.filter(({ body }) => body.state === 'ready').length, { timeout: 100_000 }).toBe(2);
-	for (const name of ['first', 'second']) expect(responses.filter((item) => item.page === name).at(-1)?.body).toMatchObject({ targeted: 19, completed: 19, failed: 0 });
+	for (const name of ['first', 'second']) expect(responses.filter((item) => item.page === name).at(-1)?.body).toMatchObject({ targeted: 20, completed: 20, failed: 0 });
 	await first.close();
 	await second.close();
 });
