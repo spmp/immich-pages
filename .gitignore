@@ -22,3 +22,6 @@ immich.yml
 
 # External rebuild-watcher trigger/status, host-local runtime state only.
 rebuild/
+
+# Real-Immich E2E fixture: Docker-managed runtime state, not project source.
+tests/e2e/real-immich/.env
