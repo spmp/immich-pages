@@ -130,6 +130,31 @@ recreated the stack, and matched the pre/post page bodies byte-for-byte. This
 proves reconstruction from the fixture Immich service and deployment
 configuration; it does not provide native HDR pixels or physical HDR evidence.
 
+### Running `npm run dev` outside Docker
+
+The production image builds `hdr-gainmap-compositor`, `hdr-avif-decode`, and
+`hdr-avif-encode` from `scripts/*.cpp` via the Dockerfile and installs ffmpeg
+alongside them (see `Dockerfile`). `npm run dev` run directly on a bare host
+does NOT build or install any of these -- every fast unit/integration/E2E test
+in this repo deliberately substitutes a bridge script for them instead
+(`HDR_METADATA_PATH`/`HDR_COMPOSITOR_PATH`/`HDR_FFMPEG_PATH`), by design, so CI
+never needs them. If you run `npm run dev` bare-metal to manually browse
+against a real Immich backend, every HDR conversion will fail near-instantly
+(`spawn ENOENT`) until you build them yourself:
+
+```sh
+sudo apt-get install -y g++ libheif-dev libavif-dev   # Debian/Ubuntu; Dockerfile uses apk on Alpine
+g++ -O2 -std=c++17 -Wall -Wextra scripts/hdr-gainmap-compositor.cpp -lheif -o /usr/local/bin/hdr-gainmap-compositor
+g++ -O2 -std=c++17 -Wall -Wextra scripts/hdr-avif-decode.cpp -lheif -o /usr/local/bin/hdr-avif-decode
+g++ -O2 -std=c++17 -Wall -Wextra scripts/hdr-avif-encode.cpp -lavif -o /usr/local/bin/hdr-avif-encode
+```
+
+`ffmpeg` itself is usually already packaged (`apt-get install ffmpeg`).
+`tests/integration/hdr-native-binary-real.test.ts` skips automatically when
+the real compositor binary isn't present, and runs for real (unbridged) when
+it is -- the only test in this repo that exercises the unbridged pipeline
+outside the Docker image build.
+
 `tests/resources/hdr/` is ignored and must contain operator-supplied local fixtures
 only. Acquire them with `scripts/acquire-hdr-fixtures.mjs`, supplying
 `--source-dir "$HDR_FIXTURE_SOURCE_DIR"`, the preserved `2.HEIF` reference, and
