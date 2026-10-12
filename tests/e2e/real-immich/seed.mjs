@@ -68,7 +68,8 @@ async function verifyLiveApiShapeOrThrow() {
     ['/shared-links', 'post'],
     ['/shared-links', 'get'],
     ['/shared-links/me', 'get'],
-    ['/jobs', 'get']
+    ['/jobs', 'get'],
+    ['/albums/{id}', 'patch']
   ];
   const missing = requiredEndpoints.filter(([path, method]) => !spec.paths?.[path]?.[method]);
   if (missing.length > 0) {
@@ -212,12 +213,16 @@ async function fetchDisplayOrderAssetIds(accessToken, albumId) {
   return result.assets.items.map((asset) => asset.id);
 }
 
-async function ensureAlbum(accessToken, name, assetIds) {
-  console.log(`[seed] ensuring album "${name}" exists...`);
+async function ensureAlbum(accessToken, name, assetIds, order) {
+  console.log(`[seed] ensuring album "${name}" exists (order=${order})...`);
   const albums = await api('/albums', { accessToken });
   const existing = albums.find((album) => album.albumName === name);
   if (existing) {
     console.log(`[seed] album "${name}" already exists (id=${existing.id}).`);
+    // Immich's album `order` defaults to 'desc' regardless of name/insertion order -- confirmed
+    // live, see README.md Findings. Without an explicit PATCH, two differently-named albums
+    // ("forward"/"reverse") render in the SAME direction, defeating the point of having both.
+    if (existing.order !== order) await api(`/albums/${existing.id}`, { method: 'PATCH', accessToken, body: { order } });
     return existing;
   }
   // Pages only treats an album as a publishable "journey" presentation when its Immich
@@ -227,6 +232,7 @@ async function ensureAlbum(accessToken, name, assetIds) {
   // hit "This is not a Pages journey" until this was added.
   const description = '---\nimmich-presentation:\n  type: journey\n  version: 1\n---\nimmich-pages-e2e fixture';
   const created = await api('/albums', { method: 'POST', accessToken, body: { albumName: name, description, assetIds } });
+  await api(`/albums/${created.id}`, { method: 'PATCH', accessToken, body: { order } });
   console.log(`[seed] album "${name}" created (id=${created.id}).`);
   return created;
 }
@@ -261,18 +267,18 @@ async function main() {
 
   const results = [];
 
-  const forwardAlbum = await ensureAlbum(accessToken, 'immich-pages-e2e-forward', forwardIds);
+  const forwardAlbum = await ensureAlbum(accessToken, 'immich-pages-e2e-forward', forwardIds, 'asc');
   const forwardLink = await ensureUnauthenticatedSharedLink(accessToken, forwardAlbum.id, 'immich-pages-e2e-forward');
   results.push(forwardLink);
 
-  const reverseAlbum = await ensureAlbum(accessToken, 'immich-pages-e2e-reverse', reverseIds);
+  const reverseAlbum = await ensureAlbum(accessToken, 'immich-pages-e2e-reverse', reverseIds, 'desc');
   const reverseLink = await ensureUnauthenticatedSharedLink(accessToken, reverseAlbum.id, 'immich-pages-e2e-reverse');
   results.push(reverseLink);
 
   if (capabilities.supportsManualAlbumOrder) {
     console.log('[seed] live API supports manual album-asset ordering -- creating scrambled-order album.');
     const scrambledIds = [...forwardIds.slice(10), ...forwardIds.slice(0, 10)];
-    const scrambledAlbum = await ensureAlbum(accessToken, 'immich-pages-e2e-scrambled', scrambledIds);
+    const scrambledAlbum = await ensureAlbum(accessToken, 'immich-pages-e2e-scrambled', scrambledIds, 'asc');
     results.push(await ensureUnauthenticatedSharedLink(accessToken, scrambledAlbum.id, 'immich-pages-e2e-scrambled'));
   } else {
     console.log(
