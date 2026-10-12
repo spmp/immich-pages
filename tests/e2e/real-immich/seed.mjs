@@ -69,7 +69,8 @@ async function verifyLiveApiShapeOrThrow() {
     ['/shared-links', 'get'],
     ['/shared-links/me', 'get'],
     ['/jobs', 'get'],
-    ['/albums/{id}', 'patch']
+    ['/albums/{id}', 'patch'],
+    ['/shared-links/{id}', 'patch']
   ];
   const missing = requiredEndpoints.filter(([path, method]) => !spec.paths?.[path]?.[method]);
   if (missing.length > 0) {
@@ -237,16 +238,25 @@ async function ensureAlbum(accessToken, name, assetIds, order) {
   return created;
 }
 
-async function ensureUnauthenticatedSharedLink(accessToken, albumId, albumName) {
-  console.log(`[seed] ensuring unauthenticated shared link for album "${albumName}"...`);
+async function ensureUnauthenticatedSharedLink(accessToken, albumId, albumName, slug) {
+  console.log(`[seed] ensuring unauthenticated shared link for album "${albumName}" (slug=${slug})...`);
   const links = await api('/shared-links', { accessToken });
   const existing = links.find((link) => link.album?.id === albumId);
   if (existing) {
-    console.log(`[seed] shared link for "${albumName}" already exists (key=${existing.key}).`);
+    if (existing.slug !== slug) {
+      await api(`/shared-links/${existing.id}`, { method: 'PATCH', accessToken, body: { slug } });
+      existing.slug = slug;
+    }
+    console.log(`[seed] shared link for "${albumName}" already exists (key=${existing.key}, slug=${existing.slug}).`);
     return existing;
   }
-  const created = await api('/shared-links', { method: 'POST', accessToken, body: { type: 'ALBUM', albumId, password: null } });
-  console.log(`[seed] shared link for "${albumName}" created (key=${created.key}).`);
+  // A random `key` changes on every reseed (this stack has no persistent DB volume), making
+  // bookmarked/documented URLs dead within minutes. `slug` is a stable, deterministic,
+  // human-chosen alternative (/share/slug/<slug>) -- confirmed supported end-to-end: Pages'
+  // shareQuery() builds `?slug=` from the route's `kind` segment directly (client.ts), and the
+  // live OpenAPI spec confirms POST /shared-links accepts it.
+  const created = await api('/shared-links', { method: 'POST', accessToken, body: { type: 'ALBUM', albumId, password: null, slug } });
+  console.log(`[seed] shared link for "${albumName}" created (key=${created.key}, slug=${created.slug}).`);
   return created;
 }
 
@@ -268,18 +278,18 @@ async function main() {
   const results = [];
 
   const forwardAlbum = await ensureAlbum(accessToken, 'immich-pages-e2e-forward', forwardIds, 'asc');
-  const forwardLink = await ensureUnauthenticatedSharedLink(accessToken, forwardAlbum.id, 'immich-pages-e2e-forward');
+  const forwardLink = await ensureUnauthenticatedSharedLink(accessToken, forwardAlbum.id, 'immich-pages-e2e-forward', 'e2e-forward');
   results.push(forwardLink);
 
   const reverseAlbum = await ensureAlbum(accessToken, 'immich-pages-e2e-reverse', reverseIds, 'desc');
-  const reverseLink = await ensureUnauthenticatedSharedLink(accessToken, reverseAlbum.id, 'immich-pages-e2e-reverse');
+  const reverseLink = await ensureUnauthenticatedSharedLink(accessToken, reverseAlbum.id, 'immich-pages-e2e-reverse', 'e2e-reverse');
   results.push(reverseLink);
 
   if (capabilities.supportsManualAlbumOrder) {
     console.log('[seed] live API supports manual album-asset ordering -- creating scrambled-order album.');
     const scrambledIds = [...forwardIds.slice(10), ...forwardIds.slice(0, 10)];
     const scrambledAlbum = await ensureAlbum(accessToken, 'immich-pages-e2e-scrambled', scrambledIds, 'asc');
-    results.push(await ensureUnauthenticatedSharedLink(accessToken, scrambledAlbum.id, 'immich-pages-e2e-scrambled'));
+    results.push(await ensureUnauthenticatedSharedLink(accessToken, scrambledAlbum.id, 'immich-pages-e2e-scrambled', 'e2e-scrambled'));
   } else {
     console.log(
       '[seed] live API does NOT support manual album-asset ordering -- skipping scrambled-order album. ' +
