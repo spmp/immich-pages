@@ -4,7 +4,6 @@ import { describe, expect, it } from 'vitest';
 const read = (path: string) => readFileSync(path, 'utf8');
 const coordinator = read('src/lib/server/media/hdr-prewarm.ts');
 const policy = read('src/lib/server/media/hdr-prewarm-policy.ts');
-const source = read('src/lib/server/media/hdr-prewarm-source.ts');
 const pageLoad = read('src/routes/share/[kind]/[ref]/+page.server.ts');
 const controlRoute = read('src/routes/share/[kind]/[ref]/prewarm/+server.ts');
 const videoRoute = read('src/routes/share/[kind]/[ref]/media/[assetId]/image/hdr/+server.ts');
@@ -17,10 +16,14 @@ const evidenceText = read('docs/phase-8-gate-c-hdr-evidence.md');
 
 describe('Phase 8 corrected prewarm release contract', () => {
 	 it('binds scheduling to the normalized authorized model and never to client media lists', () => {
-		expect(source).toContain('projectHdrAssets(page.assets)');
-		expect(source).toContain('provider.getFullsizeImage(context, target.id)');
-		expect(pageLoad).toContain('prepareAuthorizedHdrSources');
-		expect(pageLoad).toContain('void prepareAuthorizedHdrSources(createImmichProvider(fetch), context, outcome.page).catch');
+		// 08-21-PLAN.md Task 3: the detached SSR prewarm path (hdr-prewarm-source.ts) was already
+		// removed from production in commit 005223e, before this plan -- this is the now-real
+		// negative assertion for that fact, not a comment-text match (the prior version of this
+		// test was satisfied by a source-code COMMENT referencing the already-removed call, the
+		// comment-text-discipline anti-pattern named in hdr-caching-uat-20261010).
+		expect(pageLoad).not.toContain('prepareAuthorizedHdrSources');
+		expect(pageLoad).not.toContain('hdr-prewarm-source');
+		expect(controlRoute).toContain('coordinator.schedule(');
 		expect(controlRoute).toContain('share.data.assets');
 		expect(controlRoute).toContain('targetLookahead(projection, command.activePosition');
 		expect(controlRoute).not.toMatch(/command\.(?:assetIds|assets|urls)/);
