@@ -9,9 +9,38 @@ function positiveEnv(name: string, fallback: number, maximum: number): number {
 
 export const HDR_METADATA_CACHE_TTL_MS = positiveEnv('HDR_METADATA_CACHE_TTL_MS', 30 * 60 * 1000, 24 * 60 * 60 * 1000);
 export const HDR_METADATA_CACHE_MAX_ENTRIES = positiveEnv('HDR_METADATA_CACHE_MAX_ENTRIES', 512, 8192);
+// Caching dedupes repeat requests for the SAME asset, but a first page load of N distinct,
+// never-before-seen assets still spawns up to N concurrent exiftool processes with nothing
+// bounding the total -- observed directly during real-backend UAT (several exiftool processes
+// simultaneously at ~100% CPU each). Mirrors sdr-cache.ts's withSdrConcurrency exactly.
+export const HDR_METADATA_MAX_CONCURRENT = positiveEnv('HDR_METADATA_MAX_CONCURRENT', 3, 32);
+export const HDR_METADATA_MAX_QUEUE = positiveEnv('HDR_METADATA_MAX_QUEUE', 64, 256);
 
 const entries = new Map<string, Entry>();
 const inFlight = new Map<string, Promise<AppleHdrMetadata | undefined>>();
+
+type QueueItem<T> = { task: () => Promise<T>; resolve: (value: T) => void; reject: (error: unknown) => void };
+let activeExtractions = 0;
+const waitingExtractions: Array<QueueItem<unknown>> = [];
+
+function pump(): void {
+	while (activeExtractions < HDR_METADATA_MAX_CONCURRENT && waitingExtractions.length) {
+		const item = waitingExtractions.shift()!;
+		activeExtractions += 1;
+		item.task().then(item.resolve, item.reject).finally(() => {
+			activeExtractions -= 1;
+			pump();
+		});
+	}
+}
+
+export function withHdrMetadataConcurrency<T>(task: () => Promise<T>): Promise<T> {
+	if (activeExtractions >= HDR_METADATA_MAX_CONCURRENT && waitingExtractions.length >= HDR_METADATA_MAX_QUEUE) return Promise.reject(new Error('hdr-metadata-queue-full'));
+	return new Promise<T>((resolve, reject) => {
+		waitingExtractions.push({ task: async () => task(), resolve: (value) => resolve(value as T), reject });
+		pump();
+	});
+}
 
 /**
  * Whether an asset carries Apple HDR gain-map metadata is a property of its bytes, independent
@@ -48,7 +77,7 @@ export function getOrExtractHdrMetadata(key: string, extract: () => Promise<Appl
 	if (cached.hit) return Promise.resolve(cached.value);
 	const current = inFlight.get(key);
 	if (current) return current;
-	const promise = extract().then((value) => {
+	const promise = withHdrMetadataConcurrency(extract).then((value) => {
 		entries.delete(key);
 		entries.set(key, { value, expiresAt: Date.now() + HDR_METADATA_CACHE_TTL_MS });
 		evict(Date.now());
@@ -61,4 +90,5 @@ export function getOrExtractHdrMetadata(key: string, extract: () => Promise<Appl
 export function clearHdrMetadataCache(): void {
 	entries.clear();
 	inFlight.clear();
+	while (waitingExtractions.length) waitingExtractions.shift()?.reject(new Error('hdr-metadata-cache-cleared'));
 }

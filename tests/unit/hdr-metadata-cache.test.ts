@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { buildHdrMetadataCacheKey, clearHdrMetadataCache, getCachedHdrMetadata, getOrExtractHdrMetadata } from '../../src/lib/server/media/hdr-metadata-cache';
+import { buildHdrMetadataCacheKey, clearHdrMetadataCache, getCachedHdrMetadata, getOrExtractHdrMetadata, HDR_METADATA_MAX_CONCURRENT, withHdrMetadataConcurrency } from '../../src/lib/server/media/hdr-metadata-cache';
 
 const metadata = { version: '1.0', auxiliaryType: 'urn:com:apple:photo:2020:aux:hdrgainmap' as const, makerNote33: 0.8, makerNote48: 0.4, headroom: 2, hdrGain: 0.4, sourceProfile: 'display-p3' as const, sourceTransfer: 'srgb' as const, orientation: 1 as const };
 
@@ -33,6 +33,24 @@ describe('HDR metadata cache', () => {
 		expect(extract).toHaveBeenCalledTimes(1);
 		resolve(undefined);
 		await Promise.all([first, second]);
+	});
+
+	// Real-backend UAT (2026-10-12): a first page load of N distinct, never-before-seen assets
+	// spawned up to N concurrent exiftool processes with nothing bounding the total -- the
+	// per-key dedup above only helps once an asset has been seen once. Mirrors sdr-cache.ts's
+	// own bounded-concurrency test exactly.
+	it('bounds total concurrent extractions across distinct keys, not just per-key', async () => {
+		let active = 0;
+		let maximum = 0;
+		const tasks = Array.from({ length: 8 }, (_, index) => withHdrMetadataConcurrency(async () => {
+			active += 1;
+			maximum = Math.max(maximum, active);
+			await new Promise((resolve) => setTimeout(resolve, 5));
+			active -= 1;
+			return index;
+		}));
+		expect(await Promise.all(tasks)).toEqual([0, 1, 2, 3, 4, 5, 6, 7]);
+		expect(maximum).toBeLessThanOrEqual(HDR_METADATA_MAX_CONCURRENT);
 	});
 
 	it('builds a bounded, sanitized key from realistic header-derived identity', () => {

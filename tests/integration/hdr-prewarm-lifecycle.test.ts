@@ -3,6 +3,7 @@ import { POST } from '../../src/routes/share/[kind]/[ref]/prewarm/+server';
 import { GET as GET_HDR } from '../../src/routes/share/[kind]/[ref]/media/[assetId]/image/hdr/+server';
 import { HdrPrewarmCoordinator, setHdrInteractiveCoordinatorForTests } from '../../src/lib/server/media/hdr-prewarm';
 import { clearHdrCache } from '../../src/lib/server/media/hdr-cache';
+import { clearHdrMetadataCache } from '../../src/lib/server/media/hdr-metadata-cache';
 import v3 from '../fixtures/shared-link/v3-valid-page.json';
 import type { AppleHdrMetadata } from '../../src/lib/server/media/hdr-metadata';
 
@@ -15,7 +16,7 @@ function event(body: unknown, fetch: typeof globalThis.fetch, ref = 'opaque-ref'
 }
 
 describe('real HDR prewarm control-route lifecycle', () => {
-	beforeEach(() => { clearHdrCache(); vi.stubEnv('IMMICH_BASE_URL', 'https://immich.example'); });
+	beforeEach(() => { clearHdrCache(); clearHdrMetadataCache(); vi.stubEnv('IMMICH_BASE_URL', 'https://immich.example'); });
 
 	it('schedules authorized album work, reports terminal progress, and shares the cache with interactive media', async () => {
 		const convert = vi.fn(async ({ assetId }: { assetId: string }) => ({ body: new Uint8Array([assetId.endsWith('2') ? 2 : 1]), contentType: 'video/mp4' }));
@@ -39,6 +40,29 @@ describe('real HDR prewarm control-route lifecycle', () => {
 			const media = await GET_HDR({ params: { kind: 'key', ref: 'opaque-ref', assetId: ids[1] }, request: new Request(`https://pages.example/share/key/opaque-ref/media/${ids[1]}/image/hdr?width=800&height=600`, { headers: { range: 'bytes=0-1' } }), cookies: { get: vi.fn(), set: vi.fn() }, fetch: fetchMock, locals: {} } as never);
 			expect(media.status).toBe(206);
 			expect(convert).toHaveBeenCalledTimes(3);
+		} finally { extract.mockRestore(); restore(); }
+	});
+
+	// Real-backend UAT (2026-10-12): the background prewarm loop called extractAppleHdrMetadata()
+	// directly, bypassing hdr-metadata-cache.ts entirely -- unlike the interactive media routes,
+	// which already shared that cache. Every repeated /prewarm poll (fired continuously by the
+	// client while scrolling, and again fresh on every page reload) re-spawned exiftool for every
+	// asset in its lookahead window with zero memoization, which was the dominant cause of the
+	// exiftool CPU load observed manually against a real Immich backend -- not per-call cost.
+	it('reuses the metadata-cache result across repeated /prewarm polls for the same asset instead of re-extracting', async () => {
+		const convert = vi.fn(async () => ({ body: new Uint8Array([1]), contentType: 'video/mp4' }));
+		const coordinator = new HdrPrewarmCoordinator({ convert });
+		const restore = setHdrInteractiveCoordinatorForTests(coordinator);
+		const share = { ...v3, type: 'ALBUM', album: { ...v3.album, id: '22222222-2222-4222-8222-222222222222' }, assets: ids.map((id, position) => ({ ...v3.assets[0], id, type: 'IMAGE', originalMimeType: 'image/heic', width: 800, height: 600, position })) };
+		const fetchMock = vi.fn(async (input: URL | RequestInfo) => new Response(new URL(input.toString()).pathname.endsWith('/me') ? JSON.stringify(share) : source, { headers: { 'content-type': 'image/heic' } }));
+		const extract = vi.spyOn(await import('../../src/lib/server/media/hdr-metadata'), 'extractAppleHdrMetadata').mockResolvedValue(metadata);
+		try {
+			await POST(event({ activeAssetId: ids[0], activePosition: 0, representation: 'video' }, fetchMock, 'poll-ref') as never);
+			const callsAfterFirstPoll = extract.mock.calls.length;
+			expect(callsAfterFirstPoll).toBeGreaterThan(0);
+			await POST(event({ activeAssetId: ids[0], activePosition: 0, representation: 'video' }, fetchMock, 'poll-ref') as never);
+			// A second poll for the identical targets must hit the cache, not call exiftool again.
+			expect(extract.mock.calls.length).toBe(callsAfterFirstPoll);
 		} finally { extract.mockRestore(); restore(); }
 	});
 

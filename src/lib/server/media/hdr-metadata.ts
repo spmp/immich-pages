@@ -1,6 +1,11 @@
 import { spawn } from 'node:child_process';
 
-export const HDR_METADATA_TIMEOUT_MS = 2_000;
+function positiveEnv(name: string, fallback: number, maximum: number): number {
+	const value = Number(process.env[name]);
+	return Number.isFinite(value) && value > 0 ? Math.min(Math.trunc(value), maximum) : fallback;
+}
+
+export const HDR_METADATA_TIMEOUT_MS = positiveEnv('HDR_METADATA_TIMEOUT_MS', 2_000, 30_000);
 export const HDR_METADATA_MAX_OUTPUT_BYTES = 64 * 1024;
 const APPLE_GAIN_MAP_TYPE = 'urn:com:apple:photo:2020:aux:hdrgainmap';
 
@@ -115,7 +120,13 @@ function runExifTool(executable: string, input: Uint8Array, timeoutMs: number, i
 		// -HDRGainMapVersion and -ICC_Profile:ProfileDescription use ExifTool's default (string)
 		// conversion; -Apple:HDRHeadroom#/-Apple:HDRGain#/-Orientation# force numeric per-tag
 		// regardless of that default, verified against real Apple HDR gain-map photos.
-		const child = spawn(executable, ['-json', '-G1', '-s', '-HDRGainMapVersion', '-Apple:HDRHeadroom#', '-Apple:HDRGain#', '-MakerNotes', '-AuxiliaryImageType', '-ICC_Profile:ProfileDescription', '-ProfileName', '-ColorSpace', '-TransferFunction', '-Orientation#', '-'], { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true, shell: false, env: invocationId ? { ...process.env, HDR_BRIDGE_ASSET_ID: invocationId } : process.env });
+		// -fast (not -fast2, which can skip MakerNotes data this tag set depends on) skips
+		// ExifTool's trailing-data scan -- verified byte-for-byte identical output for the
+		// specific tags this extraction reads, confirmed against real Apple HDR gain-map
+		// photos. Meaningfully cuts per-call wall time, which matters because every call
+		// competes for CPU with every other concurrent extraction (see the concurrency gate
+		// in hdr-metadata-cache.ts).
+		const child = spawn(executable, ['-fast', '-json', '-G1', '-s', '-HDRGainMapVersion', '-Apple:HDRHeadroom#', '-Apple:HDRGain#', '-MakerNotes', '-AuxiliaryImageType', '-ICC_Profile:ProfileDescription', '-ProfileName', '-ColorSpace', '-TransferFunction', '-Orientation#', '-'], { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true, shell: false, env: invocationId ? { ...process.env, HDR_BRIDGE_ASSET_ID: invocationId } : process.env });
 		const chunks: Buffer[] = [];
 		let bytes = 0;
 		let settled = false;

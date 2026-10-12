@@ -7,7 +7,7 @@ vi.mock('node:child_process', () => ({ spawn }));
 const { readFile, rm } = vi.hoisted(() => ({ readFile: vi.fn(), rm: vi.fn() }));
 vi.mock('node:fs/promises', () => ({ readFile, rm }));
 
-import { composeHdr, decodeHdrAvifStream, encodeHdrAvif, encodeHdrMp4 } from '../../src/lib/server/media/hdr-compositor';
+import { composeHdr, decodeHdrAvifStream, encodeHdrAvif, encodeHdrMp4, nativeFailureReason } from '../../src/lib/server/media/hdr-compositor';
 
 function childFor(output: string) {
 	const child = new EventEmitter() as EventEmitter & { stdin: EventEmitter & { end: (input: Uint8Array) => void }; stdout: EventEmitter; stderr: EventEmitter; kill: ReturnType<typeof vi.fn> };
@@ -127,5 +127,15 @@ describe('HDR native process contracts', () => {
 		expect(source).toContain('rec709_to_linear');
 		expect(source).toContain('static_cast<char>(value >> 8)');
 		expect(source).not.toContain('3.4816322');
+	});
+
+	// Real-backend UAT (2026-10-12): these two throw directly from hdr-prewarm.ts's coordinator
+	// (not from a native subprocess) and previously both collapsed into 'unknown' here, hiding
+	// a real registry-generation/metadata distinction behind an opaque, undiagnosable category.
+	it('classifies coordinator-thrown errors distinctly from native subprocess failures', () => {
+		expect(nativeFailureReason(new Error('stale-generation'))).toBe('stale-generation');
+		expect(nativeFailureReason(new Error('hdr-metadata-invalid'))).toBe('metadata-invalid');
+		expect(nativeFailureReason(new Error('hdr-compositor-timeout'))).toBe('compositor-timeout');
+		expect(nativeFailureReason('not-an-error-object')).toBe('unknown');
 	});
 });

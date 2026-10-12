@@ -38,7 +38,7 @@ export const HDR_AVIF_ENCODE_TIMEOUT_MS = positiveEnv('HDR_AVIF_ENCODE_TIMEOUT_M
 // The final compressed AVIF, for the same largest-real-photo case above -- AVIF compresses well
 // even with a gain map, but 64MB was sized for the ~9-megapixel spike fixture, not a 48MP photo.
 export const HDR_AVIF_ENCODE_MAX_OUTPUT_BYTES = 128 * 1024 * 1024;
-export type NativeFailureReason = 'read' | 'primary-decode' | 'gain-map-missing' | 'gain-map-decode' | 'metadata-invalid' | 'ffmpeg' | 'compositor-timeout' | 'ffmpeg-timeout' | 'compositor-spawn' | 'ffmpeg-spawn' | 'compositor-exit' | 'ffmpeg-exit' | 'avif-decode-timeout' | 'avif-encode-timeout' | 'avif-decode-spawn' | 'avif-encode-spawn' | 'avif-decode-exit' | 'avif-encode-exit' | 'unknown';
+export type NativeFailureReason = 'read' | 'primary-decode' | 'gain-map-missing' | 'gain-map-decode' | 'metadata-invalid' | 'ffmpeg' | 'compositor-timeout' | 'ffmpeg-timeout' | 'compositor-spawn' | 'ffmpeg-spawn' | 'compositor-exit' | 'ffmpeg-exit' | 'avif-decode-timeout' | 'avif-encode-timeout' | 'avif-decode-spawn' | 'avif-encode-spawn' | 'avif-decode-exit' | 'avif-encode-exit' | 'stale-generation' | 'unknown';
 
 export async function composeHdr(input: Uint8Array, metadata: AppleHdrMetadata, options: { executable?: string; timeoutMs?: number; invocationId?: string; signal?: AbortSignal } = {}): Promise<Uint8Array> {
 	if (input.byteLength === 0 || input.byteLength > HDR_COMPOSITOR_MAX_INPUT_BYTES) throw new Error('hdr-input-limit');
@@ -184,6 +184,14 @@ function runBoundedProcessToFile(executable: string, args: string[], input: Uint
 
 export function nativeFailureReason(error: unknown): NativeFailureReason {
 	if (!(error instanceof Error)) return 'unknown';
+	// Real-backend UAT (2026-10-12): these two are thrown directly by hdr-prewarm.ts's
+	// coordinator (registry-generation mismatch on reload; metadata extraction genuinely
+	// returned nothing), not by a native subprocess -- distinguishing them from a real
+	// compositor/ffmpeg failure matters, since the fix for each is completely different.
+	// Previously both silently collapsed into 'unknown' here, which is what first looked
+	// like a mystery conversion failure during manual UAT.
+	if (error.message === 'stale-generation') return 'stale-generation';
+	if (error.message === 'hdr-metadata-invalid') return 'metadata-invalid';
 	if (error.message.startsWith('hdr-compositor-timeout')) return 'compositor-timeout';
 	if (error.message.startsWith('hdr-ffmpeg-timeout')) return 'ffmpeg-timeout';
 	if (error.message.startsWith('hdr-compositor-spawn')) return 'compositor-spawn';

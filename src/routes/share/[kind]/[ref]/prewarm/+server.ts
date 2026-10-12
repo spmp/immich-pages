@@ -5,6 +5,7 @@ import { authContextFromRequest } from '$server/immich/auth-context';
 import { createImmichProvider } from '$server/immich/provider';
 import { inferSafeImageMime, IMMICH_MAX_ORIGINAL_BYTES, readBoundedBytes } from '$server/immich/client';
 import { extractAppleHdrMetadata } from '$server/media/hdr-metadata';
+import { buildHdrMetadataCacheKey, getOrExtractHdrMetadata } from '$server/media/hdr-metadata-cache';
 import { getHdrInteractiveCoordinator, type AuthorizedHdrAsset, type HdrActiveAssetState, type HdrProgressSnapshot } from '$server/media/hdr-prewarm';
 import { buildHdrSourceIdentity } from '$server/media/hdr-cache';
 import { parseHdrLookahead, targetLookahead, type HdrProjectionAsset } from '$server/media/hdr-prewarm-policy';
@@ -89,7 +90,20 @@ async function authorizedAssets(event: EndpointEvent, command: z.infer<typeof Co
 			const bytes = await readBoundedBytes(source.response, IMMICH_MAX_ORIGINAL_BYTES);
 			const mime = inferSafeImageMime(bytes, source.response.headers.get('content-type'));
 			if (mime !== 'image/heif' && mime !== 'image/heic') continue;
-			const metadata = await extractAppleHdrMetadata(bytes);
+			// Byte-for-byte the same header-derived identity the interactive media routes use
+			// (image/hdr, image/hdr-avif) for the SAME cache -- confirmed hdr-caching-uat-20261010:
+			// before this fix, this background loop called extractAppleHdrMetadata() directly,
+			// bypassing hdr-metadata-cache.ts entirely. Every prewarm poll (fired repeatedly by the
+			// client, and again fresh on every page reload) re-spawned exiftool for every asset in
+			// its lookahead window, with no memoization at all -- the dominant cause of the exiftool
+			// load observed during manual real-backend UAT, not merely per-call cost.
+			const headerSourceIdentity = [
+				source.response.headers.get('etag'),
+				source.response.headers.get('last-modified'),
+				source.response.headers.get('content-length')
+			].filter(Boolean).join('|') || `asset-${target.id}`;
+			const metadataCacheKey = buildHdrMetadataCacheKey({ assetId: target.id, sourceIdentity: headerSourceIdentity });
+			const metadata = await getOrExtractHdrMetadata(metadataCacheKey, () => extractAppleHdrMetadata(bytes));
 			if (metadata) {
 				// Keep the prewarm key byte-for-byte compatible with both interactive media
 				// routes. A MIME/dimension identity is not equivalent to the media route's
