@@ -105,6 +105,18 @@ export class HdrAssetRegistry {
 		return this.scopes.get(scope)?.get(safePart(assetId))?.[representation];
 	}
 
+	/** Every entry currently stored for (scope, representation), any generation/status -- callers filter further (e.g. by generation) themselves. Used for aggregate progress reporting. */
+	entriesFor(scope: string, representation: HdrRepresentation): readonly HdrRegistryEntry[] {
+		const assets = this.scopes.get(scope);
+		if (!assets) return [];
+		const result: HdrRegistryEntry[] = [];
+		for (const slots of assets.values()) {
+			const entry = slots[representation];
+			if (entry) result.push(entry);
+		}
+		return result;
+	}
+
 	transition(entry: HdrRegistryEntry, next: Partial<Pick<HdrRegistryEntry, 'status' | 'cacheKey' | 'attempts' | 'error'>>): HdrRegistryEntry {
 		Object.assign(entry, next);
 		entry.updatedAt = Date.now();

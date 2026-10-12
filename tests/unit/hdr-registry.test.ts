@@ -66,4 +66,17 @@ describe('HdrAssetRegistry', () => {
 		expect(second).not.toBe(first);
 		expect(second.status).toBe('pending');
 	});
+
+	it('entriesFor() lists every entry for a scope+representation, scoped and representation-filtered', () => {
+		const registry = createHdrAssetRegistry();
+		registry.resolve('scope-a', 'asset-1', 'video', identity);
+		registry.resolve('scope-a', 'asset-2', 'video', identity);
+		registry.resolve('scope-a', 'asset-1', 'avif', identity);
+		registry.resolve('scope-b', 'asset-1', 'video', identity);
+
+		expect(registry.entriesFor('scope-a', 'video')).toHaveLength(2);
+		expect(registry.entriesFor('scope-a', 'avif')).toHaveLength(1);
+		expect(registry.entriesFor('scope-b', 'video')).toHaveLength(1);
+		expect(registry.entriesFor('scope-c', 'video')).toHaveLength(0);
+	});
 });
