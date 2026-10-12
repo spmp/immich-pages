@@ -1,7 +1,6 @@
 import type { SharedLinkResponse } from '$server/immich/types';
 import type { PresentationConfig } from './schema';
 import type { MapMarker, MapRoute } from '$server/map/types';
-import type { HdrProjectionAsset } from '$server/media/hdr-prewarm-policy';
 
 export type NormalizedGradient =
 	| { auto: true; direction: 'to bottom' | '135deg'; top?: undefined; bottom?: undefined }
@@ -23,21 +22,6 @@ export type NormalizedPageModel = {
 	warnings: string[];
 	errors: string[];
 };
-
-/** Project the already-authorized viewer sequence without exposing upstream DTOs. */
-export function projectHdrAssets(assets: readonly NormalizedAsset[]): HdrProjectionAsset[] {
-	return assets.map((asset, position) => {
-		const mime = asset.sourceMimeType?.toLowerCase();
-		return {
-			id: asset.id,
-			position,
-			eligible: asset.type === 'IMAGE' && (mime === 'image/heic' || mime === 'image/heif'),
-			sourceIdentity: `${asset.id}:${mime ?? 'unknown'}:${asset.sourceWidth ?? 'auto'}x${asset.sourceHeight ?? 'auto'}`,
-			...(asset.sourceWidth !== undefined ? { width: asset.sourceWidth } : {}),
-			...(asset.sourceHeight !== undefined ? { height: asset.sourceHeight } : {})
-		};
-	});
-}
 
 export function deriveDisplayDate(config: PresentationConfig, share: SharedLinkResponse): { start: string; end: string } | undefined {
 	if (config.date) return { start: config.date, end: config.date };

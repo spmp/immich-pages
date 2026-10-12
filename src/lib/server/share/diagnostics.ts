@@ -119,6 +119,19 @@ export function logShareAssetProjection({ requestId, type, topLevelAssetCount, n
 	console.info(JSON.stringify({ event: 'direct-share.asset-projection', ...(requestId ? { requestId } : {}), type, topLevelAssetCount, nestedAlbumAssetCount, normalizedAssetCount, ...(heroSelection ? { heroSelection } : {}) }));
 }
 
+/**
+ * WR-01 (REVIEW.md): selectAuthoritativeAlbumAssets reconciles a disagreeing nested album
+ * order against top-level membership rather than silently trusting or silently dropping the
+ * divergence. Counts only, no asset IDs -- a future mismatch is observable, not silent.
+ */
+export function logShareAssetProjectionMismatch({ topLevelCount, nestedCount, reconciledCount }: {
+	topLevelCount: number;
+	nestedCount: number;
+	reconciledCount: number;
+}) {
+	console.info(JSON.stringify({ event: 'direct-share.asset-projection-mismatch', topLevelCount, nestedCount, reconciledCount }));
+}
+
 export function logShareMediaStatus({ media, status, statusCode, contentType, byteLength, failureCategory, failureReason, failureDetail }: { media: 'thumbnail' | 'video' | 'fullsize'; status: 'success' | 'failure'; statusCode?: number; contentType?: string; byteLength?: number; failureCategory?: 'unauthorized' | 'not-found' | 'upstream' | 'conversion' | 'oversized' | 'invalid-range'; failureReason?: 'read' | 'primary-decode' | 'gain-map-missing' | 'gain-map-decode' | 'metadata-invalid' | 'png-encode' | 'ffmpeg' | 'compositor-timeout' | 'ffmpeg-timeout' | 'compositor-spawn' | 'ffmpeg-spawn' | 'compositor-exit' | 'ffmpeg-exit' | 'avif-decode-timeout' | 'avif-encode-timeout' | 'avif-decode-spawn' | 'avif-encode-spawn' | 'avif-decode-exit' | 'avif-encode-exit' | 'input-limit' | 'spawn' | 'timeout' | 'exit' | 'empty-output' | 'output-limit' | 'unknown'; failureDetail?: string }) {
    console.info(JSON.stringify({ event: `direct-share.${media}`, status, ...(statusCode === undefined ? {} : { statusCode: Math.max(0, Math.min(999, Math.trunc(statusCode))) }), ...(contentType ? { contentType: contentType.split(';', 1)[0]?.trim().slice(0, 64) } : {}), ...(byteLength === undefined ? {} : { byteLength: Math.max(0, Math.min(10 * 1024 * 1024, Math.trunc(byteLength))) }), ...(failureCategory ? { failureCategory } : {}), ...(failureReason ? { failureReason } : {}), ...(failureDetail ? { failureDetail: failureDetail.slice(0, 160) } : {}) }));
 }

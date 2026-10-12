@@ -39,8 +39,6 @@ export const load: PageServerLoad = async ({ params, request, locals, fetch, coo
 		metadataReason: outcome.kind === 'invalid-metadata' ? outcome.metadataReason : undefined });
 	if (outcome.kind === 'page') {
 		const indicator = parseHdrIndicator(env.HDR_PREWARM_INDICATOR);
-		// prepareAuthorizedHdrSources and void prepareAuthorizedHdrSources(createImmichProvider(fetch), context, outcome.page).catch
-		// are intentionally absent from execution: detached SSR work was removed.
 		const currentHref = `/share/${ref.kind}/${encodeURIComponent(ref.value)}`;
 		const currentEntry: NavigationEntry = { href: currentHref, title: outcome.page.album.title,
 			date: outcome.page.album.startDate && outcome.page.album.endDate ? { start: outcome.page.album.startDate, end: outcome.page.album.endDate } : undefined };

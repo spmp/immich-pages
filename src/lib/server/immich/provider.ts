@@ -1,7 +1,7 @@
 import { readBoundedText, requestImmich, shareQuery } from './client';
 import { AssetResponseSchema, MapMarkerResponseArraySchema, SearchResponseSchema, SharedLinkResponseSchema, type SharedLinkResponse } from './types';
 import type { AuthContext } from './auth-context';
-import { logAlbumAssetsRequest, logAlbumAssetsResponse, logMapMarkersResponse, logSharedLinkResponse, logShareAssetProjection } from '$server/share/diagnostics';
+import { logAlbumAssetsRequest, logAlbumAssetsResponse, logMapMarkersResponse, logShareAssetProjectionMismatch, logSharedLinkResponse, logShareAssetProjection } from '$server/share/diagnostics';
 
 export type ImmichProvider = {
 	loginSharedLink: (context: AuthContext, password: string) => Promise<{ status: number; token?: string }>;
@@ -13,9 +13,32 @@ export type ImmichProvider = {
 	getVersion: () => Promise<{ status: number; version?: string }>;
 };
 
-/** The nested album projection is the only projection that carries album order. */
+/**
+ * The nested album projection is the only projection that carries album order -- but it is
+ * reconciled against top-level membership, never trusted as-is (WR-01, REVIEW.md): the
+ * returned list's ID set is always EXACTLY topLevel's, because data.assets after this call
+ * feeds every downstream membership check in this file (e.g. getFullsizeImage's
+ * share.data.assets.find(...)). An ID nested has but topLevel doesn't is dropped -- surfacing
+ * an asset the share's own top-level list never declared would be an authorization-adjacent
+ * leak, not just an ordering quirk. An ID topLevel has but nested omits is retained, appended
+ * in topLevel's own relative order after the agreed intersection -- membership never narrows.
+ */
 export function selectAuthoritativeAlbumAssets<T extends { id: string }>(topLevel: readonly T[], nested: readonly T[] | undefined): readonly T[] {
-	return nested && nested.length > 0 ? nested : topLevel;
+	if (!nested || nested.length === 0) return topLevel;
+	// An empty top-level `assets` is not "zero members" -- it's Immich (v3.1.0, this deployment
+	// confirmed) simply not populating that field for ALBUM shares at all, with nested
+	// album.assets as the only real membership/order source. There is nothing to reconcile
+	// against; trust nested fully, exactly as before this fix (hdr-caching-uat-20261010's root
+	// cause (1) depends on this exact path).
+	if (topLevel.length === 0) return nested;
+	const topLevelIds = new Set(topLevel.map((asset) => asset.id));
+	const reconciled = nested.filter((asset) => topLevelIds.has(asset.id));
+	const reconciledIds = new Set(reconciled.map((asset) => asset.id));
+	const missingFromNested = topLevel.filter((asset) => !reconciledIds.has(asset.id));
+	if (missingFromNested.length > 0 || reconciled.length !== nested.length) {
+		logShareAssetProjectionMismatch({ topLevelCount: topLevel.length, nestedCount: nested.length, reconciledCount: reconciled.length + missingFromNested.length });
+	}
+	return [...reconciled, ...missingFromNested];
 }
 
 export function createImmichProvider(fetchImpl: typeof fetch = fetch, baseUrl = process.env.IMMICH_BASE_URL): ImmichProvider {
