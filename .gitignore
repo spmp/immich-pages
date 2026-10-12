@@ -25,3 +25,4 @@ rebuild/
 
 # Real-Immich E2E fixture: Docker-managed runtime state, not project source.
 tests/e2e/real-immich/.env
+tests/e2e/real-immich/seed-output.json

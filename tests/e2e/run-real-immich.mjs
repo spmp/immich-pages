@@ -78,7 +78,7 @@ try {
   await new Promise((resolve, reject) => {
     const test = spawn(process.platform === 'win32' ? 'npx.cmd' : 'npx', ['playwright', 'test', `--config=${playwrightConfig}`, ...playwrightArgs], {
       stdio: 'inherit',
-      env: { ...process.env, PLAYWRIGHT_BASE_URL: 'http://127.0.0.1:4173', IMMICH_BASE_URL }
+      env: { ...process.env, PLAYWRIGHT_BASE_URL: 'http://127.0.0.1:4173', IMMICH_BASE_URL, REAL_IMMICH_FIXTURE: 'true' }
     });
     test.once('error', reject);
     test.once('exit', (code, signal) => (code === 0 ? resolve() : reject(new Error(`playwright exited with ${code ?? signal}`))));

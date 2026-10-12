@@ -1,7 +1,21 @@
+import { existsSync, readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { expect, test, type Page, type Route } from '@playwright/test';
 
-const ref = 'heic-forward-ref';
-const assetId = (number: number) => `70000000-0000-4000-8000-${String(number).padStart(12, '0')}`;
+// When run against the real-Immich fixture (tests/e2e/run-real-immich.mjs), seed.mjs writes
+// real share keys/asset IDs here -- this spec reuses them instead of the mock's hardcoded
+// fixture identity, so the SAME assertions (status codes, decode/rendering behavior) run
+// against both backends without duplicating test code. Absent (mock run): fall back to the
+// mock server's fixed fixture identity, unchanged from before this plan.
+const seedOutputPath = fileURLToPath(new URL('./real-immich/seed-output.json', import.meta.url));
+// Gated on an explicit env var, not mere file existence -- a stale seed-output.json left over
+// from a prior real-backend run must never silently leak into a mock run (confirmed the hard
+// way: it did, corrupting all four tests' ref/asset IDs, before this guard was added).
+const realSeed: { forward: { ref: string; assetIds: string[] } } | null =
+	process.env.REAL_IMMICH_FIXTURE === 'true' && existsSync(seedOutputPath) ? JSON.parse(readFileSync(seedOutputPath, 'utf8')) : null;
+
+const ref = realSeed?.forward.ref ?? 'heic-forward-ref';
+const assetId = (number: number) => realSeed?.forward.assetIds[number - 1] ?? `70000000-0000-4000-8000-${String(number).padStart(12, '0')}`;
 
 test.use({ extraHTTPHeaders: { authorization: 'Bearer fixture' } });
 
@@ -43,6 +57,14 @@ test('unsupported clients stay SDR-only and keep a native anchor', async ({ page
 	await expect(page.locator(`#asset-${assetId(1)} a`)).not.toHaveAttribute('data-video-src', /image\/hdr/);
 	expect(controlRequests).toHaveLength(0);
 	await expect(page.locator(`#asset-${assetId(1)} a`)).toHaveAttribute('href', /thumbnail/);
+	if (realSeed) {
+		// Real-backend-only: proves this plan's actual purpose -- Pages decodes and serves a
+		// REAL image, not the mock's fabricated byte content. A trivial/placeholder response
+		// would be a handful of bytes; a real decoded HEIC-derived thumbnail is not.
+		const href = await page.locator(`#asset-${assetId(1)} a`).getAttribute('href');
+		const byteLength = await page.evaluate(async (url) => (await (await fetch(url)).arrayBuffer()).byteLength, href);
+		expect(byteLength).toBeGreaterThan(10_000);
+	}
 });
 
 test('preparing, ready, and partial readiness never block SDR navigation', async ({ page }) => {
@@ -57,10 +79,10 @@ test('preparing, ready, and partial readiness never block SDR navigation', async
 	await expect(page.locator('[id^="asset-"]')).toHaveCount(20);
 	await expect(page.locator('[aria-label="Preparing enhanced photos"]')).toBeVisible();
 	state = 'ready';
-	await page.evaluate(() => document.dispatchEvent(new CustomEvent('pages:active-asset', { detail: { activeAssetId: '70000000-0000-4000-8000-000000000005', activePosition: 4 } })));
+	await page.evaluate((id) => document.dispatchEvent(new CustomEvent('pages:active-asset', { detail: { activeAssetId: id, activePosition: 4 } })), assetId(5));
 	await expect(page.locator('[aria-label="Enhanced photos ready"]')).toBeVisible();
 	state = 'partial';
-	await page.evaluate(() => document.dispatchEvent(new CustomEvent('pages:active-asset', { detail: { activeAssetId: '70000000-0000-4000-8000-000000000006', activePosition: 5 } })));
+	await page.evaluate((id) => document.dispatchEvent(new CustomEvent('pages:active-asset', { detail: { activeAssetId: id, activePosition: 5 } })), assetId(6));
 	await expect(page.locator('[aria-label*="Some enhanced photos are unavailable"]')).toBeVisible();
 	await expect(page.locator('section[aria-label="Gallery"]')).toBeVisible();
 	await expect(page.locator('body')).not.toContainText(/image cannot be loaded/i);
@@ -102,7 +124,7 @@ test('video and AVIF control-plane progress stay representation-specific', async
 		await installHints(page, kind);
 		await page.route('**/prewarm', async (route) => { seen.push(await route.request().headerValue('x-hdr-representation') ?? ''); return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ generation: 1, representation: kind, state: 'ready', targeted: 1, queued: 0, running: 0, completed: 1, failed: 0, skipped: 0 }) }); });
 		await page.goto(`/share/key/${ref}`);
-		await page.evaluate(({ shareRef, representation }) => fetch(`/share/key/${shareRef}/prewarm`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-hdr-representation': representation }, body: JSON.stringify({ activeAssetId: '70000000-0000-4000-8000-000000000001', activePosition: 0 }) }), { shareRef: ref, representation: kind });
+		await page.evaluate(({ shareRef, representation, id }) => fetch(`/share/key/${shareRef}/prewarm`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-hdr-representation': representation }, body: JSON.stringify({ activeAssetId: id, activePosition: 0 }) }), { shareRef: ref, representation: kind, id: assetId(1) });
 		await expect.poll(() => seen.includes(kind)).toBe(true);
 		await page.close();
 	}
