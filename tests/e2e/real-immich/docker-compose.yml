@@ -20,7 +20,7 @@ services:
       IMMICH_IGNORE_MOUNT_CHECK_ERRORS: 'true'
     volumes:
       - immich-upload:/data
-      - ../../resources/heic-test-set:/external/heic-test-set:ro
+      - ../../resources/heic-test-set/originals:/external/heic-originals:ro
     ports:
       - '4101:2283'
     depends_on:
