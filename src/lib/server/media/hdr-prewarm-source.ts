@@ -55,7 +55,11 @@ export async function prepareAuthorizedHdrSources(
 		}
 	}
 	if (acquired.length === 0) return coordinator.snapshot(coordinator.getGeneration(), representation);
-	return coordinator.schedule({ assets: acquired, activePosition: -1, lookahead: { kind: 'all' }, generation: coordinator.getGeneration() }, representation, 'background');
+	// This whole module is dead code -- no longer called from +page.server.ts since commit
+	// 005223e, pending deletion in 08-21-PLAN.md Task 3. 'default' here only keeps this file
+	// type-checking in the window between Task 2 (scope becomes required) and Task 3 (deletes
+	// the file); it is never reached by any production or test code path.
+	return coordinator.schedule({ assets: acquired, activePosition: -1, lookahead: { kind: 'all' }, generation: coordinator.getGeneration(), scope: 'default' }, representation, 'background');
 }
 
 function disposeBytes(bytes: Uint8Array): void {

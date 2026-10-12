@@ -5,6 +5,7 @@ const projection = (generation: number, id = 'asset-generation'): AuthorizedHdrP
 	generation,
 	activePosition: 0,
 	lookahead: { kind: 'count', value: 1 },
+	scope: 'default',
 	assets: [{ id, eligible: true, position: 1, sourceIdentity: `source-${id}`, sourceBytes: new Uint8Array([7, 8, 9]) }]
 });
 

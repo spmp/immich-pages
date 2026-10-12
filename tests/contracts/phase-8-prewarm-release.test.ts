@@ -57,7 +57,9 @@ describe('Phase 8 corrected prewarm release contract', () => {
 
 	it('proves bounded priority, queue, retry, timeout, and memory-only behavior', () => {
 		expect(coordinator).toContain('Math.min(Math.trunc(options.maxAttempts ?? DEFAULT_ATTEMPTS), DEFAULT_ATTEMPTS)');
-		expect(coordinator).toContain('if (job.attempts < this.maxAttempts)');
+		// 08-21-PLAN.md Task 2: retry bookkeeping moved from the removed private `jobs` Map onto
+		// the HdrAssetRegistry entry itself (`entry.attempts`, mutated via registry.transition()).
+		expect(coordinator).toContain('if (entry.attempts < this.maxAttempts)');
 		expect(cache).toContain('HDR_MAX_CONCURRENT');
 		expect(cache).toContain('HDR_MAX_QUEUE');
 		expect(cache).toContain('HDR_CACHE_MAX_BYTES');
@@ -66,7 +68,7 @@ describe('Phase 8 corrected prewarm release contract', () => {
 		expect(cache).toContain('timeoutMs');
 		expect(cache).toContain('priority');
 		expect(cache).toContain('controller.abort()');
-		expect(coordinator).toContain('job.source.bytes.fill(0)');
+		expect(coordinator).toContain('entry.source.bytes.fill(0)');
 	});
 
 	it('keeps progress redacted, fallback-capable, and readiness default-on', () => {

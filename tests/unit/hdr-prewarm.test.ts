@@ -1,12 +1,12 @@
 import { describe, expect, it, vi } from 'vitest';
-import { HdrPrewarmCoordinator, HDR_OUTPUT_CONTRACT, type AuthorizedHdrProjection } from '../../src/lib/server/media/hdr-prewarm';
-import { buildHdrCacheKey } from '../../src/lib/server/media/hdr-cache';
+import { HdrPrewarmCoordinator, type AuthorizedHdrProjection } from '../../src/lib/server/media/hdr-prewarm';
 import { redactHdrProgress, redactHdrProgressEvent } from '../../src/lib/server/media/hdr-progress';
 
 const projection = (generation = 0, sourceIdentity = 'etag-1'): AuthorizedHdrProjection => ({
 	generation,
 	activePosition: 0,
 	lookahead: { kind: 'count', value: 1 },
+	scope: 'default',
 	assets: [{ id: 'asset-1', eligible: true, position: 1, sourceIdentity, sourceBytes: new Uint8Array([1, 2, 3]), width: 100, height: 80 }]
 });
 
@@ -45,7 +45,7 @@ describe('HDR prewarm coordinator', () => {
 			sourceIdentity: `source-${index}`,
 			sourceBytes: new Uint8Array([1, 2, 3])
 		}));
-		const snapshot = coordinator.schedule({ assets, activePosition: -1, lookahead: { kind: 'all' }, generation: 0 }, 'video');
+		const snapshot = coordinator.schedule({ assets, activePosition: -1, lookahead: { kind: 'all' }, generation: 0, scope: 'default' }, 'video');
 
 		expect(snapshot.targeted).toBe(40);
 		await vi.waitFor(() => expect(coordinator.snapshot().state).toBe('ready'), { timeout: 10_000 });
@@ -82,33 +82,37 @@ describe('HDR prewarm coordinator', () => {
 		expect(coordinator.snapshot(coordinator.getGeneration(), 'video', 'default')).toMatchObject({ targeted: 0 });
 	});
 
-	// jobState() is the AVIF-only per-asset readiness lookup now (08-21-PLAN.md Task 1 migrates
-	// video onto the registry-backed activeState() below -- see hdr-caching-uat-20261010
-	// root_cause (1)/CR-01). A key built for a job that was never scheduled still answers 'none'.
-	it('jobState exposes an AVIF job status by cache key for per-asset readiness, and "none" for an unknown key', async () => {
-		const convert = vi.fn(async () => ({ body: new Uint8Array([1]), contentType: 'image/avif' }));
+	// jobState()/the old cache-key reconstruction are gone (08-21-PLAN.md Task 2 fully retires
+	// the coordinator's private jobs Map); activeState() is the direct O(1) registry lookup for
+	// BOTH representations now -- see hdr-caching-uat-20261010 root_cause (1)/CR-01. An asset
+	// that was never scheduled answers 'none' for either representation.
+	it.each(['video', 'avif'] as const)('activeState exposes a %s entry status by (scope, assetId), and "none" for an unknown asset', async (representation) => {
+		const convert = vi.fn(async () => ({ body: new Uint8Array([1]), contentType: representation === 'video' ? 'video/mp4' : 'image/avif' }));
 		const coordinator = new HdrPrewarmCoordinator({ convert });
-		const asset = { id: 'asset-state', eligible: true, position: 0, sourceIdentity: 'state-etag', sourceBytes: new Uint8Array([4, 5, 6]), width: undefined, height: undefined };
-		const key = buildHdrCacheKey({ assetId: asset.id, sourceIdentity: asset.sourceIdentity, width: asset.width, height: asset.height, outputContract: HDR_OUTPUT_CONTRACT.avif });
-		expect(coordinator.jobState(key)).toBe('none');
-		coordinator.schedule({ assets: [asset], activePosition: -1, lookahead: { kind: 'all' }, generation: 0, scope: 'share-key-state' }, 'avif', 'background');
-		// run() flips a job straight to 'running' synchronously (before its first await), so
-		// 'queued' is only ever observable for a job still waiting on the bounded scheduler.
-		expect(['running', 'queued']).toContain(coordinator.jobState(key));
-		await vi.waitFor(() => expect(coordinator.jobState(key)).toBe('succeeded'));
+		const asset = { id: `asset-state-${representation}`, eligible: true, position: 0, sourceIdentity: `state-etag-${representation}`, sourceBytes: new Uint8Array([4, 5, 6]) };
+		const scope = `share-key-state-${representation}`;
+		expect(coordinator.activeState(scope, asset.id, representation)).toBe('none');
+		coordinator.schedule({ assets: [asset], activePosition: -1, lookahead: { kind: 'all' }, generation: 0, scope }, representation, 'background');
+		// enqueue() flips an entry straight to 'converting' synchronously (before its first
+		// await), so 'pending'/'queued' is only ever observable for an entry still waiting on
+		// the bounded scheduler.
+		expect(['running', 'queued']).toContain(coordinator.activeState(scope, asset.id, representation));
+		await vi.waitFor(() => expect(coordinator.activeState(scope, asset.id, representation)).toBe('succeeded'));
 	});
 
-	// The video-representation replacement for the AVIF test above: a direct registry lookup
-	// through activeState(), not a cache-key reconstruction -- the whole point of CR-01's fix.
-	it('activeState exposes a video entry status by (scope, assetId), and "none" for an unknown asset', async () => {
-		const convert = vi.fn(async () => ({ body: new Uint8Array([1]), contentType: 'video/mp4' }));
+	// D-19 / Task 2 Behavior Test 1: an AVIF call and a VIDEO call for the SAME (scope, assetId)
+	// write to independent registry slots -- completing one never marks the other 'ready'.
+	it('keeps video and AVIF registry entries independent for the same (scope, assetId)', async () => {
+		const convert = vi.fn(async ({ representation }: { representation: string }) => ({ body: new Uint8Array([1]), contentType: representation === 'video' ? 'video/mp4' : 'image/avif' }));
 		const coordinator = new HdrPrewarmCoordinator({ convert });
-		const asset = { id: 'asset-state-video', eligible: true, position: 0, sourceIdentity: 'state-etag-video', sourceBytes: new Uint8Array([4, 5, 6]) };
-		const scope = 'share-key-state-video';
-		expect(coordinator.activeState(scope, asset.id, 'video')).toBe('none');
+		const scope = 'share-key-d19';
+		const asset = { id: 'asset-d19', eligible: true, position: 0, sourceIdentity: 'd19-etag', sourceBytes: new Uint8Array([1, 2, 3]) };
 		coordinator.schedule({ assets: [asset], activePosition: -1, lookahead: { kind: 'all' }, generation: 0, scope }, 'video', 'background');
-		expect(['running', 'queued']).toContain(coordinator.activeState(scope, asset.id, 'video'));
 		await vi.waitFor(() => expect(coordinator.activeState(scope, asset.id, 'video')).toBe('succeeded'));
+		expect(coordinator.activeState(scope, asset.id, 'avif')).toBe('none');
+		coordinator.schedule({ assets: [asset], activePosition: -1, lookahead: { kind: 'all' }, generation: 0, scope }, 'avif', 'background');
+		await vi.waitFor(() => expect(coordinator.activeState(scope, asset.id, 'avif')).toBe('succeeded'));
+		expect(coordinator.activeState(scope, asset.id, 'video')).toBe('succeeded');
 	});
 
 	it('redacts progress to bounded representation-specific aggregates and safe event IDs', () => {
