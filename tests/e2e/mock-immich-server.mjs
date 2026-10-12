@@ -85,7 +85,17 @@ const heicPage = {
   assets: []
 };
 
+// Real production shape (hdr-caching-uat-20261010): this Immich deployment returns BOTH
+// top-level `assets` and nested `album.assets` empty, forcing the /api/search/metadata
+// fallback -- the only path WR-01's fix actually threads `album.order` through. Neither
+// `heic-empty-desc-ref` nor `heic-empty-asc-ref` exist in any OTHER mock fixture; every one
+// of those keeps nested non-empty, so none of them ever reach this fallback at all.
+const heicEmptyBothRefs = ['heic-empty-desc-ref', 'heic-empty-asc-ref'];
+
 function heicPageFor(ref) {
+  if (heicEmptyBothRefs.includes(ref)) {
+    return { ...heicPage, key: ref, assets: [], album: { ...heicPage.album, assets: [], order: ref === 'heic-empty-asc-ref' ? 'asc' : undefined } };
+  }
   const order = ref === 'heic-reverse-ref' ? heicReverseOrder : ref === 'heic-second-ref' ? heicSecondOrder : heicForwardOrder;
   const nested = heicAssetsForOrder(order);
   const topLevel = ref === 'heic-order-production-ref' ? heicAssetsForOrder(heicSearchOrder) : [];
@@ -168,7 +178,7 @@ const server = http.createServer((request, response) => {
   if (url.pathname === '/api/shared-links/me' && (url.searchParams.has('key') || url.searchParams.has('slug'))) {
     const ref = url.searchParams.get('key') ?? url.searchParams.get('slug');
     const shareRef = url.searchParams.get('key') ?? url.searchParams.get('slug');
-    if (!['opaque-ref', 'second-ref', 'revoke-ref', 'expire-ref', 'password-share', 'unauthorized', 'error', 'non-page', 'map-ref', 'no-map-ref', 'heic-ref', 'heic-reverse-ref', 'heic-forward-ref', 'heic-second-ref', 'heic-order-production-ref', ...Object.keys(routeDescriptions)].includes(shareRef)) { response.writeHead(403); response.end(); return; }
+    if (!['opaque-ref', 'second-ref', 'revoke-ref', 'expire-ref', 'password-share', 'unauthorized', 'error', 'non-page', 'map-ref', 'no-map-ref', 'heic-ref', 'heic-reverse-ref', 'heic-forward-ref', 'heic-second-ref', 'heic-order-production-ref', 'heic-empty-desc-ref', 'heic-empty-asc-ref', ...Object.keys(routeDescriptions)].includes(shareRef)) { response.writeHead(403); response.end(); return; }
     if (revokedShareRefs.has(ref) || expiredShareRefs.has(ref)) { response.writeHead(403); response.end(); return; }
     if (ref === 'password-share' && request.headers.cookie !== 'immich_shared_link_token=fixture') {
       response.writeHead(200, { 'content-type': 'application/json', 'set-cookie': 'secret=must-not-relay; Path=/' });
@@ -185,7 +195,7 @@ const server = http.createServer((request, response) => {
       response.end(JSON.stringify({ error: 'temporary failure' }));
       return;
     }
-    const body = ref === 'heic-ref' || ref === 'heic-reverse-ref' || ref === 'heic-forward-ref' || ref === 'heic-second-ref' || ref === 'heic-order-production-ref'
+    const body = ref === 'heic-ref' || ref === 'heic-reverse-ref' || ref === 'heic-forward-ref' || ref === 'heic-second-ref' || ref === 'heic-order-production-ref' || heicEmptyBothRefs.includes(ref)
       ? heicPageFor(ref)
       : routeDescriptions[ref]
       ? { ...shareForRef(ref), album: { ...shareForRef(ref).album, description: routeDescriptions[ref] } }
@@ -200,7 +210,7 @@ const server = http.createServer((request, response) => {
          ? { ...page, album: { ...page.album, albumName: 'No-Map Journey', description: '---\nimmich-presentation:\n  type: journey\n  version: 1\n  map:\n    enabled: false\n---\nMock browser proof' } }
          : shareForRef(ref);
     response.writeHead(200, { 'content-type': 'application/json', 'set-cookie': 'secret=must-not-relay; Path=/' });
-    response.end(JSON.stringify(ref === 'heic-ref' || ref === 'heic-reverse-ref' || ref === 'heic-forward-ref' || ref === 'heic-second-ref' || ref === 'heic-order-production-ref' ? body : { ...body, album: { ...body.album, assetCount: assets.length } }));
+    response.end(JSON.stringify(ref === 'heic-ref' || ref === 'heic-reverse-ref' || ref === 'heic-forward-ref' || ref === 'heic-second-ref' || ref === 'heic-order-production-ref' || heicEmptyBothRefs.includes(ref) ? body : { ...body, album: { ...body.album, assetCount: assets.length } }));
     return;
   }
 
@@ -262,13 +272,23 @@ const server = http.createServer((request, response) => {
     request.on('end', () => {
       response.writeHead(200, { 'content-type': 'application/json' });
       const ref = url.searchParams.get('key') ?? url.searchParams.get('slug');
+      if (heicEmptyBothRefs.includes(ref)) {
+        // WR-01/root_cause (1): this is the ONLY path that can observe whether Pages actually
+        // sent the album's own configured `order` field -- real Immich has no manual per-asset
+        // album order at any version, so this fallback's requested direction is the entire fix.
+        // Echo it back directly: `order` absent/'desc' -> reverse numeric, 'asc' -> forward.
+        let parsedOrder;
+        try { parsedOrder = JSON.parse(body).order; } catch { parsedOrder = undefined; }
+        response.end(JSON.stringify({ albums: {}, assets: { items: heicAssetsForOrder(parsedOrder === 'asc' ? heicForwardOrder : heicReverseOrder) } }));
+        return;
+      }
       response.end(JSON.stringify({ albums: {}, assets: { items: ref === 'heic-ref' || ref === 'heic-reverse-ref' || ref === 'heic-forward-ref' || ref === 'heic-order-production-ref' ? heicAssetsForOrder(heicSearchOrder) : ref === 'heic-second-ref' ? heicAssetsForOrder(heicSecondOrder) : assets } }));
     });
     return;
   }
 
   const heicMedia = url.pathname.match(/^\/api\/assets\/(70000000-0000-4000-8000-\d{12})\/(thumbnail|original)$/);
-  if (heicMedia && ['heic-ref', 'heic-reverse-ref', 'heic-forward-ref', 'heic-second-ref', 'heic-order-production-ref'].includes(url.searchParams.get('key') ?? url.searchParams.get('slug'))) {
+  if (heicMedia && ['heic-ref', 'heic-reverse-ref', 'heic-forward-ref', 'heic-second-ref', 'heic-order-production-ref', 'heic-empty-desc-ref', 'heic-empty-asc-ref'].includes(url.searchParams.get('key') ?? url.searchParams.get('slug'))) {
     if (request.headers.cookie !== 'immich_shared_link_token=fixture' || request.headers.authorization !== 'Bearer fixture') { response.writeHead(403); response.end(); return; }
     const number = Number(heicMedia[1].slice(-12));
     const paddedNumber = String(((number - 1) % 20) + 1).padStart(2, '0');
