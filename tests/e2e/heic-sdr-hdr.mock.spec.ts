@@ -62,6 +62,7 @@ test('unsupported clients stay SDR-only and keep a native anchor', async ({ page
 		// REAL image, not the mock's fabricated byte content. A trivial/placeholder response
 		// would be a handful of bytes; a real decoded HEIC-derived thumbnail is not.
 		const href = await page.locator(`#asset-${assetId(1)} a`).getAttribute('href');
+		if (!href) throw new Error('expected asset anchor to have an href');
 		const byteLength = await page.evaluate(async (url) => (await (await fetch(url)).arrayBuffer()).byteLength, href);
 		expect(byteLength).toBeGreaterThan(10_000);
 	}
