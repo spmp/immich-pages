@@ -42,6 +42,17 @@ describe('BRouter-Web permalink parser', () => {
 		expect(parseBrouterWebPermalink('https://brouter.de/brouter-web/?profile=car-fast#lonlats=1,2%7C3,4')).toEqual({ kind: 'unavailable', warnings: ['brouter-permalink-invalid'] });
 	});
 
+	// Real-backend UAT (2026-10-12): no waypoint cap existed at all -- each waypoint beyond the
+	// first costs one real, sequential, up-to-8s network round trip in BrouterClient.resolve(),
+	// so an album owner pasting a permalink with hundreds of stops could make every visitor's
+	// page load take minutes. Reported as "the map does not show" because nothing bounded it.
+	it('caps the waypoint count so an unbounded permalink cannot force unbounded sequential network calls', () => {
+		const tooMany = Array.from({ length: 66 }, (_, index) => `${index},${index % 90}`).join(';');
+		const atLimit = Array.from({ length: 65 }, (_, index) => `${index},${index % 90}`).join(';');
+		expect(parseBrouterWebPermalink(`https://brouter.de/brouter-web/#lonlats=${tooMany}&profile=trekking`)).toEqual({ kind: 'unavailable', warnings: ['map-route-limit'] });
+		expect(parseBrouterWebPermalink(`https://brouter.de/brouter-web/#lonlats=${atLimit}&profile=trekking`).kind).toBe('resolved');
+	});
+
 	it('returns deterministic warnings for ambiguity, unsafe hosts, malformed coordinates, and unsupported profiles', () => {
 		expect(parseBrouterWebPermalink('https://brouter.de/brouter-web/#lonlats=1,2%7C3,4&profile=custom_test')).toMatchObject({ kind: 'unavailable', warnings: ['brouter-profile-unsupported'] });
 		expect(parseBrouterWebPermalink('https://brouter.de/brouter-web/#lonlats=1,2%7C3,4&lonlats=1,2%7C3,4&profile=trekking')).toMatchObject({ kind: 'unavailable', warnings: ['brouter-permalink-invalid'] });

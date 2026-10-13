@@ -82,6 +82,36 @@ describe('BRouter route adapter boundary', () => {
 		}
 	});
 
+	// Real-backend UAT (2026-10-12): resolve() had no OVERALL time budget -- only a per-segment
+	// timeout. A route with many waypoints (now also capped in brouter-web.ts, but the aggregate
+	// budget is the real backstop) could take minutes of real page-assembly time with nothing
+	// bounding the total, reported as "the map does not show".
+	it('stops attempting further segments once the aggregate time budget is spent', async () => {
+		const many = parseBrouterWebPermalink('https://brouter.de/brouter-web/#lonlats=1,2;3,4;5,6;7,8;9,10&profile=trekking');
+		if (many.kind !== 'resolved') throw new Error('fixture permalink did not parse');
+		const requests: string[] = [];
+		const fixture = await fixtureServer((_profile, request, response) => {
+			requests.push(request.url ?? '');
+			setTimeout(() => {
+				response.writeHead(200, { 'content-type': 'application/geo+json' });
+				response.end(JSON.stringify({ type: 'LineString', coordinates: [[1, 2], [3, 4]] }));
+			}, 30);
+		});
+		const previousBudget = process.env.BROUTER_MAX_TOTAL_MS;
+		process.env.BROUTER_MAX_TOTAL_MS = '50';
+		try {
+			const result = await new BrouterClient({ endpoint: fixture.endpoint, allowedOrigins: [fixture.origin], allowLoopbackForTests: true, lookup: async () => [{ address: '127.0.0.1', family: 4 }] }).resolve(many);
+			expect(result).toEqual({ kind: 'unavailable', warnings: ['brouter-timeout'] });
+			// 4 segments at 30ms each (120ms) against a 50ms budget: the deadline check before
+			// starting each new segment must stop it well short of attempting all 4.
+			expect(requests.length).toBeLessThan(4);
+		} finally {
+			if (previousBudget === undefined) delete process.env.BROUTER_MAX_TOTAL_MS;
+			else process.env.BROUTER_MAX_TOTAL_MS = previousBudget;
+			fixture.server.close();
+		}
+	});
+
 	it('resolves the supplied BRouter-Web permalink as adjacent segments', async () => {
 		const value = parseBrouterWebPermalink('https://brouter.de/brouter-web/?utm_source=chatgpt.com#map=18/37.74353/-105.50588/standard&lonlats=-105.273743,40.014994;-105.24031,39.910964;-105.089607,39.553118;-104.990787,39.475724;-105.505185,37.744602;-105.747645,38.021343;-105.258356,39.997946&profile=car-fast');
 		if (value.kind !== 'resolved') throw new Error('supplied permalink did not parse');

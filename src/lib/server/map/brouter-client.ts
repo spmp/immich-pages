@@ -11,6 +11,18 @@ export const DEFAULT_BROUTER_MAX_RESPONSE_BYTES = 256 * 1024;
 export const MAX_BROUTER_RESPONSE_BYTES = 8 * 1024 * 1024;
 export const MAX_BROUTER_ROUTE_VERTICES = 10_000;
 const REQUEST_TIMEOUT_MS = 8_000;
+
+function positiveEnv(name: string, fallback: number, maximum: number): number {
+	const value = Number(process.env[name]);
+	return Number.isFinite(value) && value > 0 ? Math.min(Math.trunc(value), maximum) : fallback;
+}
+
+// Real-backend UAT (2026-10-12): resolve() processes waypoints sequentially, each segment with
+// its OWN up-to-REQUEST_TIMEOUT_MS budget -- a route with many waypoints (now capped, but still
+// up to MAX_BROUTER_WAYPOINTS-1 segments) had no OVERALL ceiling, so the per-segment timeout
+// alone could not bound total page-assembly latency. This caps the whole resolve() call.
+export const DEFAULT_BROUTER_MAX_TOTAL_MS = 15_000;
+export const MAX_BROUTER_MAX_TOTAL_MS = 60_000;
 type Address = { address: string; family: 4 | 6 };
 export type BrouterLookup = (hostname: string, options?: { all?: boolean; verbatim?: boolean }) => Promise<Address[]>;
 type ClientOptions = { endpoint: string; allowedOrigins: string[]; lookup?: BrouterLookup; allowLoopbackForTests?: boolean };
@@ -87,8 +99,14 @@ export class BrouterClient {
 		if (!addresses.length || addresses.some(({ address }) => unsafeAddress(address, this.options.allowLoopbackForTests))) return unavailable('brouter-endpoint-unsafe');
 		const fresh = await this.options.lookup(endpoint.hostname, { all: true, verbatim: true }).catch(() => []);
 		if (!sameAnswers(addresses, fresh) || fresh.some(({ address }) => unsafeAddress(address, this.options.allowLoopbackForTests))) return unavailable('brouter-endpoint-unsafe');
+		const totalBudgetMs = positiveEnv('BROUTER_MAX_TOTAL_MS', DEFAULT_BROUTER_MAX_TOTAL_MS, MAX_BROUTER_MAX_TOTAL_MS);
+		const deadline = Date.now() + totalBudgetMs;
 		const coordinates: Array<[number, number]> = [];
 		for (let index = 0; index < parsed.waypoints.length - 1; index += 1) {
+			// Checked BEFORE starting each new segment, not just once -- a route with many
+			// waypoints must degrade gracefully once the aggregate budget is spent, rather than
+			// attempting one more up-to-8s segment past it on every subsequent poll.
+			if (Date.now() >= deadline) return unavailable('brouter-timeout');
 			const [from, to] = [parsed.waypoints[index], parsed.waypoints[index + 1]];
 			const lonlats = `${from[0]},${from[1]}|${to[0]},${to[1]}`;
 			endpoint.search = `?lonlats=${lonlats}&profile=${encodeURIComponent(parsed.profile)}&alternativeidx=0&format=geojson`;
