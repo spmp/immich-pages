@@ -3,6 +3,7 @@ import { defineConfig } from 'vitest/config';
 import { readFileSync } from 'node:fs';
 
 export default defineConfig({
+  server: { allowedHosts: true },
   optimizeDeps: { exclude: ['maplibre-gl'] },
   ssr: { noExternal: ['maplibre-gl'] },
   plugins: [sveltekit(), {
