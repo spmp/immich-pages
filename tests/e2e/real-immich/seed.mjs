@@ -214,7 +214,14 @@ async function fetchDisplayOrderAssetIds(accessToken, albumId) {
   return result.assets.items.map((asset) => asset.id);
 }
 
-async function ensureAlbum(accessToken, name, assetIds, order) {
+// Pages only treats an album as a publishable "journey" presentation when its Immich
+// description carries this exact YAML frontmatter (src/lib/server/presentation/frontmatter.ts)
+// -- confirmed by reading tests/e2e/mock-immich-server.mjs's own fixture descriptions, since
+// the original plan never named this gate explicitly and the first real-backend test run hit
+// "This is not a Pages journey" until this was added.
+const DEFAULT_DESCRIPTION = '---\nimmich-presentation:\n  type: journey\n  version: 1\n---\nimmich-pages-e2e fixture';
+
+async function ensureAlbum(accessToken, name, assetIds, order, description = DEFAULT_DESCRIPTION) {
   console.log(`[seed] ensuring album "${name}" exists (order=${order})...`);
   const albums = await api('/albums', { accessToken });
   const existing = albums.find((album) => album.albumName === name);
@@ -223,15 +230,12 @@ async function ensureAlbum(accessToken, name, assetIds, order) {
     // Immich's album `order` defaults to 'desc' regardless of name/insertion order -- confirmed
     // live, see README.md Findings. Without an explicit PATCH, two differently-named albums
     // ("forward"/"reverse") render in the SAME direction, defeating the point of having both.
-    if (existing.order !== order) await api(`/albums/${existing.id}`, { method: 'PATCH', accessToken, body: { order } });
+    const patch = {};
+    if (existing.order !== order) patch.order = order;
+    if (existing.description !== description) patch.description = description;
+    if (Object.keys(patch).length > 0) await api(`/albums/${existing.id}`, { method: 'PATCH', accessToken, body: patch });
     return existing;
   }
-  // Pages only treats an album as a publishable "journey" presentation when its Immich
-  // description carries this exact YAML frontmatter (src/lib/server/presentation/frontmatter.ts)
-  // -- confirmed by reading tests/e2e/mock-immich-server.mjs's own fixture descriptions, since
-  // this plan's must_haves never named this gate explicitly and the first real-backend test run
-  // hit "This is not a Pages journey" until this was added.
-  const description = '---\nimmich-presentation:\n  type: journey\n  version: 1\n---\nimmich-pages-e2e fixture';
   const created = await api('/albums', { method: 'POST', accessToken, body: { albumName: name, description, assetIds } });
   await api(`/albums/${created.id}`, { method: 'PATCH', accessToken, body: { order } });
   console.log(`[seed] album "${name}" created (id=${created.id}).`);
@@ -297,6 +301,31 @@ async function main() {
     );
   }
 
+  // Feature-coverage albums (user request, 2026-10-12): not every intentional presentation
+  // feature needs its own full 20-asset album to be meaningfully demonstrated, but each gets
+  // its own stable slug so these are all directly reachable without digging through seed
+  // output -- see README.md's "Configured albums/slugs" table.
+  const brouterUrl = 'https://brouter.de/brouter-web/#map=12/33.5100/-111.9656/standard&lonlats=-111.998019,33.435596;-111.983557,33.436161;-111.842816,33.59748;-111.842108,33.599177;-111.924419,33.6332;-111.924859,33.637711;-111.925964,33.611239;-111.927423,33.50229;-111.969191,33.501429;-112.08385,33.535348;-112.018962,33.52153;-112.002504,33.538406;-111.999435,33.435862&profile=car-eco';
+  const brouterAlbum = await ensureAlbum(accessToken, 'immich-pages-e2e-brouter', forwardIds, 'desc',
+    `---\nimmich-presentation:\n  type: journey\n  version: 1\n  map:\n    enabled: true\n    source: brouter-web\n    url: "${brouterUrl}"\n---\nBRouter-Web route demo.`);
+  results.push(await ensureUnauthenticatedSharedLink(accessToken, brouterAlbum.id, 'immich-pages-e2e-brouter', 'e2e-brouter'));
+
+  const markdownAlbum = await ensureAlbum(accessToken, 'immich-pages-e2e-markdown', forwardIds, 'desc',
+    '---\nimmich-presentation:\n  type: journey\n  version: 1\n---\n# A journey through the desert\n\nThis narrative tests **bold**, _italic_, and [links](https://example.com).\n\n- First stop\n- Second stop\n- Third stop\n\n> A quoted reflection on the trip.');
+  results.push(await ensureUnauthenticatedSharedLink(accessToken, markdownAlbum.id, 'immich-pages-e2e-markdown', 'e2e-markdown'));
+
+  const gradientAlbum = await ensureAlbum(accessToken, 'immich-pages-e2e-gradient', forwardIds, 'desc',
+    '---\nimmich-presentation:\n  type: journey\n  version: 1\n  gradient:\n    auto: false\n    top: "#1b2a4a"\n    bottom: "#c96b4b"\n---\nManual gradient hero demo.');
+  results.push(await ensureUnauthenticatedSharedLink(accessToken, gradientAlbum.id, 'immich-pages-e2e-gradient', 'e2e-gradient'));
+
+  const gradientAutoAlbum = await ensureAlbum(accessToken, 'immich-pages-e2e-gradient-auto', forwardIds, 'desc',
+    '---\nimmich-presentation:\n  type: journey\n  version: 1\n  gradient:\n    auto: true\n---\nAuto gradient hero demo (colors derived from the hero image).');
+  results.push(await ensureUnauthenticatedSharedLink(accessToken, gradientAutoAlbum.id, 'immich-pages-e2e-gradient-auto', 'e2e-gradient-auto'));
+
+  const noClusteringAlbum = await ensureAlbum(accessToken, 'immich-pages-e2e-no-clustering', forwardIds, 'desc',
+    '---\nimmich-presentation:\n  type: journey\n  version: 1\n  map:\n    clustering: false\n---\nMap clustering disabled demo.');
+  results.push(await ensureUnauthenticatedSharedLink(accessToken, noClusteringAlbum.id, 'immich-pages-e2e-no-clustering', 'e2e-no-clustering'));
+
   // Reconnaissance for the "both assets and album.assets empty" shape is Task 4's job (it
   // needs to inspect a real /shared-links/me response in detail); this script does not
   // create a fourth album for it preemptively since that shape's reproducibility is exactly
@@ -304,7 +333,7 @@ async function main() {
 
   console.log('[seed] done. Shared link keys/slugs:');
   for (const link of results) {
-    console.log(`  - ${link.key}`);
+    console.log(`  - slug=${link.slug ?? '(none)'} key=${link.key}`);
   }
 
   // Lets real-backend Playwright specs resolve real refs/asset IDs instead of the mock's
@@ -317,7 +346,10 @@ async function main() {
     JSON.stringify(
       {
         forward: { ref: forwardLink.key, assetIds: forwardDisplayOrder },
-        reverse: { ref: reverseLink.key, assetIds: reverseDisplayOrder }
+        reverse: { ref: reverseLink.key, assetIds: reverseDisplayOrder },
+        // Every configured slug, for README generation / quick lookup -- does not need
+        // assetIds, only the stable, human-chosen ref each album is reachable at.
+        slugs: Object.fromEntries(results.filter((link) => link.slug).map((link) => [link.slug, link.key]))
       },
       null,
       2

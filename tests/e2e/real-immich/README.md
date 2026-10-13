@@ -49,6 +49,29 @@ against this disposable local stack):
 - email: `e2e-admin@immich-pages.test`
 - password: `ImmichPagesE2E!2026`
 
+## Configured albums/slugs
+
+Every album gets a stable, deterministic `slug` (not a randomly-generated `key`,
+which changes on every reseed since this stack has no persistent DB volume --
+see Findings below), so these URLs survive `docker compose down`/`up` + reseed
+cycles unchanged. All reachable at `/share/slug/<slug>` against whichever host
+serves Pages against this stack (e.g. `http://0.0.0.0:8080/share/slug/e2e-forward`
+for a local manual dev server).
+
+| Slug | Album | Demonstrates |
+|---|---|---|
+| `e2e-forward` | immich-pages-e2e-forward | Chronological-ascending album order |
+| `e2e-reverse` | immich-pages-e2e-reverse | Chronological-descending album order |
+| `e2e-brouter` | immich-pages-e2e-brouter | `map.source: brouter-web` -- a real multi-waypoint routed path |
+| `e2e-markdown` | immich-pages-e2e-markdown | Rich markdown narrative body (headers, bold/italic, links, lists, blockquote) |
+| `e2e-gradient` | immich-pages-e2e-gradient | Manual hero gradient (`gradient.auto: false` with explicit top/bottom colors) |
+| `e2e-gradient-auto` | immich-pages-e2e-gradient-auto | Auto hero gradient (`gradient.auto: true`, colors derived from the hero image) |
+| `e2e-no-clustering` | immich-pages-e2e-no-clustering | `map.clustering: false` |
+| `e2e-scrambled` (only if the live API supports manual album ordering -- see Findings) | immich-pages-e2e-scrambled | Manual per-asset album order, if Immich ever implements it |
+
+`seed.mjs` prints the current key for each slug on every run, and writes the full
+list to the gitignored `seed-output.json`'s `slugs` map.
+
 ## Findings
 
 **Albums must carry Pages' own publishing frontmatter, or the share is rejected as
@@ -144,3 +167,33 @@ Verified instead via the equivalent, actually-meaningful check: the same
 `POST /api/search/metadata` fallback call `fetchAlbumAssets` makes, which does return the
 real, non-empty, correctly ordered asset list. Recorded as a deviation rather than
 silently weakening the criterion.
+
+**The native HDR compositor/ffmpeg binaries do not exist outside the production Docker
+image (confirmed the hard way, 2026-10-12):** `npm run dev` run directly on a bare host
+(not via `docker compose`/the project's own `Dockerfile`) never builds
+`/usr/local/bin/hdr-gainmap-compositor` or the AVIF encode/decode binaries -- every HDR
+conversion attempt failed via `spawn ENOENT` in ~2ms, which looked like "the spinner never
+stops" and "clicking gives format unsupported immediately" during manual real-backend UAT
+against this exact fixture. See `docs/hdr-media.md`'s "Running `npm run dev` outside
+Docker" section for the build commands. Not specific to this fixture -- affects any
+bare-host `npm run dev` session regardless of backend.
+
+**BRouter-Web route resolution had no bound on waypoint count or total resolution time
+(confirmed via this fixture's `e2e-brouter` album, 2026-10-12):** `BrouterClient.resolve()`
+processes each waypoint pair as one real, sequential, up-to-8-second network round trip to
+`brouter.de`, with nothing capping either the number of waypoints in a permalink or the
+total time across all segments. A real 13-waypoint/12-segment route (the `e2e-brouter`
+album's own route) took ~6 seconds end-to-end against the live `brouter.de` service on
+first load -- legitimate, but slow, and with no ceiling, a permalink with many more
+waypoints could take minutes. Reported as "the map does not show" because nothing bounded
+the worst case. Fixed: `brouter-web.ts` now caps waypoint count (reusing the existing
+`MAX_ROUTE_SEGMENTS` constant for a consistent complexity bound across route sources), and
+`brouter-client.ts` now enforces an aggregate wall-clock budget
+(`BROUTER_MAX_TOTAL_MS`, default 15s) across the whole multi-segment resolution, returning
+`brouter-timeout` to degrade gracefully (map still renders with markers, just without the
+route line -- already correctly handled client-side in `JourneyMapSlot.svelte`) rather
+than blocking page assembly indefinitely. The `e2e-brouter` album's own real URL does NOT
+trigger either new bound under production defaults -- it was only reproduced by
+temporarily lowering `BROUTER_MAX_RESPONSE_BYTES` to its minimum (64KB) to force the
+pre-existing oversized-response path, confirming the *graceful-degradation* UI already
+worked correctly; the *bounding* was the actual gap, not the degradation behavior.

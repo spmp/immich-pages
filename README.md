@@ -95,6 +95,23 @@ with volumes and orphans. It intentionally fails if Chromium is absent; it
 does not silently switch browsers. TLS is checked separately against the
 production Traefik deployment.
 
+Most Playwright specs (`npm run test:e2e:mock`) run against
+`tests/e2e/mock-immich-server.mjs`, a hand-rolled HTTP mock that fabricates
+asset bytes -- enough to exercise routing, caching, and control-plane logic,
+but not real image decoding. For specs that need to prove Pages actually
+decodes and renders real photos, `npm run test:e2e:real-immich` runs the same
+Playwright flow against a real, disposable Immich instance instead (Postgres +
+Redis + `immich-server`, seeded via Immich's own REST API, auto torn down on
+exit). See [`tests/e2e/real-immich/README.md`](tests/e2e/real-immich/README.md)
+for setup, manual (non-ephemeral) use, and known findings.
+
+For manual browsing against that real fixture (`npm run dev` pointed at the
+stack's `IMMICH_BASE_URL`, not the mock), the seeded forward-order album is
+reachable at `/share/slug/e2e-forward` -- a stable URL that survives reseeds.
+`tests/e2e/real-immich/README.md`'s "Configured albums/slugs" table lists every
+other seeded album (reverse order, BRouter routing, markdown, gradients, map
+clustering disabled).
+
 Svelte MCP and component tooling are development-only conveniences. Configure
 the official Svelte MCP locally (for example with `npx -y @sveltejs/mcp`) and
 do not add it to the runtime image or treat it as a user setup requirement.
