@@ -3,7 +3,9 @@
 	import { SvelteMap } from 'svelte/reactivity';
 	import { env } from '$env/dynamic/public';
 	import 'photoswipe/style.css';
-	import { reportJournalDebug } from './journal-debug';
+	import { beforeNavigate } from '$app/navigation';
+	import { clientDiagnostics, journalDebugEnabled, reportJournalDebug } from './journal-debug';
+	import { measureMediaFootprint, measureVideoStates } from './client-diagnostics';
 	import { beginHdrUpgrade, isHdrUpgradeLoading } from '$lib/media/hdr-upgrade';
 	import { markHdrUpgradePromoted } from '$lib/media/hdr-upgrade';
 	import { HdrMediaCache } from '$lib/media/hdr-media-cache';
@@ -29,6 +31,15 @@
 	// on screen now.
 	let hdrStatus = $state('');
 
+	// lightbox-mobile-crash diagnostic: every SvelteKit-routed way of leaving this page, with
+	// where it is going. A client-side navigation never fires pagehide, so without this a
+	// history.back() that the router resolves to the library would leave no trace at all.
+	beforeNavigate((navigation) => {
+		if (!journalDebugEnabled) return;
+		if (navigation.willUnload && navigation.type !== 'leave') clientDiagnostics.setExitCause('sveltekit-navigation');
+		reportJournalDebug('navigation', { navKind: navigation.type, navDelta: navigation.delta, navToRoute: navigation.to?.route?.id ?? undefined, willUnload: navigation.willUnload, lightboxOpen: Boolean(document.querySelector('.pswp--open')) });
+	});
+
 	onMount(() => {
 		let lightbox: any;
 		let opener: HTMLElement | null = null;
@@ -52,7 +63,27 @@
 		const hdrVideos: HTMLVideoElement[] = [];
 		const hdrVideoLoaders = new SvelteMap<any, () => void>();
 		const hdrVideoPromoters = new SvelteMap<any, () => void>();
-		const promotedHdrMedia = new HdrMediaCache();
+		// Free what a promoted element holds, not just our reference to it: a <video> that still
+		// has a src keeps its decoder and decoded frames whether or not it is in the document or
+		// playing. Holding one per photo viewed is what got the tab killed on a real phone (15-19
+		// held at each kill, slides painting black shortly before as the OS took decoders away)
+		// -- see .planning/debug/lightbox-mobile-crash.md.
+		const releaseHdrMedia = (media: HTMLImageElement | HTMLVideoElement) => {
+			if (media instanceof HTMLVideoElement) {
+				const held = hdrVideos.indexOf(media);
+				if (held >= 0) hdrVideos.splice(held, 1);
+				media.pause();
+				media.removeAttribute('src');
+				media.load();
+			} else media.removeAttribute('src');
+			media.remove();
+		};
+		// PhotoSwipe itself keeps at most five slides' content alive; maxIdle is how many more
+		// promoted elements may outlive their slide, so stepping back a few photos is still
+		// instant without the total growing with the album.
+		const promotedHdrMedia = new HdrMediaCache({ maxIdle: 2, release: releaseHdrMedia });
+		// What to let go of when PhotoSwipe destroys a slide's content, keyed by that content.
+		const hdrContentDisposers = new Map<any, () => void>();
 		const syncHdrVideoPlayback = () => {
 			const currentVideo = lightbox?.pswp?.currSlide?.content?.element as HTMLVideoElement | undefined;
 			for (const video of hdrVideos) {
@@ -131,12 +162,53 @@
 			// update, and the 'change' PhotoSwipe dispatches as it opens (photoswipe.js:413) re-reads
 			// the state anyway.
 		const refreshSpinner = () => lightbox?.pswp?.ui?.updatePreloaderVisibility?.();
+		// lightbox-mobile-crash diagnostics (all no-ops unless PUBLIC_PAGES_DEBUG=true). The
+		// history trace records this component's own bookkeeping next to the browser's real
+		// history at each step of the open/close handshake, so a mismatch between the two --
+		// the only way history.back() below can leave the page -- is visible in the log. The
+		// gauge records what the lightbox is holding in memory, since a tab killed for memory
+		// runs no code and can only be explained by the last figures it reported.
+		const reportHistory = (historyAction: 'push' | 'back' | 'popstate-close' | 'popstate-traversal-done' | 'popstate-no-viewer') =>
+			reportJournalDebug('history', { historyAction, historyLength: history.length, stateIsLightbox: Boolean(history.state?.immichPagesLightbox), modalHistory, closingFromPopstate, pendingHistoryTraversal, viewerOpen: Boolean(lightbox?.pswp) });
+		let slidesViewed = 0;
+		let lastGauge = '';
+		let heartbeat: ReturnType<typeof setInterval> | undefined;
+		const readGauge = () => {
+			const retained = promotedHdrMedia.values();
+			return { ...measureMediaFootprint(document, retained), ...measureVideoStates([...retained, ...hdrVideos]), retainedHdr: retained.length, liveVideos: hdrVideos.length, slidesViewed };
+		};
+		const reportGauge = (force: boolean) => {
+			const gauge = readGauge();
+			const key = JSON.stringify(gauge);
+			if (force || key !== lastGauge) {
+				lastGauge = key;
+				const heapBytes = (performance as Performance & { memory?: { usedJSHeapSize?: number } }).memory?.usedJSHeapSize;
+				reportJournalDebug('resource-gauge', { ...gauge, jsHeapMb: typeof heapBytes === 'number' ? heapBytes / 1_048_576 : undefined, deviceMemoryGb: (navigator as Navigator & { deviceMemory?: number }).deviceMemory });
+			}
+			return gauge;
+		};
+		const stopHeartbeat = () => { if (heartbeat !== undefined) { clearInterval(heartbeat); heartbeat = undefined; } };
+		const startHeartbeat = () => {
+			if (!journalDebugEnabled || heartbeat !== undefined) return;
+			// Keeps the stored breadcrumb fresh while the viewer is open, so the next load can
+			// tell "died mid-use" from "died after sitting idle", and catches media that
+			// finishes loading between slide changes.
+			heartbeat = setInterval(() => {
+				const gauge = reportGauge(false);
+				clientDiagnostics.heartbeat({ decodedMegapixels: gauge.decodedMegapixels, liveVideos: gauge.liveVideos, retainedHdr: gauge.retainedHdr });
+			}, 5_000);
+		};
 		const reportSlide = (status: 'opened' | 'closed' | 'changed') => {
 			const pswp = lightbox?.pswp;
 			const content = pswp?.currSlide?.content;
 			const anchor = content?.data?.element as HTMLElement | undefined;
 			const anchors = getGallery()?.querySelectorAll('a');
 			const assetIndex = anchor && anchors ? Array.from(anchors).indexOf(anchor as HTMLAnchorElement) : -1;
+			if (journalDebugEnabled) {
+				if (status !== 'closed') slidesViewed += 1;
+				const gauge = reportGauge(true);
+				clientDiagnostics.note(`lightbox:${status}`, { lightboxOpen: status !== 'closed', slideIndex: typeof pswp?.currIndex === 'number' ? pswp.currIndex : undefined, slidesViewed, decodedMegapixels: gauge.decodedMegapixels, liveVideos: gauge.liveVideos, retainedHdr: gauge.retainedHdr });
+			}
 			reportJournalDebug('lightbox', { status, assetIndex: assetIndex >= 0 ? assetIndex : undefined, assetTotal: anchors?.length, slideIndex: typeof pswp?.currIndex === 'number' ? pswp.currIndex : undefined, slideTotal: typeof pswp?.getNumItems === 'function' ? pswp.getNumItems() : undefined, photoSwipeType: content?.type === 'hdr-image' || content?.type === 'video' || content?.type === 'image' ? content.type : undefined, srcKind: content?.type === 'hdr-image' ? 'hdr-avif' : content?.data?.element?.dataset.videoControls === 'false' ? 'hdr-video' : content?.data?.src ? 'fullsize' : 'unknown' });
 		};
 		const onKeydown = (event: KeyboardEvent) => {
@@ -157,6 +229,9 @@
 			// added on open. A click can arrive in that small interval; hold it until
 			// the traversal has completed so this popstate cannot close a new viewer.
 			if (pendingHistoryTraversal) {
+				reportHistory('popstate-traversal-done');
+				// Still on this page after our own history.back(): it did not leave.
+				clientDiagnostics.setExitCause(undefined);
 				pendingHistoryTraversal = false;
 				modalHistory = false;
 				const queuedAnchor = pendingAnchor;
@@ -169,7 +244,8 @@
 				}, 0);
 				return;
 			}
-			if (destroyed || !lightbox?.pswp) { modalHistory = false; return; }
+			if (destroyed || !lightbox?.pswp) { reportHistory('popstate-no-viewer'); modalHistory = false; return; }
+			reportHistory('popstate-close');
 			closingFromPopstate = true;
 			modalHistory = false;
 			if (activeViewer) activeViewer.close();
@@ -248,6 +324,7 @@
 						const cached = promotedHdrMedia.get('avif', content.data.src);
 						if (cached) {
 							content.element = cached;
+							hdrContentDisposers.set(content, () => promotedHdrMedia.idle(cached));
 							markHdrUpgradePromoted(content);
 							setHdrStatus(content, 'AVIF HDR image: loaded');
 							updateHdrIndicator();
@@ -302,7 +379,9 @@
 								real.style.width = placeholder.style.width;
 								real.style.height = placeholder.style.height;
 							},
-							onSettled: (outcome) => {
+							// Only runs when the upgrade loses; stops a transfer nothing will ever show.
+							releaseReal: () => real.removeAttribute('src'),
+							onSettled: (outcome, reason) => {
 								if (outcome === 'promoted') {
 								promotedHdrMedia.set('avif', content.data.src, real);
 									setHdrStatus(content, 'AVIF HDR image: loaded');
@@ -310,13 +389,20 @@
 									reportJournalDebug('hdr-media', { status: 'promoted', spinner: 'stop', photoSwipeType: 'hdr-image', srcKind: 'hdr-avif' });
 									return;
 								}
+								// The slide went away mid-load; that is not a media failure.
+								if (reason === 'slide-destroyed') return;
 								setHdrStatus(content, 'AVIF HDR image: failed, showing SDR photo');
 								updateHdrIndicator();
 								reportJournalDebug('hdr-media', { status: 'given-up', hdrReason: 'image-load', spinner: 'stop', photoSwipeType: 'hdr-image', srcKind: 'hdr-avif' });
 								reportJournalDebug('media-failure', { category: 'image', status: 'unavailable', errorContext: 'image-load', failureCategory: 'decode' });
 							}
 						});
+						hdrContentDisposers.set(content, () => {
+							if (!upgrade.settled) upgrade.giveUp('slide-destroyed');
+							else if (content.__hdrPromoted) promotedHdrMedia.idle(real);
+						});
 						real.addEventListener('error', () => {
+							if (upgrade.settled) return;
 							reportAvifLifecycle('failure', 'end', 'stop');
 							upgrade.giveUp('image-load');
 						});
@@ -355,6 +441,7 @@
 					const cached = promotedHdrMedia.get('video', content.data.src);
 					if (cached instanceof HTMLVideoElement) {
 						content.element = cached;
+						hdrContentDisposers.set(content, () => promotedHdrMedia.idle(cached));
 						markHdrUpgradePromoted(content);
 						if (!hdrVideos.includes(cached)) hdrVideos.push(cached);
 						setHdrStatus(content, 'HDR video: playing');
@@ -470,16 +557,25 @@
 								reportJournalDebug('hdr-media', { status: 'promoted', spinner: 'stop', photoSwipeType: 'video', srcKind: 'hdr-video' });
 								return;
 							}
+							// The slide went away mid-load; that is not a media failure.
+							if (reason === 'slide-destroyed') return;
 							const code = video.error?.code;
 							const detail = code !== undefined ? (mediaErrorLabel[code] ?? `code ${code}`) : 'timed out';
 							setHdrStatus(content, `HDR video: failed to ${reason === 'video-playback' ? 'play' : 'load'} (${detail}), showing SDR photo [canPlayType ${canPlayDiagnostic}]`);
 							updateHdrIndicator();
 							reportJournalDebug('hdr-media', { status: 'given-up', hdrReason: reason === 'video-playback' ? 'video-playback' : 'video-load', spinner: 'stop', nativeErrorCode: code ?? null, photoSwipeType: 'video', srcKind: 'hdr-video' });
-							reportJournalDebug('media-failure', { category: 'video', status: 'unavailable', errorContext: reason === 'video-playback' ? 'video-playback' : 'video-load', failureCategory: reason === 'video-playback' ? 'playback' : 'decode' });
+							reportJournalDebug('media-failure', { category: 'video', status: 'unavailable', errorContext: reason === 'video-playback' ? 'video-playback' : 'video-load', failureCategory: reason === 'video-playback' ? 'playback' : 'decode', nativeErrorCode: code ?? null });
 							// The placeholder <img> is already the visible, correct content; nothing to swap.
 						}
 					});
+					hdrContentDisposers.set(content, () => {
+						hdrVideoLoaders.delete(content);
+						hdrVideoPromoters.delete(content);
+						if (!upgrade.settled) upgrade.giveUp('slide-destroyed');
+						else if (content.__hdrPromoted) promotedHdrMedia.idle(video);
+					});
 					video.addEventListener('error', () => {
+						if (upgrade.settled) return;
 						const nativeErrorCode = video.error?.code ?? null;
 						reportVideoLifecycle('failure', 'end', 'stop', nativeErrorCode);
 						upgrade.giveUp('video-load');
@@ -488,6 +584,21 @@
 						videoReady = true;
 						tryPromote();
 					}
+				});
+				// PhotoSwipe has dropped this slide (it keeps only a handful around the current one):
+				// stop anything still loading for it and hand its promoted element back to the cache,
+				// which releases the oldest ones nothing is showing.
+				instance.on('contentDestroy', (event: any) => {
+					const dispose = hdrContentDisposers.get(event.content);
+					hdrContentDisposers.delete(event.content);
+					dispose?.();
+				});
+				// The viewer has finished closing. PhotoSwipe clears its listeners before destroying
+				// the slides it still holds, so no contentDestroy arrives for those.
+				instance.on('destroy', () => {
+					for (const dispose of hdrContentDisposers.values()) dispose();
+					hdrContentDisposers.clear();
+					promotedHdrMedia.clear();
 				});
 				instance.on('loadError', (event: any) => {
 					const { content } = event;
@@ -504,7 +615,8 @@
 					activeViewer = event.pswp;
 					opener = document.activeElement as HTMLElement;
 					document.body.style.overflow = 'hidden';
-					if (!modalHistory) { history.pushState({ immichPagesLightbox: true }, '', location.href); modalHistory = true; }
+					if (!modalHistory) { history.pushState({ immichPagesLightbox: true }, '', location.href); modalHistory = true; reportHistory('push'); }
+					startHeartbeat();
 					reportSlide('opened');
 				});
 				instance.on('afterInit', () => {
@@ -563,8 +675,13 @@
 					hdrVideos.length = 0;
 					hdrVideoLoaders.clear();
 					hdrVideoPromoters.clear();
+					stopHeartbeat();
 					reportSlide('closed');
-					if (shouldGoBack) history.back();
+					if (shouldGoBack) {
+						reportHistory('back');
+						clientDiagnostics.setExitCause('lightbox-close-back');
+						history.back();
+					}
 				});
 				instance.init();
 				ready = true;
@@ -575,17 +692,19 @@
 					if (index >= 0) instance.loadAndOpen(index);
 				}
 				reportJournalDebug('lightbox', { status: 'initialized' });
-			} catch {
+			} catch (error) {
 				ready = false;
 				status = 'failed';
+				clientDiagnostics.reportError('lightbox-init', error);
 				const fallback = (pendingAnchor as HTMLAnchorElement | null)?.href;
 				pendingAnchor = null;
-				if (fallback) location.assign(fallback);
+				if (fallback) { clientDiagnostics.setExitCause('lightbox-fallback-assign'); location.assign(fallback); }
 				reportJournalDebug('lightbox', { status: 'failure', errorContext: 'lightbox-load' });
 			}
 		})();
 						return () => {
 			destroyed = true; ready = false;
+			stopHeartbeat();
 			document.removeEventListener('click', onReadyClick, true);
 			document.removeEventListener('keydown', onKeydown);
 			window.removeEventListener('popstate', onPopstate, true);
