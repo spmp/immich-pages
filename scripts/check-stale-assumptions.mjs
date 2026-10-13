@@ -9,6 +9,7 @@ const root = resolve(fileURLToPath(new URL('..', import.meta.url)));
 export const SCAN_PATHS = [
   'src/lib/server/page/assemble.ts',
   'src/lib/server/immich/types.ts',
+  'src/routes/health/immich/+server.ts',
   'tests/e2e/direct-share.mock.spec.ts',
   'tests/e2e/mock-immich-server.mjs',
   'tests/e2e/traefik-fixture.mjs',
@@ -22,9 +23,9 @@ export const SCAN_PATHS = [
   'compose.yaml',
   'README.md',
   'docs/deployment.md',
-  'tests/fixtures/immich/v3.1.0/server-version.json',
-  'tests/fixtures/immich/v3.1.0/shared-link-contract.json',
-  'tests/fixtures/immich/v3.1.0/contract-result.json'
+  'tests/fixtures/immich/v3.3.1/server-version.json',
+  'tests/fixtures/immich/v3.3.1/shared-link-contract.json',
+  'tests/fixtures/immich/v3.3.1/contract-result.json'
 ];
 
 // Only these two files contain intentional forbidden strings in their test/scanner logic.
@@ -38,7 +39,8 @@ const patterns = [
   { name: 'direct Immich media source', pattern: /(?:src|media(?:Url|URL))\s*[:=][^\n]*(?:https?:\/\/[^\s'"`]+\/api\/assets|IMMICH_BASE_URL|\/api\/assets)/i },
   { name: 'API-key fallback', pattern: /(?:IMMICH_(?:OWNER_)?API_KEY|\b(?:ownerKey|apiKey)\b)/ },
   { name: 'active v1.143.1 evidence', pattern: /v1\.143\.1/ },
-  { name: 'stale active v3.0.1 evidence', pattern: /v3\.0\.1/ }
+  { name: 'stale active v3.0.1 evidence', pattern: /v3\.0\.1/ },
+  { name: 'stale active v3.1.0 evidence', pattern: /v3\.1\.0/ }
 ];
 
 /** @param {string} text @param {string} path */

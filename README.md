@@ -5,7 +5,7 @@ the sole CMS and source of truth for albums, descriptions, assets, metadata,
 sharing, and authorization. Pages reconstructs a presentation from each
 request; it has no database, media store, page index, or correctness-critical
 volume. Deleting and recreating the container therefore does not delete pages.
-The current compatibility target is Immich v3.1.0.
+The current compatibility target is Immich v3.3.1.
 
 ## Share URL and proxy contract
 
@@ -77,7 +77,7 @@ npm run test:e2e -- tests/e2e/direct-share.spec.ts
 
 The deterministic Traefik gate is required in CI and uses only disposable
 fake-Immich state. The optional live operator check is separate and requires
-an operator-owned Immich v3.1.0 share plus DNS/TLS for both hosts; it is not a
+an operator-owned Immich v3.3.1 share plus DNS/TLS for both hosts; it is not a
 CI prerequisite:
 
 ```sh

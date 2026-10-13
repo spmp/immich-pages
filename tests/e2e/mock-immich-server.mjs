@@ -156,7 +156,7 @@ const server = http.createServer((request, response) => {
   }
   if (url.pathname === '/api/server/version') {
     response.writeHead(200, { 'content-type': 'application/json' });
-     response.end(JSON.stringify({ version: 'v3.1.0' }));
+     response.end(JSON.stringify({ version: 'v3.3.1' }));
     return;
   }
   if (url.pathname === '/__fixture/revoke' && request.method === 'POST') {

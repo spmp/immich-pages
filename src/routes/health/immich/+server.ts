@@ -1,7 +1,7 @@
 import { json } from '@sveltejs/kit';
 import { createImmichProvider } from '$server/immich/provider';
 
-const expectedVersion = (process.env.IMMICH_SUPPORTED_VERSION ?? '3.0.1').replace(/^v/, '');
+const expectedVersion = (process.env.IMMICH_SUPPORTED_VERSION ?? '3.3.1').replace(/^v/, '');
 const rendererVersion = process.env.npm_package_version ?? '0.1.0';
 
 export async function GET({ fetch }: { fetch: typeof globalThis.fetch }) {

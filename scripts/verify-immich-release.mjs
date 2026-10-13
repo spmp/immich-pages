@@ -4,9 +4,9 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const expectedVersion = 'v3.1.0';
+const expectedVersion = 'v3.3.1';
 const image = `immich-server:${expectedVersion}`;
-const fixtureRoot = resolve(root, 'tests/fixtures/immich/v3.1.0');
+const fixtureRoot = resolve(root, 'tests/fixtures/immich/v3.3.1');
 const live = process.argv.includes('--live');
 
 function resultOutputPath() {

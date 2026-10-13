@@ -25,8 +25,9 @@ export type ImmichProvider = {
  */
 export function selectAuthoritativeAlbumAssets<T extends { id: string }>(topLevel: readonly T[], nested: readonly T[] | undefined): readonly T[] {
 	if (!nested || nested.length === 0) return topLevel;
-	// An empty top-level `assets` is not "zero members" -- it's Immich (v3.1.0, this deployment
-	// confirmed) simply not populating that field for ALBUM shares at all, with nested
+	// An empty top-level `assets` is not "zero members" -- it's Immich (confirmed on both v3.1.0,
+	// the original operator deployment, and v3.3.1 against a real server via
+	// tests/e2e/real-immich/) simply not populating that field for ALBUM shares at all, with nested
 	// album.assets as the only real membership/order source. There is nothing to reconcile
 	// against; trust nested fully, exactly as before this fix (hdr-caching-uat-20261010's root
 	// cause (1) depends on this exact path).

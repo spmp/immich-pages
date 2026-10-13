@@ -25,7 +25,7 @@ Set `IMMICH_BASE_URL` to the explicit trusted Immich origin. Set
 `PUBLIC_PAGES_DEBUG=false` in production to disable safe browser lifecycle
 diagnostics; diagnostics are enabled by default when unset for development
 review.
-`IMMICH_SUPPORTED_VERSION=3.1.0` so `/health/immich` checks the current Immich
+`IMMICH_SUPPORTED_VERSION=3.3.1` so `/health/immich` checks the current Immich
 release target. Do not set an owner credential or API key for visitor rendering.
 The adapter-node image is a
 multi-stage Node 24 image, listens on port 3000, and runs as non-root with
@@ -170,7 +170,7 @@ references, version probing, and renderer health. It intentionally excludes
 password login, asset pagination, maps/GPS, video/original proxying,
 downloads, authenticated album enumeration, shared-link enumeration, and all
 album/asset mutation. Full release and stateless-recreate gates are separate
-commands and target `immich-server:v3.1.0`.
+commands and target `immich-server:v3.3.1`.
 
 ## Verification
 
