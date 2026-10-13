@@ -19,34 +19,32 @@ describe('HDR readiness lifecycle', () => {
 	});
 });
 
-// hdr-caching-uat-20261010 root_cause (3): readiness was aggregate-window-only, so "green" meant
-// only "the current lookahead window finished", not "the photo the viewer has open is ready" --
-// a 10/20-asset window could finish and turn green while the open photo (outside that window) was
-// still regenerating from scratch. activeAssetState is computed server-side specifically for the
-// viewer's current asset and must be the PRIMARY signal whenever it is present, overriding the
-// aggregate window math entirely -- a window that is still "preparing" overall must not block a
-// dot that should already be green for the one photo actually on screen, and vice versa.
-describe('HDR readiness keyed on the viewer\'s own active asset', () => {
-	it('is ready when the active asset specifically has already succeeded, even if the aggregate window is still preparing', () => {
-		expect(resolveHdrReadiness({ ...preparing, activeAssetState: 'succeeded' }, { supported: true }).state).toBe('ready');
+// The indicator reports the PREWARM, not a photo: it is only visible on the share page itself
+// (never over the lightbox), so there is no photo the viewer is "on" for it to describe. Green
+// means every conversion the prewarm targeted -- the configured lookahead, or the whole album
+// when that is 'all' -- has finished, and the server has nothing left queued or running for it.
+//
+// This deliberately supersedes hdr-caching-uat-20261010 root_cause (3), which made the server's
+// per-photo activeAssetState the primary signal: on a real phone that turned the dot green at
+// 4 of 10 conversions done (pages-lightbox-weirdness_01.log) while the server was still busy.
+describe('HDR readiness reports the whole prewarm', () => {
+	it('stays preparing while targeted work remains, even though the active photo itself is done', () => {
+		expect(resolveHdrReadiness({ ...preparing, targeted: 10, completed: 4, queued: 5, running: 1, activeAssetState: 'succeeded' }, { supported: true }).state).toBe('preparing');
+		expect(resolveHdrReadiness({ ...preparing, targeted: 10, completed: 4, queued: 5, running: 1, activeAssetState: 'ineligible' }, { supported: true }).state).toBe('preparing');
 	});
-	it('is ready when the active asset is not HDR-eligible at all, regardless of aggregate state', () => {
-		expect(resolveHdrReadiness({ ...preparing, activeAssetState: 'ineligible' }, { supported: true }).state).toBe('ready');
+	it('is ready once everything targeted has completed, whatever the active photo was doing', () => {
+		expect(resolveHdrReadiness({ ...preparing, targeted: 10, completed: 10, activeAssetState: 'succeeded' }, { supported: true }).state).toBe('ready');
+		expect(resolveHdrReadiness({ ...preparing, targeted: 10, completed: 10, activeAssetState: 'unavailable' }, { supported: true }).state).toBe('ready');
 	});
-	it('stays preparing while the active asset specifically is still queued or running, even if the aggregate window already reports ready', () => {
-		expect(resolveHdrReadiness({ ...preparing, state: 'ready', activeAssetState: 'queued' }, { supported: true }).state).toBe('preparing');
-		expect(resolveHdrReadiness({ ...preparing, state: 'ready', activeAssetState: 'running' }, { supported: true }).state).toBe('preparing');
+	it('does not trust a server "ready" label over its own counts', () => {
+		expect(resolveHdrReadiness({ ...preparing, state: 'ready', targeted: 10, completed: 9, running: 1 }, { supported: true }).state).toBe('preparing');
+		expect(resolveHdrReadiness({ ...preparing, state: 'ready', targeted: 10, completed: 10, queued: 1 }, { supported: true }).state).toBe('preparing');
 	});
-	it('is partial when the active asset specifically failed, was skipped, or could not be authorized', () => {
-		expect(resolveHdrReadiness({ ...preparing, activeAssetState: 'failed' }, { supported: true }).state).toBe('partial');
-		expect(resolveHdrReadiness({ ...preparing, activeAssetState: 'skipped' }, { supported: true }).state).toBe('partial');
-		expect(resolveHdrReadiness({ ...preparing, activeAssetState: 'unavailable' }, { supported: true }).state).toBe('partial');
+	it('is partial, not ready, when the prewarm finished with failures or skips', () => {
+		expect(resolveHdrReadiness({ ...preparing, targeted: 10, completed: 8, failed: 1, skipped: 1, activeAssetState: 'succeeded' }, { supported: true }).state).toBe('partial');
 	});
-	it('falls back to the old aggregate-window math when activeAssetState is absent (older/degraded response)', () => {
-		expect(resolveHdrReadiness({ ...preparing, completed: 2 }, { supported: true }).state).toBe('ready');
-	});
-	it('still reports unsupported/control-failure ahead of any active-asset signal', () => {
-		expect(resolveHdrReadiness({ ...preparing, activeAssetState: 'succeeded' }, { supported: false }).state).toBe('ready');
-		expect(resolveHdrReadiness({ ...preparing, activeAssetState: 'succeeded' }, { supported: true, controlFailed: true }).state).toBe('partial');
+	it('still reports unsupported/control-failure ahead of the counts', () => {
+		expect(resolveHdrReadiness({ ...preparing, completed: 2 }, { supported: false }).state).toBe('ready');
+		expect(resolveHdrReadiness({ ...preparing, completed: 2 }, { supported: true, controlFailed: true }).state).toBe('partial');
 	});
 });

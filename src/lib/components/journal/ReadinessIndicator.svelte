@@ -5,9 +5,8 @@
 	import { reportJournalDebug } from './journal-debug';
 
 	type ReadinessState = 'idle' | 'unsupported' | 'empty' | 'preparing' | 'ready' | 'partial';
-	// Status of the ONE asset the viewer currently has open -- computed server-side, see
-	// prewarm/+server.ts and hdr-caching-uat-20261010 root_cause (3). Absent on an older/degraded
-	// response, in which case resolveHdrReadiness falls back to the aggregate window math alone.
+	// Status of the one asset the server was told is active. Still validated and relayed for
+	// debugging, but it no longer decides what the dot shows -- the prewarm's own counts do.
 	type ActiveAssetState = 'ineligible' | 'queued' | 'running' | 'succeeded' | 'failed' | 'skipped' | 'unavailable';
 	type Progress = {
 		state: ReadinessState;
@@ -64,23 +63,21 @@
 				const value: unknown = await response.json();
 				if (isProgress(value)) {
 					progress = resolveHdrReadiness(value, { supported: true });
-					// 'empty' (dot hidden entirely) covers two distinct cases: the legacy aggregate
-					// signal of "nothing in the whole window" (only meaningful when the server
-					// hasn't computed a per-asset signal at all), and "this specific photo isn't an
-					// HDR candidate" (activeAssetState: 'ineligible'). Anything else defers to the
-					// already-resolved, per-asset-aware progress.state from resolveHdrReadiness.
-					readinessState = value.activeAssetState === 'ineligible' || (value.activeAssetState === undefined && value.targeted === 0) ? 'empty' : progress.state;
+					// 'empty' hides the dot entirely: the prewarm targeted nothing, so there is
+					// nothing to wait for or report on. Otherwise the dot shows the whole prewarm's
+					// state -- never one photo's (see resolveHdrReadiness).
+					readinessState = value.targeted === 0 ? 'empty' : progress.state;
 					// Readiness/control-plane debug event (hdr-caching-uat-20261010 finding 6c, user-
 					// requested): built field-by-field from only the already-bounded Progress fields,
 					// never spread -- no asset ID crosses this boundary, matching journal-debug.ts's
 					// own documented convention for every other client-debug event.
 					reportJournalDebug('hdr-prewarm', { readinessState: progress.state, targeted: progress.targeted, completed: progress.completed, failed: progress.failed, skipped: progress.skipped, ...(progress.activeAssetState ? { activeAssetState: progress.activeAssetState } : {}) });
-					// Re-poll on the resolved, per-asset-aware state, not the raw aggregate
-					// value.state -- see hdr-caching-uat-20261010 root_cause (3): a window that
-					// reports 'ready' while the one asset the viewer is actually waiting on is
-					// still queued or running must not stop polling before that photo specifically
-					// is confirmed ready.
-					if (!stopped && progress.state === 'preparing') timer = window.setTimeout(() => void poll(), 2000);
+					// Keep polling until the whole prewarm has settled; the resolved state stays
+					// 'preparing' for as long as any targeted conversion is unfinished.
+					// One pending re-poll at a time: a swipe in the lightbox also triggers a poll, and
+					// without this each one would start its own two-second loop alongside the others.
+					if (timer !== undefined) window.clearTimeout(timer);
+					timer = !stopped && progress.state === 'preparing' ? window.setTimeout(() => void poll(), 2000) : undefined;
 				}
 			} catch {
 				if (!stopped) {
@@ -96,8 +93,12 @@
 			void poll();
 		};
 		document.addEventListener('pages:active-asset', onActiveAsset);
+		// poll() does nothing while the tab is hidden, which ends the loop; pick it back up on
+		// return so the dot does not sit spinning over a prewarm that finished in the meantime.
+		const onVisible = () => { if (document.visibilityState === 'visible' && progress.state === 'preparing') void poll(); };
+		document.addEventListener('visibilitychange', onVisible);
 		void poll();
-		return () => { stopped = true; document.removeEventListener('pages:active-asset', onActiveAsset); if (timer !== undefined) window.clearTimeout(timer); };
+		return () => { stopped = true; document.removeEventListener('pages:active-asset', onActiveAsset); document.removeEventListener('visibilitychange', onVisible); if (timer !== undefined) window.clearTimeout(timer); };
 	});
 
 	const label = $derived(readinessState === 'preparing' ? 'Preparing enhanced photos' : readinessState === 'ready' ? 'Enhanced photos ready' : readinessState === 'unsupported' ? 'Enhanced photos unsupported' : readinessState === 'empty' ? 'No enhanced photos needed' : 'Some enhanced photos are unavailable; showing standard photos');
