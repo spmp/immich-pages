@@ -36,6 +36,25 @@ copying the files into its own upload volume. Note: in Immich v3.3.1 there is no
 `type: EXTERNAL` field on library creation -- all libraries created via `POST /api/libraries`
 are import-path-based; confirmed against the live OpenAPI spec, not assumed from older docs.
 
+## Local dev server against this stack
+
+One command brings up the containers, seeds the demo albums, builds the native HDR binaries
+(into `.cache/hdr-bin/`, rebuilt only when their source changes), sets a map style, and runs
+the Vite dev server:
+
+```sh
+npm run dev:real-immich                 # http://0.0.0.0:8080, log in .cache/pages-dev.log
+PORT=5173 npm run dev:real-immich
+npm run dev:real-immich -- --down       # also stop the containers on Ctrl-C
+```
+
+Any setting can be overridden from the environment (`MAP_STYLE_URL_QUIET_ATLAS`,
+`PUBLIC_PAGES_DEBUG`, `HDR_*`, `BROUTER_*`, `PAGES_DEV_LOG`, ...). The map style defaults to
+OpenFreeMap's `liberty` (no API key). HDR needs `g++`, `libheif-dev`, `libavif-dev`, `ffmpeg`
+and `exiftool` on the host; anything missing is reported and that part is simply unavailable.
+Pages' cookies are `Secure`, so from another device use HTTPS (e.g. through your reverse
+proxy); browsers only relax that for `localhost`.
+
 ## Seeding
 
 Run `node seed.mjs` against an already-up stack (see `../run-real-immich.mjs` for the

@@ -26,3 +26,6 @@ rebuild/
 # Real-Immich E2E fixture: Docker-managed runtime state, not project source.
 tests/e2e/real-immich/.env
 tests/e2e/real-immich/seed-output.json
+
+# Local dev runner output: built HDR binaries and the dev server log (scripts/dev-real-immich.mjs).
+.cache/

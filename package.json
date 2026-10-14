@@ -7,6 +7,7 @@
     "test": "vitest run && npm run test:component",
     "test:component": "vitest run --config vitest.component.config.ts",
     "dev": "vite dev",
+    "dev:real-immich": "node scripts/dev-real-immich.mjs",
     "build": "vite build",
     "e2e": "playwright test",
     "test:e2e": "node tests/e2e/run-traefik.mjs",
