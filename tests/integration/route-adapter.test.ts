@@ -1,6 +1,7 @@
 import { createServer } from 'node:http';
 import { describe, expect, it } from 'vitest';
-import { BrouterClient, parseBrouterMaxResponseBytes } from '../../src/lib/server/map/brouter-client';
+import { beforeEach } from 'vitest';
+import { BrouterClient, brouterCacheTtlMs, DEFAULT_BROUTER_MAX_RESPONSE_BYTES, MAX_BROUTER_ROUTE_VERTICES, parseBrouterMaxResponseBytes, resetBrouterCachesForTests } from '../../src/lib/server/map/brouter-client';
 import { parseBrouterWebPermalink } from '../../src/lib/server/map/brouter-web';
 import { PathSourceRegistry, resolveWaypoints } from '../../src/lib/server/map/path-adapters';
 
@@ -17,13 +18,167 @@ async function fixtureServer(handler: (profile: string | null, request: import('
   return { server, endpoint: `http://127.0.0.1:${address.port}/brouter`, origin: `http://127.0.0.1:${address.port}` };
 }
 
+const loopbackClient = (fixture: { endpoint: string; origin: string }) => new BrouterClient({ endpoint: fixture.endpoint, allowedOrigins: [fixture.origin], allowLoopbackForTests: true, lookup: async () => [{ address: '127.0.0.1', family: 4 }] });
+
+/** A BRouter-shaped reply for the leg named in the request: `vertices` points along it, 3D like the real thing, padded to `padBytes`. */
+function legResponse(requestUrl: string | undefined, vertices: number, padBytes = 0): string {
+	const [from, to] = (new URL(requestUrl ?? '/', 'http://fixture').searchParams.get('lonlats') ?? '').split('|').map((pair) => pair.split(',').map(Number));
+	const coordinates = Array.from({ length: vertices }, (_, index) => {
+		const t = index / (vertices - 1);
+		const wiggle = index === 0 || index === vertices - 1 ? 0 : Math.sin(index / 7) * 0.01;
+		return [from[0] + (to[0] - from[0]) * t, from[1] + (to[1] - from[1]) * t + wiggle, 350];
+	});
+	return JSON.stringify({ type: 'FeatureCollection', features: [{ type: 'Feature', properties: { 'track-length': '593101', messages: 'x'.repeat(padBytes) }, geometry: { type: 'LineString', coordinates } }] });
+}
+
 describe('BRouter route adapter boundary', () => {
+	beforeEach(() => resetBrouterCachesForTests());
+
 	it('bounds the configurable response limit', () => {
-		expect(parseBrouterMaxResponseBytes(undefined)).toBe(256 * 1024);
+		expect(DEFAULT_BROUTER_MAX_RESPONSE_BYTES).toBe(4 * 1024 * 1024);
+		expect(parseBrouterMaxResponseBytes(undefined)).toBe(DEFAULT_BROUTER_MAX_RESPONSE_BYTES);
 		expect(parseBrouterMaxResponseBytes('1048576')).toBe(1048576);
-		expect(parseBrouterMaxResponseBytes('65535')).toBe(256 * 1024);
-		expect(parseBrouterMaxResponseBytes('9000000')).toBe(256 * 1024);
-		expect(parseBrouterMaxResponseBytes('not-a-number')).toBe(256 * 1024);
+		expect(parseBrouterMaxResponseBytes('65535')).toBe(DEFAULT_BROUTER_MAX_RESPONSE_BYTES);
+		expect(parseBrouterMaxResponseBytes('17000000')).toBe(DEFAULT_BROUTER_MAX_RESPONSE_BYTES);
+		expect(parseBrouterMaxResponseBytes('not-a-number')).toBe(DEFAULT_BROUTER_MAX_RESPONSE_BYTES);
+	});
+
+	// Production failure (2026-10-13): a journey with a Phoenix -> San Diego leg showed no route.
+	// Measured against brouter.de, that one 593 km leg is a 276 KB reply with 3,349 vertices --
+	// over the old 256 KB per-leg limit, so the whole route was thrown away as "too large". The
+	// length of road in a leg must not decide whether a route can be shown.
+	it('resolves a route whose legs are hundreds of kilometres of road', async () => {
+		const longDrive = parseBrouterWebPermalink('https://brouter.de/brouter-web/#map=9/32.8574/-113.8333/standard&lonlats=-112.002504,33.538406;-117.255275,32.736727;-111.999435,33.435862&profile=car-eco');
+		if (longDrive.kind !== 'resolved') throw new Error('fixture permalink did not parse');
+		const fixture = await fixtureServer((_profile, request, response) => {
+			response.writeHead(200, { 'content-type': 'application/vnd.geo+json' });
+			response.end(legResponse(request.url, 3_349, 180_000));
+		});
+		try {
+			const result = await loopbackClient(fixture).resolve(longDrive);
+			expect(result.kind).toBe('resolved');
+			if (result.kind !== 'resolved' || result.route.type !== 'LineString') throw new Error('expected a single resolved line');
+			expect(result.route.coordinates[0]).toEqual([-112.002504, 33.538406]);
+			expect(result.route.coordinates.at(-1)).toEqual([-111.999435, 33.435862]);
+			expect(result.route.coordinates.length).toBeGreaterThan(1_000);
+		} finally { fixture.server.close(); }
+	});
+
+	// The next failure waiting behind that one: a longer journey has more vertices than the map
+	// payload allows. That used to discard the route as invalid; it must be thinned instead.
+	it('thins a route with far more vertices than the map needs instead of rejecting it', async () => {
+		const crossCountry = parseBrouterWebPermalink('https://brouter.de/brouter-web/#lonlats=-122.4,37.8;-104.9,39.7;-87.6,41.9;-74.0,40.7&profile=car-eco');
+		if (crossCountry.kind !== 'resolved') throw new Error('fixture permalink did not parse');
+		const fixture = await fixtureServer((_profile, request, response) => {
+			response.writeHead(200, { 'content-type': 'application/vnd.geo+json' });
+			response.end(legResponse(request.url, 30_000));
+		});
+		try {
+			const result = await loopbackClient(fixture).resolve(crossCountry);
+			if (result.kind !== 'resolved' || result.route.type !== 'LineString') throw new Error(`expected a resolved line, got ${JSON.stringify(result).slice(0, 120)}`);
+			expect(result.route.coordinates.length).toBeLessThanOrEqual(MAX_BROUTER_ROUTE_VERTICES);
+			expect(result.route.coordinates.length).toBeGreaterThan(1_000);
+			expect(result.route.coordinates[0]).toEqual([-122.4, 37.8]);
+			expect(result.route.coordinates.at(-1)).toEqual([-74.0, 40.7]);
+			// Thinned, not truncated: every leg's own end point is still on the line.
+			for (const stop of [[-104.9, 39.7], [-87.6, 41.9]]) expect(result.route.coordinates).toContainEqual(stop);
+		} finally { fixture.server.close(); }
+	});
+
+	it('requests legs a few at a time rather than one after another', async () => {
+		const tour = parseBrouterWebPermalink('https://brouter.de/brouter-web/#lonlats=1,1;2,2;3,3;4,4;5,5;6,6;7,7;8,8;9,9;10,10;11,11&profile=trekking');
+		if (tour.kind !== 'resolved') throw new Error('fixture permalink did not parse');
+		let open = 0;
+		let peak = 0;
+		const fixture = await fixtureServer((_profile, request, response) => {
+			open += 1;
+			peak = Math.max(peak, open);
+			setTimeout(() => { open -= 1; response.writeHead(200, { 'content-type': 'application/geo+json' }); response.end(legResponse(request.url, 2)); }, 25);
+		});
+		try {
+			const result = await loopbackClient(fixture).resolve(tour);
+			expect(result).toMatchObject({ kind: 'resolved' });
+			if (result.kind === 'resolved' && result.route.type === 'LineString') expect(result.route.coordinates).toEqual(Array.from({ length: 11 }, (_, index) => [index + 1, index + 1]));
+			expect(peak).toBeGreaterThan(1);
+			expect(peak).toBeLessThanOrEqual(4);
+		} finally { fixture.server.close(); }
+	});
+
+	it('caches the whole route by endpoint, profile and waypoints, ignoring the permalink\'s map view', async () => {
+		const first = parseBrouterWebPermalink('https://brouter.de/brouter-web/#map=9/32.8/-113.8/standard&lonlats=21,22;23,24;25,26&profile=trekking');
+		const sameRouteOtherView = parseBrouterWebPermalink('https://brouter.de/brouter-web/#map=14/10.0/20.0/osm-mapnik-german_style&lonlats=21,22;23,24;25,26&profile=trekking');
+		const otherProfile = parseBrouterWebPermalink('https://brouter.de/brouter-web/#lonlats=21,22;23,24;25,26&profile=fastbike');
+		if (first.kind !== 'resolved' || sameRouteOtherView.kind !== 'resolved' || otherProfile.kind !== 'resolved') throw new Error('fixture permalink did not parse');
+		const requests: string[] = [];
+		const fixture = await fixtureServer((_profile, request, response) => {
+			requests.push(request.url ?? '');
+			response.writeHead(200, { 'content-type': 'application/geo+json' });
+			response.end(legResponse(request.url, 2));
+		});
+		try {
+			const one = await loopbackClient(fixture).resolve(first);
+			const two = await loopbackClient(fixture).resolve(sameRouteOtherView);
+			expect(requests).toHaveLength(2);
+			expect(two).toEqual(one);
+			await loopbackClient(fixture).resolve(otherProfile);
+			expect(requests).toHaveLength(4);
+		} finally { fixture.server.close(); }
+	});
+
+	// One lifetime knob for everything Pages caches in memory: the HDR cache's HDR_CACHE_TTL_MS
+	// (default 10 minutes, at most 24 hours) also decides how long a resolved route is kept.
+	it('keeps a resolved route for HDR_CACHE_TTL_MS, then asks the router again', async () => {
+		const route = parseBrouterWebPermalink('https://brouter.de/brouter-web/#lonlats=41,42;43,44&profile=trekking');
+		if (route.kind !== 'resolved') throw new Error('fixture permalink did not parse');
+		const requests: string[] = [];
+		const fixture = await fixtureServer((_profile, request, response) => {
+			requests.push(request.url ?? '');
+			response.writeHead(200, { 'content-type': 'application/geo+json' });
+			response.end(legResponse(request.url, 2));
+		});
+		const previous = process.env.HDR_CACHE_TTL_MS;
+		process.env.HDR_CACHE_TTL_MS = '60';
+		try {
+			await loopbackClient(fixture).resolve(route);
+			await loopbackClient(fixture).resolve(route);
+			expect(requests).toHaveLength(1);
+			await new Promise((resolve) => setTimeout(resolve, 90));
+			expect(await loopbackClient(fixture).resolve(route)).toMatchObject({ kind: 'resolved' });
+			expect(requests).toHaveLength(2);
+		} finally {
+			if (previous === undefined) delete process.env.HDR_CACHE_TTL_MS;
+			else process.env.HDR_CACHE_TTL_MS = previous;
+			fixture.server.close();
+		}
+	});
+
+	it('uses the HDR cache\'s own default and ceiling when the lifetime is unset or out of range', () => {
+		const previous = process.env.HDR_CACHE_TTL_MS;
+		try {
+			delete process.env.HDR_CACHE_TTL_MS;
+			expect(brouterCacheTtlMs()).toBe(10 * 60 * 1000);
+			process.env.HDR_CACHE_TTL_MS = '3600000';
+			expect(brouterCacheTtlMs()).toBe(3_600_000);
+			process.env.HDR_CACHE_TTL_MS = String(7 * 24 * 60 * 60 * 1000);
+			expect(brouterCacheTtlMs()).toBe(24 * 60 * 60 * 1000);
+			process.env.HDR_CACHE_TTL_MS = 'soon';
+			expect(brouterCacheTtlMs()).toBe(10 * 60 * 1000);
+		} finally {
+			if (previous === undefined) delete process.env.HDR_CACHE_TTL_MS;
+			else process.env.HDR_CACHE_TTL_MS = previous;
+		}
+	});
+
+	it('does not ask the router again straight away for a route it has just refused', async () => {
+		const refused = parseBrouterWebPermalink('https://brouter.de/brouter-web/#lonlats=31,32;33,34&profile=trekking');
+		if (refused.kind !== 'resolved') throw new Error('fixture permalink did not parse');
+		const requests: string[] = [];
+		const fixture = await fixtureServer((_profile, request, response) => { requests.push(request.url ?? ''); response.writeHead(400); response.end(); });
+		try {
+			expect(await loopbackClient(fixture).resolve(refused)).toEqual({ kind: 'unavailable', warnings: ['brouter-route-rejected'] });
+			expect(await loopbackClient(fixture).resolve(refused)).toEqual({ kind: 'unavailable', warnings: ['brouter-route-rejected'] });
+			expect(requests).toHaveLength(1);
+		} finally { fixture.server.close(); }
 	});
 	it('uses an exact query/header allowlist and preserves returned geometry', async () => {
     const requests: { url: string; headers: Record<string, unknown> }[] = [];
@@ -82,11 +237,12 @@ describe('BRouter route adapter boundary', () => {
 		}
 	});
 
-	// Real-backend UAT (2026-10-12): resolve() had no OVERALL time budget -- only a per-segment
-	// timeout. A route with many waypoints (now also capped in brouter-web.ts, but the aggregate
-	// budget is the real backstop) could take minutes of real page-assembly time with nothing
-	// bounding the total, reported as "the map does not show".
-	it('stops attempting further segments once the aggregate time budget is spent', async () => {
+	// Real-backend UAT (2026-10-12): resolve() had no overall time budget, so a slow route held
+	// the whole page up. The budget bounds how long the PAGE waits -- it must not also throw away
+	// the work: a route that needs longer than one page load is willing to wait would otherwise
+	// time out identically for every visitor, forever. The page gets "no route yet" on time, the
+	// resolution carries on, and the next load has it.
+	it('answers within the page\'s time budget while a slow route finishes in the background for the next load', async () => {
 		const many = parseBrouterWebPermalink('https://brouter.de/brouter-web/#lonlats=1,2;3,4;5,6;7,8;9,10&profile=trekking');
 		if (many.kind !== 'resolved') throw new Error('fixture permalink did not parse');
 		const requests: string[] = [];
@@ -94,17 +250,21 @@ describe('BRouter route adapter boundary', () => {
 			requests.push(request.url ?? '');
 			setTimeout(() => {
 				response.writeHead(200, { 'content-type': 'application/geo+json' });
-				response.end(JSON.stringify({ type: 'LineString', coordinates: [[1, 2], [3, 4]] }));
-			}, 30);
+				response.end(legResponse(request.url, 2));
+			}, 200);
 		});
 		const previousBudget = process.env.BROUTER_MAX_TOTAL_MS;
 		process.env.BROUTER_MAX_TOTAL_MS = '50';
 		try {
-			const result = await new BrouterClient({ endpoint: fixture.endpoint, allowedOrigins: [fixture.origin], allowLoopbackForTests: true, lookup: async () => [{ address: '127.0.0.1', family: 4 }] }).resolve(many);
+			const started = Date.now();
+			const result = await loopbackClient(fixture).resolve(many);
 			expect(result).toEqual({ kind: 'unavailable', warnings: ['brouter-timeout'] });
-			// 4 segments at 30ms each (120ms) against a 50ms budget: the deadline check before
-			// starting each new segment must stop it well short of attempting all 4.
-			expect(requests.length).toBeLessThan(4);
+			expect(Date.now() - started).toBeLessThan(180);
+			// A second visitor arriving meanwhile joins the same work rather than starting it again.
+			expect(await loopbackClient(fixture).resolve(many)).toEqual({ kind: 'unavailable', warnings: ['brouter-timeout'] });
+			await new Promise((resolve) => setTimeout(resolve, 400));
+			expect(await loopbackClient(fixture).resolve(many)).toMatchObject({ kind: 'resolved', route: { type: 'LineString', coordinates: [[1, 2], [3, 4], [5, 6], [7, 8], [9, 10]] } });
+			expect(requests).toHaveLength(4);
 		} finally {
 			if (previousBudget === undefined) delete process.env.BROUTER_MAX_TOTAL_MS;
 			else process.env.BROUTER_MAX_TOTAL_MS = previousBudget;
@@ -125,8 +285,9 @@ describe('BRouter route adapter boundary', () => {
 			const result = await new BrouterClient({ endpoint: fixture.endpoint, allowedOrigins: [fixture.origin], allowLoopbackForTests: true, lookup: async () => [{ address: '127.0.0.1', family: 4 }] }).resolve(value);
 			expect(result).toMatchObject({ kind: 'resolved', route: { type: 'LineString' } });
 			expect(requests).toHaveLength(6);
-			expect(requests[0]).toContain('lonlats=-105.273743,40.014994|-105.24031,39.910964');
-			expect(requests[5]).toContain('lonlats=-105.747645,38.021343|-105.258356,39.997946');
+			// Legs go out a few at a time, so arrival order is not the route's order.
+			expect(requests.some((url) => url.includes('lonlats=-105.273743,40.014994|-105.24031,39.910964'))).toBe(true);
+			expect(requests.some((url) => url.includes('lonlats=-105.747645,38.021343|-105.258356,39.997946'))).toBe(true);
 		} finally { fixture.server.close(); }
 	});
 
@@ -144,7 +305,7 @@ describe('BRouter route adapter boundary', () => {
       if (profile === 'car-fast') { response.writeHead(400); response.end(); return; }
       if (profile === 'safety') { response.writeHead(429); response.end(); return; }
       if (profile === 'shortest') { response.writeHead(302, { location: '/elsewhere' }); response.end(); return; }
-      response.writeHead(200, { 'content-type': 'application/geo+json' }); response.end('x'.repeat(300_000));
+      response.writeHead(200, { 'content-type': 'application/geo+json' }); response.end('x'.repeat(DEFAULT_BROUTER_MAX_RESPONSE_BYTES + 1));
     });
     try {
       for (const [profile, warning] of [['trekking', 'brouter-response-invalid'], ['fastbike', 'brouter-response-invalid'], ['car-fast', 'brouter-route-rejected'], ['safety', 'brouter-request-failed'], ['shortest', 'brouter-request-failed'], ['car-eco', 'brouter-response-too-large']] as const) {

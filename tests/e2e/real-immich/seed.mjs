@@ -305,7 +305,8 @@ async function main() {
   // feature needs its own full 20-asset album to be meaningfully demonstrated, but each gets
   // its own stable slug so these are all directly reachable without digging through seed
   // output -- see README.md's "Configured albums/slugs" table.
-  const brouterUrl = 'https://brouter.de/brouter-web/#map=12/33.5100/-111.9656/standard&lonlats=-111.998019,33.435596;-111.983557,33.436161;-111.842816,33.59748;-111.842108,33.599177;-111.924419,33.6332;-111.924859,33.637711;-111.925964,33.611239;-111.927423,33.50229;-111.969191,33.501429;-112.08385,33.535348;-112.018962,33.52153;-112.002504,33.538406;-111.999435,33.435862&profile=car-eco';
+  //const brouterUrl = 'https://brouter.de/brouter-web/#map=12/33.5100/-111.9656/standard&lonlats=-111.998019,33.435596;-111.983557,33.436161;-111.842816,33.59748;-111.842108,33.599177;-111.924419,33.6332;-111.924859,33.637711;-111.925964,33.611239;-111.927423,33.50229;-111.969191,33.501429;-112.08385,33.535348;-112.018962,33.52153;-112.002504,33.538406;-111.999435,33.435862&profile=car-eco';
+  const brouterUrl = 'https://brouter.de/brouter-web/#map=9/32.8574/-113.8333/standard&lonlats=-111.998019,33.435596;-111.983557,33.436161;-111.842816,33.59748;-111.842108,33.599177;-111.924419,33.6332;-111.924859,33.637711;-111.925964,33.611239;-111.942492,33.545806;-111.927423,33.50229;-111.969191,33.501429;-111.975539,33.542614;-112.01673,33.52219;-112.08385,33.535348;-112.08805,33.522778;-112.018962,33.52153;-112.002504,33.538406;-117.255275,32.736727;-111.999435,33.435862&profile=car-eco'
   const brouterAlbum = await ensureAlbum(accessToken, 'immich-pages-e2e-brouter', forwardIds, 'asc',
     `---\nimmich-presentation:\n  type: journey\n  version: 1\n  map:\n    enabled: true\n    source: brouter-web\n    url: "${brouterUrl}"\n---\nBRouter-Web route demo.`);
   results.push(await ensureUnauthenticatedSharedLink(accessToken, brouterAlbum.id, 'immich-pages-e2e-brouter', 'e2e-brouter'));

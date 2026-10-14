@@ -47,8 +47,8 @@ describe('BRouter-Web permalink parser', () => {
 	// so an album owner pasting a permalink with hundreds of stops could make every visitor's
 	// page load take minutes. Reported as "the map does not show" because nothing bounded it.
 	it('caps the waypoint count so an unbounded permalink cannot force unbounded sequential network calls', () => {
-		const tooMany = Array.from({ length: 66 }, (_, index) => `${index},${index % 90}`).join(';');
-		const atLimit = Array.from({ length: 65 }, (_, index) => `${index},${index % 90}`).join(';');
+		const tooMany = Array.from({ length: 251 }, (_, index) => `${index % 180},${index % 90}`).join(';');
+		const atLimit = Array.from({ length: 250 }, (_, index) => `${index % 180},${index % 90}`).join(';');
 		expect(parseBrouterWebPermalink(`https://brouter.de/brouter-web/#lonlats=${tooMany}&profile=trekking`)).toEqual({ kind: 'unavailable', warnings: ['map-route-limit'] });
 		expect(parseBrouterWebPermalink(`https://brouter.de/brouter-web/#lonlats=${atLimit}&profile=trekking`).kind).toBe('resolved');
 	});

@@ -1,14 +1,13 @@
 import type { MapWarning } from './types';
 import type { Waypoint } from './path-adapters';
-import { MAX_ROUTE_SEGMENTS } from './geometry';
 
-// Real-backend UAT (2026-10-12): a BRouter-Web permalink's waypoint count was never bounded.
-// Each waypoint beyond the first costs one REAL, sequential, up-to-8s network round trip in
-// BrouterClient.resolve() -- an unbounded permalink (an album owner could paste one with
-// hundreds of stops) can make every visitor's page load take minutes, not just "a large map".
-// Reuses the same segment-count philosophy as the plain GeoJSON/waypoints sources
-// (MAX_ROUTE_SEGMENTS) for a consistent complexity bound across all route sources.
-const MAX_BROUTER_WAYPOINTS = MAX_ROUTE_SEGMENTS + 1;
+// A permalink's waypoint count has to be bounded -- an album description is untrusted input and
+// each waypoint beyond the first is one real request to the router -- but the bound must leave
+// room for a real multi-day road trip. 64 legs (the limit the plain GeoJSON/waypoints sources
+// use) was chosen when legs were fetched one after another inside the page's own time budget;
+// BrouterClient now fetches them a few at a time and finishes in the background when a page
+// load cannot wait, so the count no longer decides whether a visitor ever sees the route.
+export const MAX_BROUTER_WAYPOINTS = 250;
 
 export const BRouterWebProfiles = ['trekking', 'fastbike', 'safety', 'shortest', 'car-fast', 'car-eco'] as const;
 export type BRouterWebProfile = (typeof BRouterWebProfiles)[number];

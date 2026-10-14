@@ -197,3 +197,30 @@ trigger either new bound under production defaults -- it was only reproduced by
 temporarily lowering `BROUTER_MAX_RESPONSE_BYTES` to its minimum (64KB) to force the
 pre-existing oversized-response path, confirming the *graceful-degradation* UI already
 worked correctly; the *bounding* was the actual gap, not the degradation behavior.
+
+**A long leg, not a long list of waypoints, is what took the route off a production page
+(confirmed against live `brouter.de`, 2026-10-13):** the `e2e-brouter` album's route now
+includes a Phoenix -> San Diego -> Phoenix detour (18 waypoints, 1,287 km). Each ~590 km leg
+comes back from `brouter.de` as a ~270 KB reply with ~3,300 vertices in ~5 s -- over the old
+256 KB per-leg response limit, so the whole route was discarded as `brouter-response-too-large`
+(and the 17 legs fetched one after another needed ~25 s against a 15 s budget regardless).
+Measured rate for a car profile: about 0.47 KB and 7 vertices per kilometre. `brouter-client.ts`
+no longer has any limit that scales with road length: the per-leg response limit is 4 MB by
+default (about 8,500 km in one leg), legs are fetched four at a time, a route with more than
+10,000 vertices is thinned (`simplifyLine` in `geometry.ts`) instead of rejected, and a route that
+needs longer than one page load is willing to wait (`BROUTER_MAX_TOTAL_MS`, still 15 s) keeps
+resolving in the background for up to five minutes and is served from cache on the next load.
+Against this fixture: 6.7 s for the first load, 3-6 ms afterwards, 9,116 vertices delivered.
+
+**BRouter results are cached in memory, keyed by router endpoint + profile + ordered waypoints
+-- not by the permalink text:** the `#map=zoom/lat/lon/layer` view part of a BRouter-Web URL is
+ignored, so re-saving the same route from a different map position reuses the cached result,
+while changing any waypoint or the profile is a new route. A resolved route, and each of its
+legs, is kept for `HDR_CACHE_TTL_MS` -- the same setting, default (10 minutes) and ceiling
+(24 hours) as the HDR media cache, so one variable controls both. A refusal or malformed reply
+is kept for 5 minutes and a timeout or connection failure for 30 seconds (never longer than
+`HDR_CACHE_TTL_MS`), so a failing route is not re-requested from the public router on every
+page load. Caching legs separately is what lets an interrupted resolution resume. All of
+it is per-process memory, in keeping with Pages being stateless: a container restart starts
+empty. `BROUTER_CACHE_ENABLED=false` bypasses every layer.
+
