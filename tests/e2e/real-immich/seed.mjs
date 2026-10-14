@@ -312,7 +312,7 @@ async function main() {
   results.push(await ensureUnauthenticatedSharedLink(accessToken, brouterAlbum.id, 'immich-pages-e2e-brouter', 'e2e-brouter'));
 
   const markdownAlbum = await ensureAlbum(accessToken, 'immich-pages-e2e-markdown', forwardIds, 'desc',
-    '---\nimmich-presentation:\n  type: journey\n  version: 1\n---\n# A journey through the desert\n\nThis narrative tests **bold**, _italic_, and [links](https://example.com).\n\n- First stop\n- Second stop\n- Third stop\n\n> A quoted reflection on the trip.');
+    '---\nimmich-presentation:\n  type: journey\n  version: 1\n---\n# A journey through the desert\n\nThis narrative tests **bold**, _italic_, and [links](https://example.com).\n\n- First stop\n- Second stop\n- Third stop\n\n> A quoted reflection on the trip.\n\n## The numbers\n\nTickets were $20 each. Average speed was $$\\bar{v} = \\frac{d}{t}$$ over the day.\n\n$$\n\\begin{align}\nd &= 312\\,\\text{km} \\\\\nt &= 4.5\\,\\text{h} \\\\\n\\bar{v} &\\approx 69\\,\\text{km/h}\n\\end{align}\n$$\n\n$$\nf(x) = \\begin{cases} \\text{drive} & x < 6 \\\\ \\text{rest} & \\text{otherwise} \\end{cases}\n$$');
   results.push(await ensureUnauthenticatedSharedLink(accessToken, markdownAlbum.id, 'immich-pages-e2e-markdown', 'e2e-markdown'));
 
   const gradientAlbum = await ensureAlbum(accessToken, 'immich-pages-e2e-gradient', forwardIds, 'desc',

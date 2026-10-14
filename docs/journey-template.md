@@ -105,6 +105,37 @@ approximate line. It does not call a routing service.
 Manual waypoints, exact GeoJSON tracks, and BRouter-Web routes are Phase 4
 features and are not currently accepted as route sources.
 
+## Narrative Markdown
+
+Everything after the front matter is the page's narrative: CommonMark plus GitHub-flavoured
+Markdown (tables, strikethrough, task lists, autolinks, footnotes). Raw HTML is not rendered,
+and links and images must be `https://`.
+
+### LaTeX maths
+
+Maths is always delimited by **double** dollars, so prices like `$20` stay plain text:
+
+- `$$...$$` inside a line is inline: `Average speed was $$\bar{v} = \frac{d}{t}$$ over the day.`
+- `$$` on lines of their own is a centred display block, which is where multi-line
+  environments go:
+
+```markdown
+$$
+\begin{align}
+d &= 312\,\text{km} \\
+t &= 4.5\,\text{h} \\
+\bar{v} &\approx 69\,\text{km/h}
+\end{align}
+$$
+```
+
+The syntax is [KaTeX's](https://katex.org/docs/supported): nearly all of LaTeX math mode,
+including `align`, `aligned`, `gather`, `alignat`, `cases`, `matrix`/`pmatrix`/`bmatrix` and
+`\tag`. It is rendered on the server to MathML and drawn by the browser with the device's own
+maths font, so nothing extra is downloaded. Not available: packages, document-level LaTeX,
+links and images (`\href`, `\url`, `\includegraphics`), styling commands such as `\htmlStyle`,
+and colour. A formula with a mistake in it shows its source instead of breaking the page.
+
 ## Deployment-owned style
 
 The `quiet-atlas` name resolves to the deployment variable
