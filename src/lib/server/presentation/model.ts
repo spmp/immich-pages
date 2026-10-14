@@ -5,7 +5,8 @@ import type { MapMarker, MapRoute } from '$server/map/types';
 export type NormalizedGradient =
 	| { auto: true; direction: 'to bottom' | '135deg'; top?: undefined; bottom?: undefined }
 	| { auto: false; direction: 'to bottom' | '135deg'; top: string; bottom: string };
-export type AuthorizedHeroRepresentation = { id: string; thumbnail: string };
+/** `fullsize` is absent for a video hero, which has no still image beyond its thumbnail. */
+export type AuthorizedHeroRepresentation = { id: string; thumbnail: string; fullsize?: string };
 export type NormalizedAsset = { id: string; type: string; thumbnail: string; fullsize?: string; hdrHref?: string; hdrAvifHref?: string; sourceMimeType?: string; caption?: string; width?: number | null; height?: number | null; sourceWidth?: number; sourceHeight?: number; videoHref?: string; fullWidth?: boolean };
 export type NormalizedPageModel = {
 	album: { id?: string; title: string; thumbnailAssetId?: string; startDate?: string; endDate?: string; updatedAt?: string };

@@ -28,6 +28,12 @@ import type { Snippet } from 'svelte';
 		dateLabel = dateIso === endDateIso ? start : `${start} — ${end}`;
 	});
 
+	// The thumbnail is Immich's small rendition (250px tall), so it is only the instant first
+	// paint: the full-size image loads above it and fades in once it has actually arrived. If it
+	// fails, it is removed and the thumbnail stays.
+	let fullLoaded = $state(false);
+	let fullFailed = $state(false);
+
 	function reportHero(status: 'success' | 'failure') {
 		reportJournalDebug('hero-load', { category: 'hero', status, ...(status === 'failure' ? { errorContext: 'hero-load' as const } : {}) });
 	}
@@ -37,6 +43,7 @@ import type { Snippet } from 'svelte';
 	{#if mobileNavigation}{@render mobileNavigation()}{/if}
 	{#if hero}
 		<img class="hero-image" src={hero.thumbnail} alt="" fetchpriority="high" onload={() => reportHero('success')} onerror={() => reportHero('failure')} />
+		{#if hero.fullsize && !fullFailed}<img class="hero-image hero-image-full" class:loaded={fullLoaded} src={hero.fullsize} alt="" decoding="async" onload={() => { fullLoaded = true; }} onerror={() => { fullFailed = true; }} />{/if}
 	{:else}
 		<div class="hero-fallback" aria-hidden="true"></div>
 	{/if}
@@ -52,6 +59,9 @@ import type { Snippet } from 'svelte';
 	.hero { position: relative; min-height: 56svh; max-height: 520px; display: grid; align-items: end; overflow: hidden; color: var(--theme-hero-text, var(--theme-surface)); background: var(--theme-bg); }
 	.hero-image, .hero-fallback, .hero-shade { position: absolute; inset: 0; width: 100%; height: 100%; }
 	.hero-image { display: block; object-fit: cover; }
+	.hero-image-full { opacity: 0; transition: opacity 400ms ease-out; }
+	.hero-image-full.loaded { opacity: 1; }
+	@media (prefers-reduced-motion: reduce) { .hero-image-full { transition: none; } }
 	.hero-fallback { background: var(--theme-gradient); }
 	.hero-shade { background: linear-gradient(180deg, color-mix(in srgb, var(--theme-overlay) 5%, transparent) 25%, color-mix(in srgb, var(--theme-overlay) 94%, transparent) 100%); }
 	.hero-copy { position: relative; z-index: 1; width: min(100%, 1280px); margin: 0 auto; padding: 32px 16px; }

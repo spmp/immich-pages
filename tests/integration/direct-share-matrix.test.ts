@@ -36,6 +36,10 @@ describe('v3 direct-share matrix', () => {
 		if (result.kind !== 'page') return;
 		expect(result.page.assets).toHaveLength(1);
 		expect(result.page.hero?.id).toBe(v3.assets[0].id);
+		// The hero fills the top of the page; the 250px-tall Immich thumbnail alone is visibly
+		// blurry stretched across it, so the page also carries the full-size image for it.
+		expect(result.page.hero?.thumbnail).toBe(`/share/slug/opaque-ref/media/${v3.assets[0].id}/thumbnail?slug=opaque-ref`);
+		expect(result.page.hero?.fullsize).toBe(`/share/slug/opaque-ref/media/${v3.assets[0].id}/image/fullsize?slug=opaque-ref`);
 		// map.enabled defaults to true now, so a minimal presentation config also triggers a
 		// third, map-markers call after asset hydration completes.
 		expect(calls).toHaveLength(3);

@@ -112,7 +112,10 @@ async function assemblePageModel(provider: ImmichProvider, context: AuthContext,
 			...(document.config.gallery.fullWidth.includes(asset.id) ? { fullWidth: true } : {})
 		})),
 		permissions: { showMetadata: share.showMetadata, allowDownload: share.allowDownload },
-		hero: hero ? { id: hero.id, thumbnail: assets.find((asset) => asset.id === hero.id)?.thumbnail ?? '' } : null,
+		hero: hero ? (() => {
+			const heroAsset = assets.find((asset) => asset.id === hero.id);
+			return { id: hero.id, thumbnail: heroAsset?.thumbnail ?? '', ...(heroAsset?.fullsize ? { fullsize: heroAsset.fullsize } : {}) };
+		})() : null,
 		markers: [], routeData: null,
 		showMetadata: share.showMetadata, allowDownload: share.allowDownload,
 		warnings: [...document.warnings, ...narrative.warnings, ...(template.warning ? [template.warning] : [])], errors: []
