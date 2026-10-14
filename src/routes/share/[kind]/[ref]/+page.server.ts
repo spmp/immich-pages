@@ -7,8 +7,8 @@ import { assembleDirectShare } from '$server/page/assemble';
 import { parseSharedLinkRef } from '$server/share/ref';
 import { logDirectShareBoundary, logDirectShareOutcome, logVisitedShareRegistry } from '$server/share/diagnostics';
 import { addSession, clearSessionCookie, extractImmichShareToken, PAGES_SESSION_COOKIE, sessionCookie, sessionForShare } from '$server/share/session';
-import { registerShare, VISITED_SHARES_COOKIE } from '$server/share/registry';
-import { discoverLibrary } from '$server/library/discover';
+import { registerShare, REGISTRY_TTL_MS, VISITED_SHARES_COOKIE } from '$server/share/registry';
+import { discoverLibrary, libraryEntry } from '$server/library/discover';
 import type { NavigationEntry } from '$server/library/model';
 import { parseHdrIndicator } from '$server/media/hdr-prewarm-policy';
 
@@ -45,8 +45,8 @@ export const load: PageServerLoad = async ({ params, request, locals, fetch, coo
 		let navigationEntries = [currentEntry];
 		try {
 			const registry = registerShare(cookies.get(VISITED_SHARES_COOKIE), ref);
-			cookies.set(VISITED_SHARES_COOKIE, registry, { path: '/', httpOnly: true, secure: true, sameSite: 'lax', maxAge: 30 * 24 * 60 * 60 });
-			const navigation = await discoverLibrary(createImmichProvider(fetch), { registryCookie: registry, sessionCookie: cookies.get(PAGES_SESSION_COOKIE), requestId: locals.requestId, current: [ref] });
+			cookies.set(VISITED_SHARES_COOKIE, registry, { path: '/', httpOnly: true, secure: true, sameSite: 'lax', maxAge: REGISTRY_TTL_MS / 1000 });
+			const navigation = await discoverLibrary(createImmichProvider(fetch), { registryCookie: registry, sessionCookie: cookies.get(PAGES_SESSION_COOKIE), requestId: locals.requestId, current: [ref], known: [libraryEntry(ref, outcome.page.album, Boolean(outcome.page.album.thumbnailAssetId && outcome.page.assets.some((asset) => asset.id === outcome.page.album.thumbnailAssetId)))] });
 			navigationEntries = navigation.entries.some((entry) => entry.href === currentHref) ? navigation.entries : [currentEntry, ...navigation.entries];
 			logVisitedShareRegistry({ phase: 'register', result: 'success', entryCount: navigation.entries.length });
 		} catch { /* Missing registry configuration must not break an otherwise authorized share. */ logVisitedShareRegistry({ phase: 'register', result: 'unavailable' }); }

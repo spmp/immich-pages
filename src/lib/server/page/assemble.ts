@@ -10,7 +10,11 @@ import { PathSourceRegistry } from '$server/map/path-adapters';
 import { resolveMapStyle } from '$server/map/style-registry';
 import { normalizeGradient } from '$lib/theme/gradient';
 
-export async function assembleDirectShare(provider: ImmichProvider, context: ShareAuthContext, requestId: string): Promise<DirectShareOutcome> {
+type ValidDocument = Extract<ReturnType<typeof parsePresentationDocument>, { kind: 'valid' }>;
+type NonPageOutcome = Exclude<DirectShareOutcome, { kind: 'page' }>;
+
+/** Ask Immich for the share, fresh, and decide whether it is a Pages journey at all. */
+async function loadShare(provider: ImmichProvider, context: ShareAuthContext, requestId: string, log: boolean): Promise<{ share: SharedLinkResponse; document: ValidDocument } | NonPageOutcome> {
 	let result: Awaited<ReturnType<ImmichProvider['getSharedLink']>>;
 	try { result = await provider.getSharedLink(context); } catch { return { kind: 'upstream-error', requestId }; }
 	if (result.status === 401 || result.status === 403) return { kind: 'unauthorized' };
@@ -21,8 +25,42 @@ export async function assembleDirectShare(provider: ImmichProvider, context: Sha
 	if (share.password) return { kind: 'password-required' };
 	if (share.type !== 'ALBUM' || !share.album) return { kind: 'unsupported' };
 	const document = parsePresentationDocument(share.album.description);
-	if (document.kind === 'absent' || document.kind === 'unrelated') { logMetadataParse({ result: document.kind }); return { kind: 'non-page' }; }
-	if (document.kind === 'invalid') { logMetadataParse({ result: 'invalid', reason: document.reason }); return { kind: 'invalid-metadata', metadataReason: document.reason }; }
+	if (document.kind === 'absent' || document.kind === 'unrelated') { if (log) logMetadataParse({ result: document.kind }); return { kind: 'non-page' }; }
+	if (document.kind === 'invalid') { if (log) logMetadataParse({ result: 'invalid', reason: document.reason }); return { kind: 'invalid-metadata', metadataReason: document.reason }; }
+	return { share, document };
+}
+
+/** The album facts a page header and a library row both show; one definition so they cannot differ. */
+function summarizeAlbum(share: SharedLinkResponse, config: ValidDocument['config']) {
+	const sourceAlbum = share.album;
+	const displayDate = deriveDisplayDate(config, share);
+	return {
+		title: sourceAlbum?.albumName ?? 'Untitled album',
+		thumbnailAssetId: sourceAlbum?.albumThumbnailAssetId ?? undefined,
+		...(share.showMetadata ? { startDate: sourceAlbum?.startDate ?? undefined, endDate: sourceAlbum?.endDate ?? undefined, updatedAt: sourceAlbum?.updatedAt } : {}),
+		...(share.showMetadata && displayDate ? { startDate: displayDate.start, endDate: displayDate.end } : {})
+	};
+}
+
+export type ShareSummaryOutcome = NonPageOutcome | { kind: 'summary'; album: ReturnType<typeof summarizeAlbum>; hasThumbnail: boolean };
+
+/**
+ * What a library row needs and nothing more: the same fresh authorization and the same
+ * "is this a Pages journey" decision as a full page, without its map markers, routed path or
+ * rendered narrative. The library lists up to fifty shares on every view; a full assembly for
+ * each is what used to cap it at eight.
+ */
+export async function summarizeDirectShare(provider: ImmichProvider, context: ShareAuthContext, requestId: string): Promise<ShareSummaryOutcome> {
+	const loaded = await loadShare(provider, context, requestId, false);
+	if ('kind' in loaded) return loaded;
+	const album = summarizeAlbum(loaded.share, loaded.document.config);
+	return { kind: 'summary', album, hasThumbnail: Boolean(album.thumbnailAssetId && loaded.share.assets.some((asset) => asset.id === album.thumbnailAssetId)) };
+}
+
+export async function assembleDirectShare(provider: ImmichProvider, context: ShareAuthContext, requestId: string): Promise<DirectShareOutcome> {
+	const loaded = await loadShare(provider, context, requestId, true);
+	if ('kind' in loaded) return loaded;
+	const share = loaded.share;
 	return assemblePageModel(provider, context, share, (assetId) => `/share/${context.shareRef.kind}/${encodeURIComponent(context.shareRef.value)}/media/${encodeURIComponent(assetId)}`);
 }
 
@@ -36,7 +74,6 @@ async function assemblePageModel(provider: ImmichProvider, context: AuthContext,
 	const hero = selectHero(document.config, share);
 	logShareHeroSelection({ selection: heroSelection(document.config, share) });
 	const template = normalizeTemplate(document.config);
-	const displayDate = deriveDisplayDate(document.config, share);
 	const { auth: _auth, gradient, ...presentationSafeConfig } = document.config;
 	const normalizedGradient = normalizeGradient(gradient);
 	const { url: _brouterUrl, ...browserMap } = document.config.map;
@@ -62,11 +99,7 @@ async function assemblePageModel(provider: ImmichProvider, context: AuthContext,
 			...(asset.type === 'VIDEO' && 'shareRef' in context ? { videoHref: `${mediaPath(asset.id)}/video/playback?${context.shareRef.kind}=${encodeURIComponent(context.shareRef.value)}` } : {})
 		};
 	});
-	const album = {
-		title: sourceAlbum.albumName ?? 'Untitled album',
-		thumbnailAssetId: sourceAlbum.albumThumbnailAssetId ?? undefined,
-		...(share.showMetadata ? { startDate: sourceAlbum.startDate ?? undefined, endDate: sourceAlbum.endDate ?? undefined, updatedAt: sourceAlbum.updatedAt } : {})
-	};
+	const album = summarizeAlbum(share, document.config);
 	const { waypoints: _waypoints, geojson: _geojson, ...metadataSafeMap } = browserMap;
 	const safeMap = share.showMetadata ? browserMap : { ...metadataSafeMap, enabled: false };
 	const normalized: NormalizedPageModel = {
@@ -99,7 +132,6 @@ async function assemblePageModel(provider: ImmichProvider, context: AuthContext,
 		if (style.kind === 'resolved') normalized.mapStyle = style;
 		else normalized.warnings.push('map-style-unavailable');
 	}
-	if (share.showMetadata && displayDate) normalized.album = { ...normalized.album, startDate: displayDate.start, endDate: displayDate.end };
 	logModelOutput({ assetCount: assets.length, imageCount: assets.filter((asset) => asset.type !== 'VIDEO').length, videoCount: assets.filter((asset) => asset.type === 'VIDEO').length, heroPresent: Boolean(normalized.hero), markerCount: normalized.markers.length, routeReady: normalized.routeData !== null });
 	return { kind: 'page', page: normalized };
 }

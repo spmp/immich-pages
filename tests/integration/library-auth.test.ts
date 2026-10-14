@@ -16,9 +16,10 @@ describe('share-only library route', () => {
 		expect((await discoverLibrary(provider, context)).kind).toBe('ready');
 		revoked = true;
 		expect((await discoverLibrary(provider, context)).kind).toBe('empty');
-		// map.enabled defaults to true now: the first (successful) discovery also makes a
-		// map-markers call; the second (revoked, 403) short-circuits before reaching it.
-		expect(fetchMock).toHaveBeenCalledTimes(3);
+		// One shared-link request per discovery and nothing else: a library row is built from
+		// the share's own summary, so even with map.enabled defaulting to true there is no
+		// map-markers call (there used to be one, back when each row was a full page assembly).
+		expect(fetchMock).toHaveBeenCalledTimes(2);
 	});
 	it('does not require or forward incoming Immich user credentials', async () => {
 		process.env.IMMICH_BASE_URL = 'https://immich.test';
