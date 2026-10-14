@@ -1,3 +1,5 @@
+import { HdrDiskCache } from './hdr-disk-cache';
+
 export type CachedMedia = { body: Uint8Array; contentType: string; width?: number; height?: number };
 
 type Entry = { value: CachedMedia; expiresAt: number; bytes: number };
@@ -16,9 +18,31 @@ export const HDR_CACHE_MAX_BYTES = positiveEnv('HDR_CACHE_MAX_BYTES', 128 * 1024
 export const HDR_MAX_CONCURRENT = positiveEnv('HDR_MAX_CONCURRENT', 2, 32);
 export const HDR_MAX_QUEUE = positiveEnv('HDR_MAX_QUEUE', 32, 256);
 export const HDR_MAX_INTERACTIVE_BURST = positiveEnv('HDR_MAX_INTERACTIVE_BURST', 4, 32);
-export type HdrCacheBackendName = 'memory';
-export const HDR_CACHE_BACKEND: HdrCacheBackendName = process.env.HDR_CACHE_BACKEND === 'disk' ? 'memory' : 'memory';
-export const HDR_CACHE_DIRECTORY = typeof process.env.HDR_CACHE_DIRECTORY === 'string' ? process.env.HDR_CACHE_DIRECTORY.slice(0, 256) : undefined;
+// Memory is always the fast tier. HDR_CACHE_BACKEND=disk adds HDR_CACHE_DIRECTORY as a second,
+// larger tier that survives restarts (see hdr-disk-cache.ts); without a usable directory it
+// falls back to memory only and says so in the log.
+export type HdrCacheBackendName = 'memory' | 'disk';
+export const HDR_CACHE_DIRECTORY = process.env.HDR_CACHE_DIRECTORY?.trim() ? process.env.HDR_CACHE_DIRECTORY.trim().slice(0, 256) : undefined;
+export const HDR_CACHE_DISK_MAX_BYTES = positiveEnv('HDR_CACHE_DISK_MAX_BYTES', 2 * 1024 * 1024 * 1024, 1024 * 1024 * 1024 * 1024);
+const diskRequested = process.env.HDR_CACHE_BACKEND === 'disk';
+if (diskRequested && !HDR_CACHE_DIRECTORY) console.warn(JSON.stringify({ event: 'direct-share.hdr-disk-cache-unavailable', reason: 'no-directory' }));
+const diskCache = diskRequested && HDR_CACHE_DIRECTORY ? new HdrDiskCache({ directory: HDR_CACHE_DIRECTORY, maxBytes: HDR_CACHE_DISK_MAX_BYTES, log: (event) => console.info(JSON.stringify(event)) }) : undefined;
+let diskAvailable = false;
+const diskReady: Promise<void> = diskCache ? diskCache.init().then((available) => { diskAvailable = available; }) : Promise.resolve();
+const pendingDiskWrites = new Set<Promise<void>>();
+/** The backend actually in use: 'disk' only once the directory has proven writable. */
+export let HDR_CACHE_BACKEND: HdrCacheBackendName = 'memory';
+void diskReady.then(() => { if (diskAvailable) HDR_CACHE_BACKEND = 'disk'; });
+
+/** Resolves once the disk tier (if configured) has indexed its directory. */
+export function hdrDiskCacheReady(): Promise<void> {
+	return diskReady;
+}
+
+/** Resolves once every disk write started so far has finished; for tests and orderly shutdown. */
+export async function hdrDiskWritesSettled(): Promise<void> {
+	while (pendingDiskWrites.size) await Promise.all([...pendingDiskWrites]);
+}
 
 export type HdrCacheStats = { entries: number; bytes: number; inFlight: number };
 export type HdrCacheBackend = {
@@ -95,7 +119,11 @@ export function getHdrCacheState(): { entries: number; bytes: number; inFlight: 
 	return { entries: entries.size, bytes: totalBytes, inFlight: inFlight.size, activeConversions, waitingConversions: waitingConversions.length, interactiveWaitingConversions: waitingConversions.filter((item) => item.priority === 'interactive').length };
 }
 
-function cacheSuccessful(key: string, value: CachedMedia, assetId?: string): CachedMedia {
+function cacheSuccessful(key: string, value: CachedMedia, assetId?: string, persist = true): CachedMedia {
+	if (persist && diskAvailable && diskCache) {
+		const write = diskCache.write(key, value).finally(() => pendingDiskWrites.delete(write));
+		pendingDiskWrites.add(write);
+	}
 	if (!(value.body instanceof Uint8Array) || value.body.byteLength === 0 || value.body.byteLength > HDR_CACHE_MAX_BYTES) return value;
 	if (!/^(video\/mp4|image\/avif)$/i.test(value.contentType)) return value;
 	const old = entries.get(key);
@@ -128,12 +156,38 @@ export function getOrCreateHdr(key: string, create: () => Promise<CachedMedia>, 
 		return current;
 	}
 	console.info(JSON.stringify({ event: 'direct-share.hdr-cache-miss', assetId, cacheKey: key, cacheEntries: entries.size, cacheBytes: totalBytes }));
-	const promise = create().then((value) => cacheSuccessful(key, value, assetId)).finally(() => inFlight.delete(key));
+	// Without a disk tier, create() starts synchronously exactly as before.
+	const convert = () => create().then((value) => cacheSuccessful(key, value, assetId));
+	const promise = (diskAvailable && diskCache?.has(key)
+		? readFromDisk(key, assetId).then((value) => value ?? convert())
+		: convert()
+	).finally(() => inFlight.delete(key));
 	inFlight.set(key, promise);
 	return promise;
 }
 
+async function readFromDisk(key: string, assetId?: string): Promise<CachedMedia | undefined> {
+	const value = await diskCache?.read(key);
+	if (!value) return undefined;
+	console.info(JSON.stringify({ event: 'direct-share.hdr-cache-hit', source: 'disk', assetId, cacheKey: key, cacheEntries: entries.size, cacheBytes: totalBytes }));
+	// Back into the memory tier for the synchronous fast paths; it is already on disk.
+	return cacheSuccessful(key, value, assetId, false);
+}
+
+/**
+ * Memory, then disk. For the media routes' fast path, which must know whether a conversion is
+ * cached BEFORE paying to download the original from Immich.
+ */
+export async function lookupCachedHdr(key: string, now = Date.now()): Promise<CachedMedia | undefined> {
+	const cached = getCachedHdr(key, now);
+	if (cached) return cached;
+	await diskReady;
+	return diskAvailable && diskCache?.has(key) ? readFromDisk(key) : undefined;
+}
+
+/** Empties the memory tier (and the disk tier, if present) -- the disk tier asynchronously. */
 export function clearHdrCache(): void {
+	if (diskCache) void diskCache.clear();
 	entries.clear();
 	inFlight.clear();
 	queuedConversions.clear();
@@ -190,15 +244,18 @@ export function withHdrConcurrency<T>(task: (signal?: AbortSignal) => Promise<T>
 	});
 }
 
-export function getHdrCacheBackendConfig(): { backend: HdrCacheBackendName; directory?: string; diskWrites: false } {
-	return { backend: HDR_CACHE_BACKEND, ...(HDR_CACHE_DIRECTORY ? { directory: HDR_CACHE_DIRECTORY } : {}), diskWrites: false };
+export function getHdrCacheBackendConfig(): { backend: HdrCacheBackendName; directory?: string; diskWrites: boolean } {
+	// Memory only by default: diskWrites: false unless HDR_CACHE_BACKEND=disk with a usable directory.
+	return diskAvailable
+		? { backend: 'disk', directory: HDR_CACHE_DIRECTORY, diskWrites: true }
+		: { backend: 'memory', ...(HDR_CACHE_DIRECTORY ? { directory: HDR_CACHE_DIRECTORY } : {}), diskWrites: false };
 }
 
 export const memoryHdrCacheBackend: HdrCacheBackend = {
 	get: getCachedHdr,
 	// cacheSuccessful's 3rd parameter is an optional assetId (for logging), not the backend
 	// interface's own optional `now` -- adapt rather than widen the public interface's shape.
-	put: (key, value) => cacheSuccessful(key, value),
+	put: (key, value) => cacheSuccessful(key, value, undefined, false),
 	delete: (key) => { const entry = entries.get(key); entries.delete(key); totalBytes -= entry?.bytes ?? 0; },
 	clear: clearHdrCache,
 	stats: () => ({ entries: entries.size, bytes: totalBytes, inFlight: inFlight.size })

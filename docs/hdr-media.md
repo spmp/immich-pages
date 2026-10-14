@@ -118,10 +118,11 @@ emulating the hint is not a physical HDR pass.
 
 The production Compose service keeps HDR configuration deployment-owned while
 remaining stateless: `HDR_PREWARM_LOOKAHEAD` defaults to `10`,
-`HDR_PREWARM_INDICATOR` defaults to `on`, and `HDR_CACHE_BACKEND` is `memory`.
-`HDR_CACHE_DIRECTORY` is accepted as future-shaped metadata only; the current
-implementation never writes it. The Compose service declares no application
-volume, database, media store, or correctness-critical persistent state.
+`HDR_PREWARM_INDICATOR` defaults to `on`, and `HDR_CACHE_BACKEND` defaults to
+`memory`. `HDR_CACHE_BACKEND=disk` with `HDR_CACHE_DIRECTORY` adds an optional
+disk tier for generated media (see `docs/deployment.md`); it is a disposable
+optimization, so the service still has no database, media store, or
+correctness-critical persistent state.
 
 The focused stateless recovery harness passed on 2026-10-10: it built the
 production image, captured the direct-share projection, removed containers,

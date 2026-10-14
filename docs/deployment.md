@@ -51,10 +51,29 @@ Optional settings, with their defaults:
 | `HDR_CACHE_TTL_MS` | `600000` | How long generated HDR media, and resolved routes, are kept in memory. |
 | `HDR_PREWARM_LOOKAHEAD` | `10` | Photos converted ahead of the viewer; `all` for the whole album. |
 | `HDR_PREWARM_INDICATOR` | `on` | The readiness dot on the share page. |
-| `HDR_CACHE_BACKEND` / `HDR_CACHE_DIRECTORY` | `memory` / unset | Where generated HDR media is cached. |
+| `HDR_CACHE_BACKEND` | `memory` | `disk` also keeps generated HDR media in `HDR_CACHE_DIRECTORY`, so it survives restarts and more of it can be kept. Memory stays the fast tier. |
+| `HDR_CACHE_DIRECTORY` | unset | Directory for the disk tier; required for `disk`. Mount a volume here. Without a writable directory Pages logs a warning and uses memory only. |
+| `HDR_CACHE_DISK_MAX_BYTES` | `2147483648` | Size budget for the disk tier (2 GB); least recently used media is removed first. |
 | `HOST` / `PORT` | `0.0.0.0` / `3000` | Listen address (set in the image). |
 | `PROTOCOL_HEADER` / `HOST_HEADER` | `X-Forwarded-Proto` / `X-Forwarded-Host` | How Pages learns its public origin behind a reverse proxy (set in the image; see Proxy requirements). |
 | `ORIGIN` | unset | Pin a fixed public origin, e.g. `https://pages.example.xyz`, instead of reading it from proxy headers. |
+
+The disk tier is an optimization, not state: deleting the directory only means
+photos are converted again on their next view. Nothing in it is served without
+the request first being authorized against Immich, and files are named by a hash
+of the cache key, so album content never chooses a path. For example:
+
+```yaml
+pages:
+  environment:
+    HDR_CACHE_BACKEND: disk
+    HDR_CACHE_DIRECTORY: /cache/hdr
+  volumes:
+    - ./pages-cache:/cache
+```
+
+The container runs as the `node` user (uid 1000), so the mounted directory must
+be writable by it.
 
 Further `HDR_*` and `SDR_*` limits (cache sizes, concurrency, conversion
 timeouts) exist for tuning; their defaults suit a small server.

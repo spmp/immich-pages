@@ -43,7 +43,7 @@ describe('HDR media cache', () => {
 		expect(buildHdrCacheKey({ ...common, outputContract: 'video' })).not.toBe(buildHdrCacheKey({ ...common, outputContract: 'avif' }));
 	});
 
-	it('exposes only a non-writing memory backend, even when disk is requested', () => {
+	it('is memory only, writing nothing to disk, unless a disk cache is configured', () => {
 		const config = getHdrCacheBackendConfig();
 		expect(config.backend).toBe('memory');
 		expect(config.diskWrites).toBe(false);

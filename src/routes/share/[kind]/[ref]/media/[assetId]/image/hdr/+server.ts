@@ -7,7 +7,7 @@ import { z } from 'zod';
 import { extractImmichShareToken, PAGES_SESSION_COOKIE, sessionForShare } from '$server/share/session';
 import { logHdrDiagnostic, logShareMediaStatus } from '$server/share/diagnostics';
 import { nativeFailureDetail, nativeFailureReason } from '$server/media/hdr-compositor';
-import { buildHdrCacheKey, buildHdrSourceIdentity, getCachedHdr, HDR_CACHE_TTL_MS } from '$server/media/hdr-cache';
+import { buildHdrCacheKey, buildHdrSourceIdentity, HDR_CACHE_TTL_MS, lookupCachedHdr } from '$server/media/hdr-cache';
 import { getHdrInteractiveCoordinator } from '$server/media/hdr-prewarm';
 import { extractAppleHdrMetadata } from '$server/media/hdr-metadata';
 import { buildHdrMetadataCacheKey, getCachedHdrMetadata, getOrExtractHdrMetadata } from '$server/media/hdr-metadata-cache';
@@ -105,7 +105,7 @@ export const GET: RequestHandler = async ({ params, request, cookies, fetch, loc
 	if (cachedMetadata.hit && cachedMetadata.value) {
 		const metadata = cachedMetadata.value;
 		const sourceIdentity = buildHdrSourceIdentity({ headers: source.response.headers, assetId: params.assetId, metadata });
-		const cached = sourceIdentity ? getCachedHdr(buildHdrCacheKey({ assetId: params.assetId, sourceIdentity, width: requestedWidth, height: requestedHeight })) : undefined;
+		const cached = sourceIdentity ? await lookupCachedHdr(buildHdrCacheKey({ assetId: params.assetId, sourceIdentity, width: requestedWidth, height: requestedHeight })) : undefined;
 		if (cached) {
 			await source.response.body?.cancel().catch(() => {});
 			logHdrDiagnostic({ event: 'source', assetId: params.assetId, requestId, phase: 'lookup', source: 'cache', status: 'hit', contentType: cached.contentType, byteLength: cached.body.byteLength, durationMs: Date.now() - requestStartedAt, width: requestedWidth, height: requestedHeight });
