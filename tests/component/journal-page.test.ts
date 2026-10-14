@@ -71,7 +71,6 @@ describe('journal presentation contract', () => {
 		const source = component('JournalPage');
 		const direct = route();
 		const library = readFileSync('src/routes/library/+page.svelte', 'utf8');
-		const locator = readFileSync('src/routes/library/page/[locator]/+page.svelte', 'utf8');
 		expect(source).toContain('navigation?');
 		expect(source).toContain('PageNavigation');
 		expect(source).toContain('MobileDrawer');
@@ -79,7 +78,5 @@ describe('journal presentation contract', () => {
 		expect(direct).not.toMatch(/authorization|cookie|token|album\.id/);
 		expect(library).toContain('library.kind === \'ready\'');
 		expect(library).toContain('PageNavigation entries={library.entries}');
-		expect(locator).toContain('<JournalPage page={outcome.page} {navigation} />');
-		expect(locator).not.toContain('cookie');
 	});
 });

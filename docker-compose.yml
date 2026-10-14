@@ -75,15 +75,11 @@ services:
     build: .
     environment:
       IMMICH_BASE_URL: https://${IMMICH_HOST:-immich.example.xyz}
-      IMMICH_SUPPORTED_VERSION: ${IMMICH_SUPPORTED_VERSION:-3.1.0}
+      IMMICH_SUPPORTED_VERSION: ${IMMICH_SUPPORTED_VERSION:-3.3.1}
       PAGES_SESSION_SECRET: ${PAGES_SESSION_SECRET:?PAGES_SESSION_SECRET is required}
       PAGES_VISITED_SHARES_SECRET: ${PAGES_VISITED_SHARES_SECRET:?PAGES_VISITED_SHARES_SECRET is required}
       MAP_STYLE_URL_QUIET_ATLAS: ${MAP_STYLE_URL_QUIET_ATLAS:-https://tiles.openfreemap.org/styles/liberty}
       PUBLIC_PAGES_DEBUG: ${PUBLIC_PAGES_DEBUG:-false}
-      HOST: 0.0.0.0
-      PORT: 3000
-      PROTOCOL_HEADER: X-Forwarded-Proto
-      HOST_HEADER: X-Forwarded-Host
     depends_on:
       - immich-server
     labels:

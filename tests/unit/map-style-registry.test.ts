@@ -12,15 +12,20 @@ describe('resolveMapStyle', () => {
 		});
 	});
 
+	// V1 needs only IMMICH_BASE_URL and the two cookie secrets: a deployment that sets no style
+	// still gets a working basemap (OpenFreeMap, no API key) rather than a bare warning.
+	it('uses the built-in default style when the deployment sets none', () => {
+		const expected = { kind: 'resolved', name: 'quiet-atlas', url: 'https://tiles.openfreemap.org/styles/liberty' };
+		expect(resolveMapStyle({ styleName: 'quiet-atlas' }, {})).toEqual(expected);
+		expect(resolveMapStyle({ styleName: 'quiet-atlas' }, { MAP_STYLE_URL_QUIET_ATLAS: '   ' })).toEqual(expected);
+	});
+
 	it.each([
 		['unknown name', { styleName: 'custom' }, 'unknown-style'],
-		['missing configuration', { styleName: 'quiet-atlas' }, 'missing-style-url'],
 		['malformed URL', { styleName: 'quiet-atlas' }, 'invalid-style-url'],
 		['non-http URL', { styleName: 'quiet-atlas' }, 'invalid-style-url']
 	])('fails closed for %s', (_label, input, warning) => {
-		const inputEnv = _label === 'missing configuration'
-			? {}
-			: _label === 'malformed URL'
+		const inputEnv = _label === 'malformed URL'
 				? { MAP_STYLE_URL_QUIET_ATLAS: 'not-a-url' }
 				: _label === 'non-http URL'
 					? { MAP_STYLE_URL_QUIET_ATLAS: 'file:///tmp/style.json' }

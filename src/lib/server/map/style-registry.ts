@@ -4,9 +4,16 @@ const STYLE_ENV_KEYS = {
 
 export type MapStyleName = keyof typeof STYLE_ENV_KEYS;
 
+// Used when the deployment sets no URL for a style, so a minimal V1 deployment (IMMICH_BASE_URL
+// plus the two cookie secrets) still draws a basemap. OpenFreeMap needs no API key. The style
+// URL remains deployment-owned either way: album descriptions can never supply one.
+export const DEFAULT_STYLE_URLS: Record<MapStyleName, string> = {
+	'quiet-atlas': 'https://tiles.openfreemap.org/styles/liberty'
+};
+
 export type MapStyleResolution =
 	| { kind: 'resolved'; name: MapStyleName; url: string }
-	| { kind: 'warning'; warning: 'content-controlled-style-url' | 'unknown-style' | 'missing-style-url' | 'invalid-style-url' };
+	| { kind: 'warning'; warning: 'content-controlled-style-url' | 'unknown-style' | 'invalid-style-url' };
 
 function isStyleName(value: unknown): value is MapStyleName {
 	return typeof value === 'string' && Object.hasOwn(STYLE_ENV_KEYS, value);
@@ -29,8 +36,7 @@ export function resolveMapStyle(input: unknown, env: Record<string, string | und
 	const styleName = (input as { styleName?: unknown }).styleName;
 	if (!isStyleName(styleName)) return { kind: 'warning', warning: 'unknown-style' };
 
-	const configuredUrl = env[STYLE_ENV_KEYS[styleName]]?.trim();
-	if (!configuredUrl) return { kind: 'warning', warning: 'missing-style-url' };
+	const configuredUrl = env[STYLE_ENV_KEYS[styleName]]?.trim() || DEFAULT_STYLE_URLS[styleName];
 	if (!isTrustedStyleUrl(configuredUrl)) return { kind: 'warning', warning: 'invalid-style-url' };
 
 	return { kind: 'resolved', name: styleName, url: configuredUrl };

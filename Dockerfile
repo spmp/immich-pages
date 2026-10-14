@@ -28,7 +28,11 @@ FROM node:24-alpine AS runtime
 RUN apk add --no-cache ffmpeg libheif libheif-libde265 libheif-tools exiftool libavif-apps libavif
 
 WORKDIR /app
-ENV NODE_ENV=production HOST=0.0.0.0 PORT=3000
+# Listen address, and the origin behind a TLS-terminating reverse proxy. Pages checks that form
+# posts come from its own origin; these headers let it see the visitor's https://host rather than
+# the proxy's plain-HTTP hop. adapter-node falls back to the Host header and https when the proxy
+# sends neither, so they are safe defaults. Set ORIGIN to pin a fixed origin instead.
+ENV NODE_ENV=production HOST=0.0.0.0 PORT=3000 PROTOCOL_HEADER=X-Forwarded-Proto HOST_HEADER=X-Forwarded-Host
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev && npm cache clean --force
 COPY --from=build /app/build ./build

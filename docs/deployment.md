@@ -21,28 +21,47 @@ host; do not proxy or internally replace the Immich host for share requests.
 
 ## Environment and container
 
-Set `IMMICH_BASE_URL` to the explicit trusted Immich origin. Set
-`PUBLIC_PAGES_DEBUG=false` in production to disable safe browser lifecycle
-diagnostics; diagnostics are enabled by default when unset for development
-review.
-`IMMICH_SUPPORTED_VERSION=3.3.1` so `/health/immich` checks the current Immich
-release target. Do not set an owner credential or API key for visitor rendering.
-The adapter-node image is a
-multi-stage Node 24 image, listens on port 3000, and runs as non-root with
-`node build`. The production Compose file has one service and no database,
-media, or correctness volume.
+Pages needs exactly three settings. Everything else has a working default, either
+in the code or baked into the image.
 
-`PAGES_VISITED_SHARES_SECRET` is also required for the encrypted, bounded
-visited-share registry. Generate a separate stable random value and keep it
-separate from both session and locator secrets. The registry stores only
-validated share kind/reference pairs; it never grants access or stores visitor
-credentials.
+| Required | What it is |
+|---|---|
+| `IMMICH_BASE_URL` | The trusted Immich origin, e.g. `https://immich.example.xyz`. Pages forwards only the visitor's own cookie and authorization to it, never an owner credential or API key. |
+| `PAGES_SESSION_SECRET` | Encrypts the saved Immich access for password-protected shares. At least 32 characters: `openssl rand -hex 32`. |
+| `PAGES_VISITED_SHARES_SECRET` | Encrypts the visitor's library cookie (the list of shares this browser has opened). A different random value: `openssl rand -hex 32`. |
 
-This secret protects the integrity and confidentiality of routing handles only;
-it is not a visitor credential and does not grant Immich access. Every locator
-destination is freshly authorized against Immich using the visitor's current
-session. Direct-share `/share/key/...` and `/share/slug/...` paths remain a
-separate authorization mode.
+Keep both secrets stable: changing one only invalidates what it protects (saved
+password access, or every visitor's library list respectively). Neither secret
+grants access to anything; every share is freshly authorized against Immich on
+every request. The library cookie stores only validated share kind/reference
+pairs, never visitor credentials.
+
+Optional settings, with their defaults:
+
+| Setting | Default | Purpose |
+|---|---|---|
+| `MAP_STYLE_URL_QUIET_ATLAS` | `https://tiles.openfreemap.org/styles/liberty` | MapLibre style for the `quiet-atlas` map style. Deployment-owned; album descriptions cannot supply a style URL. |
+| `PAGES_ALL_ALBUMS_ARE_PAGES` | `false` | Treat every accessed album as a page, even without an `immich-presentation` key (see below). |
+| `IMMICH_SUPPORTED_VERSION` | `3.3.1` | Immich release that `/health/immich` checks against. |
+| `PUBLIC_PAGES_DEBUG` | `false` | Bounded, redacted browser lifecycle diagnostics relayed to the server log. For troubleshooting only. |
+| `BROUTER_ENDPOINT` / `BROUTER_ALLOWED_ORIGINS` | `https://brouter.de/brouter` / `https://brouter.de` | Router used for `map.source: brouter-web` routes. |
+| `BROUTER_MAX_TOTAL_MS` | `15000` | How long one page load waits for a route; resolution continues in the background and is cached for the next load. |
+| `BROUTER_MAX_RESPONSE_BYTES` | `4194304` | Largest reply accepted for one leg of a route (about 8,500 km of road). |
+| `BROUTER_CACHE_ENABLED` | `true` | In-memory route caching. |
+| `HDR_CACHE_TTL_MS` | `600000` | How long generated HDR media, and resolved routes, are kept in memory. |
+| `HDR_PREWARM_LOOKAHEAD` | `10` | Photos converted ahead of the viewer; `all` for the whole album. |
+| `HDR_PREWARM_INDICATOR` | `on` | The readiness dot on the share page. |
+| `HDR_CACHE_BACKEND` / `HDR_CACHE_DIRECTORY` | `memory` / unset | Where generated HDR media is cached. |
+| `HOST` / `PORT` | `0.0.0.0` / `3000` | Listen address (set in the image). |
+| `PROTOCOL_HEADER` / `HOST_HEADER` | `X-Forwarded-Proto` / `X-Forwarded-Host` | How Pages learns its public origin behind a reverse proxy (set in the image; see Proxy requirements). |
+| `ORIGIN` | unset | Pin a fixed public origin, e.g. `https://pages.example.xyz`, instead of reading it from proxy headers. |
+
+Further `HDR_*` and `SDR_*` limits (cache sizes, concurrency, conversion
+timeouts) exist for tuning; their defaults suit a small server.
+
+The adapter-node image is a multi-stage Node 24 image, listens on port 3000,
+and runs as non-root with `node build`. The production Compose file has one
+service and no database, media, or correctness volume.
 
 Set `PAGES_ALL_ALBUMS_ARE_PAGES=true` to treat every accessed album as a page
 using full presentation defaults, even with no `immich-presentation` key in
@@ -100,10 +119,13 @@ default trigger name so status changes are ignored.
 
 Traefik must use an HTTPS router equivalent to
 `Host(`pages.example.xyz`)` with TLS and a configured certificate resolver,
-and must send traffic to the Pages container port 3000. Configure the adapter
-to consume `X-Forwarded-Proto` and `X-Forwarded-Host` only through this trusted
-Traefik path; do not expose those headers as trusted input on a direct public
-Pages port.
+and must send traffic to the Pages container port 3000. The image reads the
+public protocol and host from `X-Forwarded-Proto` and `X-Forwarded-Host`
+(falling back to the `Host` header and `https`), which Traefik sets by default.
+Pages uses its public origin only to check that form posts come from itself, so
+it must match what visitors' browsers see. Keep the Pages port off the public
+internet so only Traefik reaches it, or set `ORIGIN` to pin the origin and
+ignore forwarded headers entirely.
 
 The request contract is deliberately narrow:
 
@@ -121,21 +143,30 @@ URL, original/download proxy, or credential persistence.
 
 ### Immich share redirect
 
-Add this higher-priority router and middleware to the Immich service's Traefik
-labels. These labels belong on the Immich router, not the Pages service:
+Add this higher-priority router and the two middlewares to the Immich service's
+Traefik labels; they belong on the Immich router, not the Pages service. Long
+share links (`/share/<key>`) and short slug links (`/s/<slug>`) both go to
+Pages. Each middleware acts only when its own pattern matches, so one router
+serves both:
 
 ```yaml
 labels:
-  traefik.http.routers.immich-share-to-pages.rule: Host(`immich.example.xyz`) && PathPrefix(`/share`)
+  traefik.http.routers.immich-share-to-pages.rule: "Host(`immich.example.xyz`) && (PathPrefix(`/share/`) || PathPrefix(`/s/`))"
   traefik.http.routers.immich-share-to-pages.priority: 100
   traefik.http.routers.immich-share-to-pages.entrypoints: websecure
   traefik.http.routers.immich-share-to-pages.tls: true
-  traefik.http.routers.immich-share-to-pages.middlewares: immich-share-redirect
+  traefik.http.routers.immich-share-to-pages.middlewares: "immich-share-key-redirect,immich-share-slug-redirect"
   traefik.http.routers.immich-share-to-pages.service: immich
-  traefik.http.middlewares.immich-share-redirect.redirectregex.regex: '^https://immich\.example\.xyz/share/(.*)'
-  traefik.http.middlewares.immich-share-redirect.redirectregex.replacement: 'https://pages.example.xyz/share/key/$${1}'
-  traefik.http.middlewares.immich-share-redirect.redirectregex.permanent: true
+  traefik.http.middlewares.immich-share-key-redirect.redirectregex.regex: "^https://immich\\.example\\.xyz/share/(.+)"
+  traefik.http.middlewares.immich-share-key-redirect.redirectregex.replacement: "https://pages.example.xyz/share/key/$${1}"
+  traefik.http.middlewares.immich-share-slug-redirect.redirectregex.regex: "^https://immich\\.example\\.xyz/s/(.+)"
+  traefik.http.middlewares.immich-share-slug-redirect.redirectregex.replacement: "https://pages.example.xyz/share/slug/$${1}"
 ```
+
+Use the trailing slashes in the path prefixes: a bare `/s` would also match
+Immich's own `/search` and `/sharing` pages. Add
+`redirectregex.permanent: true` to each middleware only once the mapping is
+settled; browsers cache a permanent redirect indefinitely.
 
 The redirect preserves the query string because the replacement does not define
 one. Keep the normal Immich router for all other paths. If the deployment uses
