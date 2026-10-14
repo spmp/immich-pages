@@ -26,4 +26,14 @@ describe('Pages share sessions', () => {
 		expect(sessionForShare(full, { kind: 'key', value: 'share-0' }, 2002).token).toBe('token-0');
 		expect(sessionForShare(full, { kind: 'key', value: 'share-0' }, 1000 + 24 * 60 * 60 * 1000 + 1).token).toBeNull();
 	});
+	it('forgets the saved access for one share without touching the others', async () => {
+		const { removeSession } = await import('../../src/lib/server/share/session');
+		const both = addSession(addSession(undefined, ref, 'token-one', 1000), { kind: 'slug', value: 'two' }, 'token-two', 1000);
+		const remaining = removeSession(both, ref, 1001);
+		expect(remaining && sessionForShare(remaining, ref, 1002).token).toBeNull();
+		expect(remaining && sessionForShare(remaining, { kind: 'slug', value: 'two' }, 1002).token).toBe('token-two');
+		expect(removeSession(addSession(undefined, ref, 'token-one', 1000), ref, 1001)).toBeNull();
+		expect(removeSession(undefined, ref, 1001)).toBeNull();
+	});
 });
+

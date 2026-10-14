@@ -78,4 +78,10 @@ export function addSession(cookie: string | undefined, ref: SharedLinkRef, token
 	return encodeSession([...withoutCurrent, { ref: refKey(ref), token, issuedAt: now, lastUsedAt: now, expiresAt: now + SESSION_TTL_MS }]);
 }
 
+/** Drop the saved access for one share. Null when nothing is left, so the caller can clear the cookie. */
+export function removeSession(cookie: string | undefined, ref: SharedLinkRef, now = Date.now()): string | null {
+	const remaining = decodeSession(cookie)?.entries.filter((entry) => entry.expiresAt > now && entry.ref !== refKey(ref)) ?? [];
+	return remaining.length ? encodeSession(remaining) : null;
+}
+
 export const sessionRef = refKey;

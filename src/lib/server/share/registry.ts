@@ -136,3 +136,9 @@ export function registerShare(cookie: string | undefined, ref: SharedLinkRef, no
 export function registryCookie(value: string, maxAge = REGISTRY_TTL_MS / 1000): string {
 	return `${VISITED_SHARES_COOKIE}=${value}; Path=/; Max-Age=${Math.floor(maxAge)}; HttpOnly; Secure; SameSite=Lax`;
 }
+
+/** Take one share out of the visitor's library, at their request. Other entries keep their order. */
+export function forgetShare(cookie: string | undefined, ref: SharedLinkRef, now = Date.now()): string {
+	const remaining = (decodeRegistry(cookie, now)?.entries ?? []).filter((entry) => refKey(entry) !== refKey(ref));
+	return seal(pack(remaining));
+}

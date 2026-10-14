@@ -117,3 +117,15 @@ describe('visited share registry', () => {
 		expect(registryCookie(value)).toContain(`Max-Age=${400 * 24 * 60 * 60};`);
 	});
 });
+
+describe('forgetting a share', () => {
+	it('removes only that share and keeps the others in visit order', async () => {
+		const { forgetShare } = await import('../../src/lib/server/share/registry');
+		let value: string | undefined;
+		for (const [index, name] of ['a', 'b', 'c'].entries()) value = registerShare(value, { kind: 'slug', value: name }, 1_000 + index * 1_000);
+		const forgotten = forgetShare(value, { kind: 'slug', value: 'b' }, 5_000);
+		expect(decodeRegistry(forgotten, 5_000)?.entries.map((entry) => entry.value)).toEqual(['a', 'c']);
+		expect(decodeRegistry(forgetShare(value, { kind: 'key', value: 'b' }, 5_000), 5_000)?.entries).toHaveLength(3);
+		expect(decodeRegistry(forgetShare('not-a-registry', ref, 5_000), 5_000)?.entries).toEqual([]);
+	});
+});
