@@ -134,6 +134,20 @@ void write_u32(uint32_t value) {
 }
 } // namespace
 
+// EXIF orientation 1-8. Informational only: libheif applies the HEIF rotation (irot/imir) to the
+// photo and to the gain map when decoding, so nothing here rotates by this value.
+static bool valid_orientation(const char* value) {
+  return value && value[0] >= '1' && value[0] <= '8' && value[1] == '\0';
+}
+
+// After decoding (rotation applied), the photo and gain map must be the same way round. A gain map
+// that missed the photo's rotation would otherwise be stretched across it, misplacing every
+// highlight; refusing makes the viewer get the standard photo instead.
+static bool same_orientation(int width, int height, int gain_width, int gain_height) {
+  if (width == height || gain_width == gain_height) return true;
+  return (width > height) == (gain_width > gain_height);
+}
+
 int main(int argc, char** argv) {
   const char* mode = argument(argc, argv, "--mode");
   if (!mode || (std::strcmp(mode, "sdr") != 0 && std::strcmp(mode, "gainmap") != 0)) {
@@ -147,7 +161,7 @@ int main(int argc, char** argv) {
   const char* transfer = argument(argc, argv, "--source-transfer");
   const char* orientation = argument(argc, argv, "--orientation");
   float maker33 = 0.0f, maker48 = 0.0f;
-  if (!version || (std::strcmp(version, "1") != 0 && std::strcmp(version, "1.0") != 0) || !maker33_arg || !maker48_arg || !parse_float(maker33_arg, maker33) || !parse_float(maker48_arg, maker48) || !profile || !transfer || !orientation || std::strcmp(orientation, "1") != 0 || (std::strcmp(profile, "display-p3") != 0 && std::strcmp(profile, "rec709") != 0) || (std::strcmp(transfer, "srgb") != 0 && std::strcmp(transfer, "rec709") != 0)) {
+  if (!version || (std::strcmp(version, "1") != 0 && std::strcmp(version, "1.0") != 0) || !maker33_arg || !maker48_arg || !parse_float(maker33_arg, maker33) || !parse_float(maker48_arg, maker48) || !profile || !transfer || !orientation || !valid_orientation(orientation) || (std::strcmp(profile, "display-p3") != 0 && std::strcmp(profile, "rec709") != 0) || (std::strcmp(transfer, "srgb") != 0 && std::strcmp(transfer, "rec709") != 0)) {
     std::cerr << "invalid Apple HDR metadata contract\n";
     return 2;
   }
@@ -221,6 +235,7 @@ int main(int argc, char** argv) {
   const uint8_t* gain_pixels = heif_image_get_plane_readonly2(gain, heif_channel_Y, &gain_stride);
   const int gain_width = heif_image_get_width(gain, heif_channel_Y), gain_height = heif_image_get_height(gain, heif_channel_Y);
   if (!gain_pixels || gain_width <= 0 || gain_height <= 0 || gain_width > kMaxDimension || gain_height > kMaxDimension) { std::cerr << "gain map dimensions exceed limits\n"; return 1; }
+  if (!same_orientation(width, height, gain_width, gain_height)) { std::cerr << "gain map orientation does not match the photo\n"; return 1; }
 
   const float headroom = apple_headroom(maker33, maker48);
   std::vector<uint16_t> hdr_rgba(static_cast<size_t>(output_width) * output_height * 4);

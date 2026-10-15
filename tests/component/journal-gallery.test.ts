@@ -288,7 +288,7 @@ describe('journal gallery contract', () => {
 		const lightbox = source('Lightbox');
 		const upgradeModule = readFileSync('src/lib/media/hdr-upgrade.ts', 'utf8');
 		const contentLoad = lightbox.slice(lightbox.indexOf("instance.on('contentLoad'"), lightbox.indexOf("instance.on('loadError'"));
-		expect(lightbox).toContain("import { beginHdrUpgrade, isHdrUpgradeLoading } from '$lib/media/hdr-upgrade'");
+		expect(lightbox).toMatch(/import \{ beginHdrUpgrade, isHdrUpgradeLoading[^}]*\} from '\$lib\/media\/hdr-upgrade'/);
 		// Exactly two call sites -- the AVIF path and the HDR video path -- and no third copy.
 		expect(contentLoad.match(/beginHdrUpgrade\(\{/g)).toHaveLength(2);
 		// The promotion bookkeeping lives in the shared module, once, rather than per-path.

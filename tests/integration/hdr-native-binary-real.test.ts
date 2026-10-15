@@ -42,4 +42,20 @@ describe.skipIf(!hasRealCompositor)('real (unbridged) native HDR compositor + ff
 		const header = Buffer.from(body.slice(0, 32)).toString('latin1');
 		expect(header).toContain('ftyp');
 	});
+
+	// 17.HEIC is a 4:3 photo taken with the phone held upright, straight from the camera: stored
+	// 4032x3024 with a "rotate 90 degrees" instruction. Both the photo and its gain map carry the
+	// rotation, so the real compositor must produce an upright portrait frame -- this shape used to
+	// be refused outright (rotated) and would also have overflowed the old output cap (4:3).
+	it('converts a rotated (upright-held) 4:3 photo into an upright portrait frame', { timeout: 60_000 }, async () => {
+		const { extractAppleHdrMetadata } = await import('../../src/lib/server/media/hdr-metadata');
+		const { composeHdr } = await import('../../src/lib/server/media/hdr-compositor');
+		const rotated = new Uint8Array(readFileSync(new URL('../resources/heic-test-set/originals/17.HEIC', import.meta.url)));
+		const metadata = await extractAppleHdrMetadata(rotated);
+		expect(metadata?.orientation).toBe(6);
+		const frame = await composeHdr(rotated, metadata!, { executable: compositorPath });
+		const [, width, height] = Buffer.from(frame.subarray(0, 24)).toString('latin1').split(/\s+/);
+		expect([Number(width), Number(height)]).toEqual([3024, 4032]);
+	});
 });
+

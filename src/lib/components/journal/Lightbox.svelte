@@ -6,7 +6,7 @@
 	import { beforeNavigate } from '$app/navigation';
 	import { clientDiagnostics, journalDebugEnabled, reportJournalDebug } from './journal-debug';
 	import { measureMediaFootprint, measureVideoStates } from './client-diagnostics';
-	import { beginHdrUpgrade, isHdrUpgradeLoading } from '$lib/media/hdr-upgrade';
+	import { beginHdrUpgrade, isHdrUpgradeLoading, probeHdrVersion, type HdrAvailability } from '$lib/media/hdr-upgrade';
 	import { markHdrUpgradePromoted } from '$lib/media/hdr-upgrade';
 	import { HdrMediaCache } from '$lib/media/hdr-media-cache';
 	let { galleryId }: { galleryId: string } = $props();
@@ -86,6 +86,20 @@
 		const promotedHdrMedia = new HdrMediaCache({ maxIdle: 2, release: releaseHdrMedia });
 		// What to let go of when PhotoSwipe destroys a slide's content, keyed by that content.
 		const hdrContentDisposers = new Map<any, () => void>();
+		// Whether each photo has an HDR version, asked once per lightbox and remembered. A photo with
+		// no HDR data is then never offered one -- it is simply the standard photo.
+		const hdrAvailability = new Map<string, Promise<HdrAvailability>>();
+		const checkHdrAvailability = (src: string) => {
+			let answer = hdrAvailability.get(src);
+			if (!answer) { answer = probeHdrVersion(src); hdrAvailability.set(src, answer); }
+			return answer;
+		};
+		const showStandardPhoto = (content: any, photoSwipeType: 'hdr-image' | 'video', srcKind: 'hdr-avif' | 'hdr-video') => {
+			content.__hdrNone = true;
+			setHdrStatus(content, 'Standard photo: no HDR version');
+			updateHdrIndicator();
+			reportJournalDebug('hdr-media', { status: 'unavailable', hdrReason: 'unsupported', spinner: 'stop', photoSwipeType, srcKind });
+		};
 		const syncHdrVideoPlayback = () => {
 			const currentVideo = lightbox?.pswp?.currSlide?.content?.element as HTMLVideoElement | undefined;
 			for (const video of hdrVideos) {
@@ -127,7 +141,9 @@
 			const updateHdrIndicator = () => {
 				const root = document.querySelector<HTMLElement>('.pswp');
 				const content = lightbox?.pswp?.currSlide?.content;
-				const isHdrCandidate = content?.type === 'hdr-image' || (content?.type === 'video' && content?.data?.element?.dataset.videoControls === 'false');
+				// No tint for a photo with no HDR version, or once an HDR attempt has given up: the
+				// standard photo is what is showing, so the cue must not stay on "loading".
+				const isHdrCandidate = !content?.__hdrNone && !content?.__hdrGaveUp && (content?.type === 'hdr-image' || (content?.type === 'video' && content?.data?.element?.dataset.videoControls === 'false'));
 				// The two settings are independent now, so the debug status line is reset here even
 				// when the tint is switched off.
 				if (!isHdrCandidate) hdrStatus = '';
@@ -353,8 +369,11 @@
 						placeholder.alt = label;
 						placeholder.className = 'pswp__img';
 						content.element = placeholder;
+						setHdrStatus(content, 'AVIF HDR image: checking…');
+						let slideGone = false;
+						hdrContentDisposers.set(content, () => { slideGone = true; });
+						const startAvifUpgrade = () => {
 						setHdrStatus(content, 'AVIF HDR image: loading…');
-
 						const real = new Image();
 						real.alt = label;
 						real.className = 'pswp__img';
@@ -396,6 +415,7 @@
 								}
 								// The slide went away mid-load; that is not a media failure.
 								if (reason === 'slide-destroyed') return;
+								content.__hdrGaveUp = true;
 								setHdrStatus(content, 'AVIF HDR image: failed, showing SDR photo');
 								updateHdrIndicator();
 								reportJournalDebug('hdr-media', { status: 'given-up', hdrReason: 'image-load', spinner: 'stop', photoSwipeType: 'hdr-image', srcKind: 'hdr-avif' });
@@ -417,6 +437,12 @@
 						}, { once: true });
 						real.src = content.data.src;
 						if (real.complete) upgrade.promote();
+						};
+						void checkHdrAvailability(content.data.src).then((availability) => {
+							if (slideGone) return;
+							if (availability === 'none') showStandardPhoto(content, 'hdr-image', 'hdr-avif');
+							else startAvifUpgrade();
+						});
 						return;
 					}
 					if (content.type !== 'video') return;
@@ -464,9 +490,12 @@
 					placeholder.alt = label;
 					placeholder.className = 'pswp__img';
 					content.element = placeholder;
-					setHdrStatus(content, 'HDR video: loading…');
+					setHdrStatus(content, 'HDR video: checking…');
 					reportJournalDebug('hdr-media', { status: 'loading', spinner: 'start', photoSwipeType: 'video', srcKind: 'hdr-video' });
-
+					let videoSlideGone = false;
+					hdrContentDisposers.set(content, () => { videoSlideGone = true; });
+					const startVideoUpgrade = () => {
+					setHdrStatus(content, 'HDR video: loading…');
 					const video = document.createElement('video');
 					// Zero-cost, zero-network diagnostic: ask the browser's own canPlayType directly
 					// which part of the encode it claims to support, *before* even attempting to load
@@ -564,6 +593,7 @@
 							}
 							// The slide went away mid-load; that is not a media failure.
 							if (reason === 'slide-destroyed') return;
+							content.__hdrGaveUp = true;
 							const code = video.error?.code;
 							const detail = code !== undefined ? (mediaErrorLabel[code] ?? `code ${code}`) : 'timed out';
 							setHdrStatus(content, `HDR video: failed to ${reason === 'video-playback' ? 'play' : 'load'} (${detail}), showing SDR photo [canPlayType ${canPlayDiagnostic}]`);
@@ -589,6 +619,12 @@
 						videoReady = true;
 						tryPromote();
 					}
+					};
+					void checkHdrAvailability(content.data.src).then((availability) => {
+						if (videoSlideGone) return;
+						if (availability === 'none') showStandardPhoto(content, 'video', 'hdr-video');
+						else startVideoUpgrade();
+					});
 				});
 				// PhotoSwipe has dropped this slide (it keeps only a handful around the current one):
 				// stop anything still loading for it and hand its promoted element back to the cache,

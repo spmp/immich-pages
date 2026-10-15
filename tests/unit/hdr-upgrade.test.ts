@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { beginHdrUpgrade, isHdrUpgradeLoading, type HdrUpgradeContent } from '../../src/lib/media/hdr-upgrade';
+import { beginHdrUpgrade, isHdrUpgradeLoading, type HdrUpgradeContent, probeHdrVersion } from '../../src/lib/media/hdr-upgrade';
 
 // These tests pin the two PhotoSwipe 5.4.4 lifecycle contracts that the lightbox's HDR paths
 // have to honor, because getting either of them wrong is invisible from the outside -- the
@@ -262,5 +262,25 @@ describe('HDR upgrade: give-up ordering', () => {
 		upgrade.promote();
 
 		expect(order).toEqual(['beforeSwap:element-is-placeholder', 'settled']);
+	});
+});
+
+// The lightbox asks the server whether a photo has an HDR version before trying one, so a photo
+// with no HDR data stays the standard photo instead of showing a failed upgrade.
+describe('probeHdrVersion', () => {
+	it('asks the HDR route itself with probe=1, keeping its existing query', async () => {
+		const fetchImpl = vi.fn(async () => new Response(null, { status: 204, headers: { 'x-pages-hdr': 'available' } }));
+		expect(await probeHdrVersion('/share/key/k/media/a/image/hdr-avif?key=k&width=10', fetchImpl)).toBe('available');
+		expect(fetchImpl).toHaveBeenCalledWith('/share/key/k/media/a/image/hdr-avif?key=k&width=10&probe=1', expect.objectContaining({ credentials: 'same-origin' }));
+		await probeHdrVersion('/share/key/k/media/a/image/hdr', fetchImpl);
+		expect(fetchImpl).toHaveBeenLastCalledWith('/share/key/k/media/a/image/hdr?probe=1', expect.anything());
+	});
+
+	it('reports none only when the server says so explicitly', async () => {
+		expect(await probeHdrVersion('/x', async () => new Response(null, { status: 404, headers: { 'x-pages-hdr': 'none' } }))).toBe('none');
+		// Anything else is unknown, and the lightbox tries the HDR version as it always has.
+		expect(await probeHdrVersion('/x', async () => new Response(null, { status: 404 }))).toBe('unknown');
+		expect(await probeHdrVersion('/x', async () => new Response(null, { status: 502 }))).toBe('unknown');
+		expect(await probeHdrVersion('/x', async () => { throw new TypeError('offline'); })).toBe('unknown');
 	});
 });

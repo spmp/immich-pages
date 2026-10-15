@@ -111,4 +111,48 @@ describe('share HDR AVIF media boundary', () => {
 		videoCompose.mockRestore();
 		videoEncode.mockRestore();
 	});
+
+	// The lightbox asks this before trying to show an HDR version, so a photo with no HDR data just
+	// stays the standard photo: no conversion attempted, nothing shown as failed. The answer comes
+	// from the same metadata check (and cache) the conversion itself uses.
+	describe('HDR availability probe (?probe=1)', () => {
+		const source = new Uint8Array([0, 0, 0, 0, 102, 116, 121, 112, 104, 101, 105, 99]);
+		const probeRequest = () => new Request('https://pages.example/share/key/opaque-ref/media/x/image?probe=1');
+		const fetchMock = () => vi.fn(async (input: URL | RequestInfo) => new Response(new URL(input.toString()).pathname.endsWith('/me') ? JSON.stringify(v3) : source, { headers: { 'content-type': 'image/heic', etag: '"probe-etag"' } }));
+
+		it('answers 204 when the photo has an HDR version, without converting anything', async () => {
+			const compositor = await import('../../src/lib/server/media/hdr-compositor');
+			const metadata = await import('../../src/lib/server/media/hdr-metadata');
+			const extract = vi.spyOn(metadata, 'extractAppleHdrMetadata').mockResolvedValue({ version: '1.0', auxiliaryType: 'urn:com:apple:photo:2020:aux:hdrgainmap', makerNote33: 0.8, makerNote48: 0.4, headroom: 1.8, hdrGain: 0.4, sourceProfile: 'display-p3', sourceTransfer: 'srgb', orientation: 1 });
+			const compose = vi.spyOn(compositor, 'composeHdr');
+			const decode = vi.spyOn(compositor, 'decodeHdrAvifStream');
+			const response = await GET({ params, request: probeRequest(), cookies: { get: vi.fn(), set: vi.fn() }, fetch: fetchMock() } as never);
+			expect(response.status).toBe(204);
+			expect(response.headers.get('x-pages-hdr')).toBe('available');
+			expect(compose).not.toHaveBeenCalled();
+			expect(decode).not.toHaveBeenCalled();
+			extract.mockRestore(); compose.mockRestore(); decode.mockRestore();
+		});
+
+		it('answers 404 with x-pages-hdr: none when the photo has no HDR data', async () => {
+			const metadata = await import('../../src/lib/server/media/hdr-metadata');
+			const extract = vi.spyOn(metadata, 'extractAppleHdrMetadata').mockResolvedValue(undefined);
+			const response = await GET({ params, request: probeRequest(), cookies: { get: vi.fn(), set: vi.fn() }, fetch: fetchMock() } as never);
+			expect(response.status).toBe(404);
+			expect(response.headers.get('x-pages-hdr')).toBe('none');
+			// Remembered: asking again does not re-read the photo.
+			const again = await GET({ params, request: probeRequest(), cookies: { get: vi.fn(), set: vi.fn() }, fetch: fetchMock() } as never);
+			expect(again.headers.get('x-pages-hdr')).toBe('none');
+			expect(extract).toHaveBeenCalledTimes(1);
+			extract.mockRestore();
+		});
+
+		it('still checks share membership first', async () => {
+			const fetchNotMember = vi.fn(async () => new Response(JSON.stringify({ ...v3, assets: [], album: undefined })));
+			const response = await GET({ params, request: probeRequest(), cookies: { get: vi.fn(), set: vi.fn() }, fetch: fetchNotMember } as never);
+			expect(response.status).toBe(404);
+			expect(response.headers.get('x-pages-hdr')).toBeNull();
+		});
+	});
 });
+

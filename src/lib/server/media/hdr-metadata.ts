@@ -18,7 +18,8 @@ export type AppleHdrMetadata = {
 	hdrGain: number;
 	sourceProfile: 'display-p3' | 'rec709';
 	sourceTransfer: 'srgb' | 'rec709';
-	orientation: 1;
+	/** EXIF orientation, 1-8. Informational: libheif applies the HEIF rotation to the photo and gain map alike. */
+	orientation: number;
 };
 
 type ExifToolRecord = Record<string, unknown>;
@@ -48,13 +49,18 @@ export async function extractAppleHdrMetadata(
 const KNOWN_VERSION_STRINGS = new Set(['1', '1.0', '0.1.0.0']);
 
 export function normalizeAppleMetadata(record: ExifToolRecord): AppleHdrMetadata | undefined {
-	const auxiliaryType = findString(record, (key) => key === 'AuxiliaryImageType' || key.endsWith(':AuxiliaryImageType'));
-	if (auxiliaryType !== APPLE_GAIN_MAP_TYPE) return undefined;
+	// A photo can carry several auxiliary images -- Portrait mode adds a depth map and disparity
+	// data beside the gain map -- so look at every one (ExifTool numbers duplicates under -a -G1:4,
+	// e.g. 'QuickTime:Copy1:AuxiliaryImageType'), not just whichever came last.
+	const auxiliaryTypes = findAllStrings(record, (key) => key === 'AuxiliaryImageType' || key.endsWith(':AuxiliaryImageType'));
+	if (!auxiliaryTypes.includes(APPLE_GAIN_MAP_TYPE)) return undefined;
 	const rawVersion = findString(record, (key) => key === 'HDRGainMapVersion' || key.endsWith(':HDRGainMapVersion'));
 	if (!rawVersion || !KNOWN_VERSION_STRINGS.has(rawVersion)) return undefined;
 	const version = '1.0'; // Canonical form the native compositor's --hdr-version contract accepts.
 	const makerNote33 = findNumericKey(record, 'HDRHeadroom') ?? findNumericKey(record, '33');
-	const makerNote48 = findNumericKey(record, 'HDRGain') ?? findNumericKey(record, '48');
+	// Many real photos have MakerNote 33 but no 48. Skia (Chrome's renderer for Apple gain maps)
+	// treats a missing 48 as 0: "Many images have a maker33 but not a maker48" (src/codec/SkExif.cpp).
+	const makerNote48 = findNumericKey(record, 'HDRGain') ?? findNumericKey(record, '48') ?? 0;
 	if (!validMakerNote(makerNote33) || !validMakerNote(makerNote48)) return undefined;
 	const sourceProfile = normalizeProfile(
 		findString(record, (key) => key === 'ICC_Profile:ProfileDescription')
@@ -64,8 +70,12 @@ export function normalizeAppleMetadata(record: ExifToolRecord): AppleHdrMetadata
 	if (!sourceProfile) return undefined;
 	const sourceTransfer = normalizeTransfer(findString(record, (key) => key === 'TransferFunction' || key.endsWith(':TransferFunction')) ?? sourceProfile);
 	if (!sourceTransfer) return undefined;
+	// Photos taken with the phone held upright are stored rotated (EXIF 6 or 8, HEIF irot). The
+	// rotation lives in the HEIF container, and libheif applies it to the photo and the gain map
+	// alike, so it needs no special handling here; the converters refuse a photo and gain map
+	// whose shapes still disagree after rotation (a gain map that missed the rotation).
 	const orientation = findNumericKey(record, 'Orientation');
-	if (orientation !== 1) return undefined;
+	if (orientation === undefined || !Number.isInteger(orientation) || orientation < 1 || orientation > 8) return undefined;
 	const headroom = appleHeadroom(makerNote33, makerNote48);
 	return { version, auxiliaryType: APPLE_GAIN_MAP_TYPE, makerNote33, makerNote48, headroom, hdrGain: makerNote48, sourceProfile, sourceTransfer, orientation };
 }
@@ -100,6 +110,15 @@ function findString(record: ExifToolRecord, match: (key: string) => boolean): st
 	return typeof value === 'string' ? value : undefined;
 }
 
+function findAllStrings(value: unknown, match: (key: string) => boolean, found: string[] = []): string[] {
+	if (!value || typeof value !== 'object') return found;
+	for (const [key, nested] of Object.entries(value)) {
+		if (match(key) && typeof nested === 'string') found.push(nested);
+		else if (nested && typeof nested === 'object') findAllStrings(nested, match, found);
+	}
+	return found;
+}
+
 function findNumericKey(record: ExifToolRecord, key: string): number | undefined {
 	const value = findValue(record, (candidate) => candidate === key || candidate.endsWith(`:${key}`));
 	return typeof value === 'number' ? value : typeof value === 'string' && value.trim() !== '' ? Number(value) : undefined;
@@ -126,7 +145,7 @@ function runExifTool(executable: string, input: Uint8Array, timeoutMs: number, i
 		// photos. Meaningfully cuts per-call wall time, which matters because every call
 		// competes for CPU with every other concurrent extraction (see the concurrency gate
 		// in hdr-metadata-cache.ts).
-		const child = spawn(executable, ['-fast', '-json', '-G1', '-s', '-HDRGainMapVersion', '-Apple:HDRHeadroom#', '-Apple:HDRGain#', '-MakerNotes', '-AuxiliaryImageType', '-ICC_Profile:ProfileDescription', '-ProfileName', '-ColorSpace', '-TransferFunction', '-Orientation#', '-'], { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true, shell: false, env: invocationId ? { ...process.env, HDR_BRIDGE_ASSET_ID: invocationId } : process.env });
+		const child = spawn(executable, ['-fast', '-json', '-a', '-G1:4', '-s', '-HDRGainMapVersion', '-Apple:HDRHeadroom#', '-Apple:HDRGain#', '-MakerNotes', '-AuxiliaryImageType', '-ICC_Profile:ProfileDescription', '-ProfileName', '-ColorSpace', '-TransferFunction', '-Orientation#', '-'], { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true, shell: false, env: invocationId ? { ...process.env, HDR_BRIDGE_ASSET_ID: invocationId } : process.env });
 		const chunks: Buffer[] = [];
 		let bytes = 0;
 		let settled = false;

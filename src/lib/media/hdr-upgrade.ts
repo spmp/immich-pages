@@ -146,3 +146,22 @@ export function beginHdrUpgrade(options: HdrUpgradeOptions): HdrUpgrade {
 
 	return { promote, giveUp, get settled() { return settled; } };
 }
+
+export type HdrAvailability = 'available' | 'none' | 'unknown';
+
+/**
+ * Ask an HDR media route whether this photo has an HDR version at all (`?probe=1`), without
+ * converting anything. 'none' only when the server says so explicitly (`x-pages-hdr: none`): a photo
+ * with no HDR data then simply stays the standard photo. Anything else -- an error, a timeout, an
+ * older server -- is 'unknown', and the caller tries the HDR version as it always has.
+ */
+export async function probeHdrVersion(src: string, fetchImpl: typeof fetch = fetch): Promise<HdrAvailability> {
+	try {
+		const response = await fetchImpl(`${src}${src.includes('?') ? '&' : '?'}probe=1`, { credentials: 'same-origin', cache: 'no-store' });
+		if (response.status === 204 && response.headers.get('x-pages-hdr') === 'available') return 'available';
+		if (response.status === 404 && response.headers.get('x-pages-hdr') === 'none') return 'none';
+		return 'unknown';
+	} catch {
+		return 'unknown';
+	}
+}

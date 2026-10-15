@@ -139,3 +139,16 @@ describe('HDR native process contracts', () => {
 		expect(nativeFailureReason('not-an-error-object')).toBe('unknown');
 	});
 });
+
+// Production failure (2026-10-15): the compositor writes the photo at full size as 16-bit RGB, so
+// its output is width x height x 6 bytes. The old 64 MiB cap fit 16:9 (4032x2268, 52 MiB) but not
+// the iPhone's default 4:3 shape (4032x3024, 70 MiB), so every 4:3 photo failed its HDR version.
+describe('HDR compositor output limit', () => {
+	it('admits a full-size frame from every current iPhone photo size, up to 48 MP', async () => {
+		const { HDR_COMPOSITOR_MAX_OUTPUT_BYTES } = await import('../../src/lib/server/media/hdr-compositor');
+		const ppmHeader = 64;
+		for (const [width, height] of [[4032, 2268], [4032, 3024], [3024, 4032], [5712, 4284], [8064, 6048]]) {
+			expect(HDR_COMPOSITOR_MAX_OUTPUT_BYTES).toBeGreaterThanOrEqual(width * height * 6 + ppmHeader);
+		}
+	});
+});

@@ -18,7 +18,10 @@ function positiveEnv(name: string, fallback: number, maximum: number): number {
 // caught here at the time because reports were about AVIF specifically.
 export const HDR_COMPOSITOR_TIMEOUT_MS = positiveEnv('HDR_COMPOSITOR_TIMEOUT_MS', 20_000, 120_000);
 export const HDR_COMPOSITOR_MAX_INPUT_BYTES = 100 * 1024 * 1024;
-export const HDR_COMPOSITOR_MAX_OUTPUT_BYTES = 64 * 1024 * 1024;
+// The compositor writes the photo at full size as 16-bit RGB (width x height x 6 bytes), so this
+// must fit the largest photo an iPhone takes: 48 MP (8064x6048) is ~279 MiB. 64 MiB fit 16:9 12 MP
+// (52 MiB) but not the default 4:3 12 MP (70 MiB), which made every 4:3 photo fail its HDR version.
+export const HDR_COMPOSITOR_MAX_OUTPUT_BYTES = 320 * 1024 * 1024;
 export const HDR_FFMPEG_TIMEOUT_MS = positiveEnv('HDR_FFMPEG_TIMEOUT_MS', 20_000, 120_000);
 export const HDR_FFMPEG_MAX_OUTPUT_BYTES = 64 * 1024 * 1024;
 // Full-resolution decode + a dense per-pixel gain-map reconstruction (not a single video frame)

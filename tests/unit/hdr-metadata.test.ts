@@ -57,7 +57,8 @@ describe('Apple HDR metadata extraction', () => {
 		{ ...valid, HDRGainMapVersion: '2.0' },
 		{ ...valid, AuxiliaryImageType: 'other' },
 		{ ...valid, MakerNotes: { '33': Number.NaN, '48': 1 } },
-		{ ...valid, Orientation: 6 },
+		{ ...valid, Orientation: 9 },
+		{ ...valid, Orientation: 0 },
 		{ ...valid, ProfileName: 'Unknown Camera RGB' }
 	])('rejects incomplete, ambiguous, or unsupported metadata', (record) => {
 		expect(normalizeAppleMetadata(record)).toBeUndefined();
@@ -73,5 +74,61 @@ describe('Apple HDR metadata extraction', () => {
 	it('rejects empty and malformed bounded process output', async () => {
 		spawn.mockReturnValue(childFor('not-json'));
 		await expect(extractAppleHdrMetadata(new Uint8Array([1]))).resolves.toBeUndefined();
+	});
+
+	// Production failure (2026-10-15, photo 35 of a 125-photo album): a Portrait-mode iPhone photo
+	// has THREE auxiliary images -- the HDR gain map, a depth map and disparity data. ExifTool
+	// without -a reports only the last one per group, so the gain map was never seen. Captured
+	// from the real file with the arguments Pages now uses (-a -G1:4 numbers the duplicates).
+	const portraitModeShape = {
+		'XMP-HDRGainMap:HDRGainMapVersion': '0.1.0.0',
+		'Apple:HDRHeadroom': 0.6173437834,
+		'XMP-apdi:Copy2:AuxiliaryImageType': 'disparity',
+		'QuickTime:Copy1:AuxiliaryImageType': 'urn:com:apple:photo:2020:aux:hdrgainmap',
+		'QuickTime:AuxiliaryImageType': 'urn:mpeg:hevc:2015:auxid:2',
+		'ICC_Profile:ProfileDescription': 'Display P3',
+		'ICC_Profile2:ProfileDescription': 'Generic Gray Gamma 2.2 Profile',
+		'ExifIFD:ColorSpace': 'Uncalibrated',
+		'IFD0:Orientation': 1
+	};
+
+	it('finds the gain map among several auxiliary images (Portrait mode)', () => {
+		expect(normalizeAppleMetadata(portraitModeShape)).toMatchObject({ auxiliaryType: 'urn:com:apple:photo:2020:aux:hdrgainmap', makerNote33: 0.6173437834 });
+	});
+
+	// The same photo has HDRHeadroom (MakerNote 33) but no HDRGain (MakerNote 48). Skia, which
+	// renders Apple gain maps in Chrome, treats that as 48 = 0: "Many images have a maker33 but
+	// not a maker48" (src/codec/SkExif.cpp). Rejecting it threw away a real HDR photo.
+	it('treats a missing HDRGain as 0, as Skia does', () => {
+		const metadata = normalizeAppleMetadata(portraitModeShape);
+		expect(metadata?.makerNote48).toBe(0);
+		expect(metadata?.headroom).toBeCloseTo(2 ** 1.8, 6);
+	});
+
+	it('still rejects a photo whose only auxiliary image is not a gain map', () => {
+		const { 'QuickTime:Copy1:AuxiliaryImageType': _gainMap, ...depthOnly } = portraitModeShape;
+		expect(normalizeAppleMetadata(depthOnly)).toBeUndefined();
+	});
+
+	it('still rejects a photo with no HDR headroom at all (not captured as HDR)', () => {
+		const { 'Apple:HDRHeadroom': _headroom, ...noHeadroom } = portraitModeShape;
+		expect(normalizeAppleMetadata(noHeadroom)).toBeUndefined();
+	});
+
+	it('asks ExifTool for every duplicate tag, numbered, so no auxiliary image is hidden', async () => {
+		spawn.mockReturnValueOnce(childFor(JSON.stringify([portraitModeShape])));
+		await extractAppleHdrMetadata(new Uint8Array([1]));
+		const args = spawn.mock.calls.at(-1)?.[1] as string[];
+		expect(args).toContain('-a');
+		expect(args).toContain('-G1:4');
+		expect(args).not.toContain('-G1');
+	});
+
+	// A photo taken with the phone held upright is stored landscape with a "rotate 90 degrees"
+	// instruction (EXIF Orientation 6, HEIF irot). Rejecting every rotated photo sent all of them to
+	// the standard photo. The rotation lives in the HEIF container and libheif applies it to the
+	// photo and the gain map alike; the converters themselves refuse a pair whose shapes disagree.
+	it.each([1, 3, 6, 8])('accepts a photo with EXIF orientation %i', (orientation) => {
+		expect(normalizeAppleMetadata({ ...realExifToolShape, 'IFD0:Orientation': orientation })?.orientation).toBe(orientation);
 	});
 });

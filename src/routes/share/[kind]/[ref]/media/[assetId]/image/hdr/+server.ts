@@ -11,6 +11,7 @@ import { buildHdrCacheKey, buildHdrSourceIdentity, HDR_CACHE_TTL_MS, lookupCache
 import { getHdrInteractiveCoordinator } from '$server/media/hdr-prewarm';
 import { extractAppleHdrMetadata } from '$server/media/hdr-metadata';
 import { buildHdrMetadataCacheKey, getCachedHdrMetadata, getOrExtractHdrMetadata } from '$server/media/hdr-metadata-cache';
+import { probeHdrAvailability } from '$server/media/hdr-availability';
 import { boundedQueryDimension } from '$lib/media/resolution';
 
 const noStore = { 'cache-control': 'private, no-store' };
@@ -87,6 +88,12 @@ export const GET: RequestHandler = async ({ params, request, cookies, fetch, loc
 		source.response.headers.get('content-length')
 	].filter(Boolean).join('|') || `asset-${params.assetId}`;
 	const metadataCacheKey = buildHdrMetadataCacheKey({ assetId: params.assetId, sourceIdentity: headerSourceIdentity });
+	// "Does this photo have an HDR version?" -- asked by the lightbox before it tries one.
+	if (new URL(request.url).searchParams.get('probe') === '1') {
+		return probeHdrAvailability(source.response, metadataCacheKey, (bytes) => (process.env.HDR_METADATA_PATH || process.env.HDR_COMPOSITOR_PATH || process.env.HDR_FFMPEG_PATH)
+			? extractAppleHdrMetadata(bytes, { executable: process.env.HDR_METADATA_PATH, invocationId: params.assetId })
+			: extractAppleHdrMetadata(bytes));
+	}
 	const cachedMetadata = getCachedHdrMetadata(metadataCacheKey);
 	if (cachedMetadata.hit && !cachedMetadata.value) {
 		logShareMediaStatus({ media: 'fullsize', status: 'failure', statusCode: 404, failureCategory: 'not-found', failureReason: 'metadata-invalid' });
