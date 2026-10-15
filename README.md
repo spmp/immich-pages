@@ -335,3 +335,8 @@ Then, inside the container, `touch rebuild/rebuild` rebuilds and recreates only
 the Pages service; `rebuild/status` reports `building`, `starting`, `ready` or
 `failed`. The `rebuild/` directory is ignored by git. See
 [`docs/deployment.md`](docs/deployment.md#external-build-watcher) for every option.
+
+## Licence
+Code: Copyright (C) 2026 Jasper Aorangi. Licensed under AGPL-3.0-only
+Photos: © 2026 Jasper Aorangi. Licensed CC BY-NC 4.0.
+
