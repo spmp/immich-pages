@@ -259,11 +259,15 @@ describe('journal gallery contract', () => {
 		expect(hdrImageBlock).toContain('if (real.complete) upgrade.promote()');
 	});
 
-	it('tints the zoom button three ways -- white, khaki/pending, blue/loaded -- gated behind PUBLIC_HDR_DEBUG, off by default', () => {
+	// The tint is a viewer-facing cue ("this photo has an HDR version, and it is showing"), on by
+	// default under its own setting; only the on-screen status text is a debugging aid, behind
+	// PUBLIC_HDR_DEBUG. They used to share that one switch, so the tint could not be had alone.
+	it('tints the zoom button three ways -- white, khaki/pending, blue/loaded -- on by default, behind PUBLIC_HDR_ZOOM_INDICATOR', () => {
 		const lightbox = source('Lightbox');
+		expect(lightbox).toContain("const hdrZoomIndicatorEnabled = env.PUBLIC_HDR_ZOOM_INDICATOR !== 'false';");
 		expect(lightbox).toContain("const hdrDebugEnabled = env.PUBLIC_HDR_DEBUG === 'true';");
 		expect(lightbox).toContain("content?.type === 'hdr-image' || (content?.type === 'video' && content?.data?.element?.dataset.videoControls === 'false')");
-		expect(lightbox).toContain("if (!hdrDebugEnabled) { root?.removeAttribute('data-pswp-hdr-state'); return; }");
+		expect(lightbox).toContain("if (!hdrZoomIndicatorEnabled) { root?.removeAttribute('data-pswp-hdr-state'); return; }");
 		expect(lightbox).toContain("root?.setAttribute('data-pswp-hdr-state', content.__hdrPromoted ? 'loaded' : 'pending')");
 		expect(lightbox).toContain("instance.on('change', () => {");
 		expect(lightbox).toContain('hdrVideoPromoters.get(lightbox?.pswp?.currSlide?.content)?.();');

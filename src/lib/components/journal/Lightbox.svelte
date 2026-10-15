@@ -11,9 +11,11 @@
 	import { HdrMediaCache } from '$lib/media/hdr-media-cache';
 	let { galleryId }: { galleryId: string } = $props();
 	let status = $state<'loading' | 'ready' | 'failed'>('loading');
-	// Both the zoom-button tint and the on-screen status line below are debugging aids built
-	// while root-causing why some HDR photos weren't rendering as HDR -- not something a regular
-	// viewer should see. Off by default; set PUBLIC_HDR_DEBUG=true to turn both back on.
+	// The zoom-button tint tells a viewer whether this photo has an HDR version and whether it is
+	// the one showing (yellow while it loads, blue once it does): on by default, set
+	// PUBLIC_HDR_ZOOM_INDICATOR=false to hide it. The on-screen status line is a debugging aid
+	// built while root-causing HDR rendering, off unless PUBLIC_HDR_DEBUG=true.
+	const hdrZoomIndicatorEnabled = env.PUBLIC_HDR_ZOOM_INDICATOR !== 'false';
 	const hdrDebugEnabled = env.PUBLIC_HDR_DEBUG === 'true';
 	// How long to wait for an HDR conversion before giving up and settling for the SDR photo.
 	// Real conversions can legitimately take 20-40s+ server-side, and both HDR routes share one
@@ -112,7 +114,7 @@
 			const activePosition = anchor && gallery ? Array.from(gallery.querySelectorAll('a')).indexOf(anchor as HTMLAnchorElement) : -1;
 			if (figureId && figure?.dataset.assetId && activePosition >= 0) document.dispatchEvent(new CustomEvent('pages:active-asset', { detail: { figureId, activeAssetId: figure.dataset.assetId, activePosition } }));
 		};
-			// Visual-only diagnostic: tints the zoom button for whichever slide pages has identified
+			// Viewer-facing cue: tints the zoom button for whichever slide pages has identified
 			// as carrying a real Apple gain map (the HDR video candidate or the AVIF HDR candidate),
 			// independent of whether the current device/browser actually renders it as HDR -- lets
 			// "is this detected as HDR" and "is this device showing it as HDR" be checked separately.
@@ -124,9 +126,12 @@
 			// silently failed, not that it's merely slow.
 			const updateHdrIndicator = () => {
 				const root = document.querySelector<HTMLElement>('.pswp');
-				if (!hdrDebugEnabled) { root?.removeAttribute('data-pswp-hdr-state'); return; }
 				const content = lightbox?.pswp?.currSlide?.content;
 				const isHdrCandidate = content?.type === 'hdr-image' || (content?.type === 'video' && content?.data?.element?.dataset.videoControls === 'false');
+				// The two settings are independent now, so the debug status line is reset here even
+				// when the tint is switched off.
+				if (!isHdrCandidate) hdrStatus = '';
+				if (!hdrZoomIndicatorEnabled) { root?.removeAttribute('data-pswp-hdr-state'); return; }
 				if (!isHdrCandidate) {
 					root?.removeAttribute('data-pswp-hdr-state');
 					// Reset on every slide change; the content-identity-guarded setHdrStatus calls
