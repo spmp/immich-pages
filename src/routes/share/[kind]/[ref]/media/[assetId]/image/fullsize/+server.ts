@@ -11,6 +11,27 @@ import { buildSdrCacheKey, getOrCreateSdr, withSdrConcurrency } from '$server/me
 
 const HEIC_MIME_TYPES = new Set(['image/heic', 'image/heif']);
 
+/**
+ * Immich's preview rendition, for when the original cannot be shown: a share with "allow download"
+ * off (Immich refuses the original but serves the preview, which is view permission rather than a
+ * download), or an original browsers cannot display such as camera raw (CR2, NEF, DNG...).
+ */
+async function previewResponse(provider: ReturnType<typeof createImmichProvider>, context: Parameters<ReturnType<typeof createImmichProvider>['getPreviewImage']>[0], assetId: string, reason: 'no-download' | 'undisplayable'): Promise<Response> {
+	const variant = `preview-${reason}` as const;
+	try {
+		const preview = await provider.getPreviewImage(context, assetId);
+		if (!preview.response?.ok) { logShareMediaStatus({ media: 'fullsize', status: 'failure', statusCode: 502, failureCategory: 'upstream', variant }); return new Response('Media response unavailable', { status: 502, headers: { 'cache-control': 'private, no-store' } }); }
+		const body = await readBoundedBytes(preview.response, IMMICH_MAX_ORIGINAL_BYTES);
+		const contentType = inferSafeImageMime(body, preview.response.headers.get('content-type'));
+		if (!contentType || HEIC_MIME_TYPES.has(contentType)) { logShareMediaStatus({ media: 'fullsize', status: 'failure', statusCode: 502, failureCategory: 'upstream', variant }); return new Response('Media response unavailable', { status: 502, headers: { 'cache-control': 'private, no-store' } }); }
+		logShareMediaStatus({ media: 'fullsize', status: 'success', statusCode: 200, contentType, byteLength: body.byteLength, variant });
+		return new Response(body.buffer.slice(body.byteOffset, body.byteOffset + body.byteLength) as ArrayBuffer, { headers: { 'content-type': contentType, 'content-length': String(body.byteLength), 'cache-control': 'private, no-store' } });
+	} catch {
+		logShareMediaStatus({ media: 'fullsize', status: 'failure', statusCode: 502, failureCategory: 'upstream', variant });
+		return new Response('Media response unavailable', { status: 502, headers: { 'cache-control': 'private, no-store' } });
+	}
+}
+
 export const GET: RequestHandler = async ({ params, request, cookies, fetch }) => {
 	const shareRef = parseSharedLinkRef(params.kind, params.ref);
 	if (!shareRef || !z.uuidv4().safeParse(params.assetId).success) return new Response('Media not found', { status: 404 });
@@ -18,14 +39,20 @@ export const GET: RequestHandler = async ({ params, request, cookies, fetch }) =
 	if (session.cookie) cookies.set(PAGES_SESSION_COOKIE, session.cookie.split(';')[0].split('=')[1] ?? '', { path: '/', httpOnly: true, secure: true, sameSite: 'lax', maxAge: session.token ? 86400 : 0 });
 	const token = session.token ?? extractImmichShareToken(request.headers.get('cookie'));
 	const context = { ...authContextFromRequest(request, shareRef), cookie: token ? `immich_shared_link_token=${token}` : null };
+	const provider = createImmichProvider(fetch);
 	let result: Awaited<ReturnType<ReturnType<typeof createImmichProvider>['getFullsizeImage']>>;
-	try { result = await createImmichProvider(fetch).getFullsizeImage(context, params.assetId); } catch { logShareMediaStatus({ media: 'fullsize', status: 'failure', statusCode: 502, failureCategory: 'upstream' }); return new Response('Immich is unavailable', { status: 502, headers: { 'cache-control': 'private, no-store' } }); }
+	try { result = await provider.getFullsizeImage(context, params.assetId); } catch { logShareMediaStatus({ media: 'fullsize', status: 'failure', statusCode: 502, failureCategory: 'upstream' }); return new Response('Immich is unavailable', { status: 502, headers: { 'cache-control': 'private, no-store' } }); }
 	if (result.status === 401 || result.status === 403) { cookies.set(PAGES_SESSION_COOKIE, '', { path: '/', httpOnly: true, secure: true, sameSite: 'lax', maxAge: 0 }); logShareMediaStatus({ media: 'fullsize', status: 'failure', statusCode: 403, failureCategory: 'unauthorized' }); return new Response('Media not authorized', { status: 403 }); }
+	// The photo is in the share (checked above) but Immich refuses its original: a share with
+	// downloads turned off. Show the preview rather than falling back to the small thumbnail.
+	if (result.status === 404 && !result.error) { await result.response?.body?.cancel().catch(() => {}); return previewResponse(provider, context, params.assetId, 'no-download'); }
 	if (result.error === 'asset-mismatch' || result.error === 'not-image' || result.status === 404) { logShareMediaStatus({ media: 'fullsize', status: 'failure', statusCode: 404, failureCategory: 'not-found' }); return new Response('Media not found', { status: 404 }); }
 	if (!result.response || result.status < 200 || result.status >= 300) { logShareMediaStatus({ media: 'fullsize', status: 'failure', statusCode: 502, failureCategory: 'upstream' }); return new Response('Immich is unavailable', { status: 502 }); }
 	try {
 		const body = await readBoundedBytes(result.response, IMMICH_MAX_ORIGINAL_BYTES);
 		const sourceContentType = inferSafeImageMime(body, result.response.headers.get('content-type'));
+		// Not a format browsers can display (camera raw and the like): Immich's preview is.
+		if (!sourceContentType) return previewResponse(provider, context, params.assetId, 'undisplayable');
 		if (!sourceContentType) { logShareMediaStatus({ media: 'fullsize', status: 'failure', statusCode: 502, contentType: result.response.headers.get('content-type') ?? undefined, byteLength: body.byteLength, failureCategory: 'upstream' }); return new Response('Media response unavailable', { status: 502 }); }
 
 		if (!HEIC_MIME_TYPES.has(sourceContentType)) {

@@ -84,6 +84,50 @@ describe('same-origin full-size image boundary', () => {
 		expect(response.status).toBe(502);
 	});
 
+	// Production (2026-10-15): an album shared with "allow download" off. Immich refuses the original
+	// (404) through such a share but serves its preview rendition, so every image fell back to its
+	// small thumbnail and the lightbox showed "cannot be loaded". The preview is view permission,
+	// not a download, so serving it respects the share's setting.
+	describe('when the original cannot be shown', () => {
+		const preview = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3]);
+		const route = (original: () => Response) => {
+			const calls: string[] = [];
+			const fetchMock = vi.fn(async (input: URL | RequestInfo) => {
+				const url = new URL(input.toString());
+				calls.push(`${url.pathname}${url.search}`);
+				if (url.pathname.endsWith('/me')) return new Response(JSON.stringify(v3));
+				if (url.pathname.endsWith('/thumbnail')) return new Response(preview, { headers: { 'content-type': 'image/jpeg' } });
+				return original();
+			});
+			return { calls, fetchMock };
+		};
+
+		it('serves the preview when the share does not allow the original to be downloaded', async () => {
+			const { calls, fetchMock } = route(() => new Response(JSON.stringify({ message: 'Not found' }), { status: 404, headers: { 'content-type': 'application/json' } }));
+			const response = await invoke(fetchMock);
+			expect(response.status).toBe(200);
+			expect(response.headers.get('content-type')).toBe('image/jpeg');
+			expect(new Uint8Array(await response.arrayBuffer())).toEqual(preview);
+			expect(calls).toContain(`/api/assets/${imageId}/thumbnail?size=preview&key=opaque_ref`);
+		});
+
+		it('serves the preview for a camera raw original browsers cannot display (CR2)', async () => {
+			const cr2 = new Uint8Array([0x49, 0x49, 0x2a, 0x00, 0x10, 0x00, 0x00, 0x00, 0x43, 0x52, 0x02, 0x00]);
+			const { calls, fetchMock } = route(() => new Response(cr2, { headers: { 'content-type': 'image/x-canon-cr2' } }));
+			const response = await invoke(fetchMock);
+			expect(response.status).toBe(200);
+			expect(new Uint8Array(await response.arrayBuffer())).toEqual(preview);
+			expect(calls).toContain(`/api/assets/${imageId}/thumbnail?size=preview&key=opaque_ref`);
+		});
+
+		it('still refuses a photo that is not in the share, without asking for a preview', async () => {
+			const { calls, fetchMock } = route(() => new Response('never', { status: 404 }));
+			const response = await invoke(fetchMock, 'key', '29999999-2222-4222-8222-222222222222');
+			expect(response.status).toBe(404);
+			expect(calls.some((call) => call.includes('/thumbnail'))).toBe(false);
+		});
+	});
+
 	it('bounds oversized original responses', async () => {
 		const response = await invoke(vi.fn(async (input: URL | RequestInfo) => new Response(new URL(input.toString()).pathname.endsWith('/me') ? JSON.stringify(v3) : 'x', { headers: { 'content-type': 'image/jpeg', 'content-length': String(100 * 1024 * 1024 + 1) } })));
 		expect(response.status).toBe(502);
