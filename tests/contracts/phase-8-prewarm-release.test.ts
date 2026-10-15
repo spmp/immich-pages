@@ -12,7 +12,7 @@ const cache = read('src/lib/server/media/hdr-cache.ts');
 const progress = read('src/lib/server/media/hdr-progress.ts');
 const browser = read('src/lib/components/journal/JournalGallery.svelte');
 const readiness = read('src/lib/components/journal/ReadinessIndicator.svelte');
-const evidenceText = read('docs/phase-8-gate-c-hdr-evidence.md');
+const evidenceText = read('.planning/archive/docs/phase-8-gate-c-hdr-evidence.md');
 
 describe('Phase 8 corrected prewarm release contract', () => {
 	 it('binds scheduling to the normalized authorized model and never to client media lists', () => {

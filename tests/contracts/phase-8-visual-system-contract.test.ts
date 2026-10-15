@@ -3,8 +3,8 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 const root = resolve(import.meta.dirname, '../..');
-const contract = JSON.parse(readFileSync(resolve(root, 'docs/phase-8-visual-system.contract.json'), 'utf8')) as Record<string, any>;
-const prose = readFileSync(resolve(root, 'docs/phase-8-visual-system.md'), 'utf8').toLowerCase();
+const contract = JSON.parse(readFileSync(resolve(root, '.planning/archive/docs/phase-8-visual-system.contract.json'), 'utf8')) as Record<string, any>;
+const prose = readFileSync(resolve(root, '.planning/archive/docs/phase-8-visual-system.md'), 'utf8').toLowerCase();
 const topLevel = ['selectedFramework', 'selectedTheme', 'themeSelector', 'tokenSchema', 'surfacePaths', 'typography', 'mediaConstraints', 'backgroundGradient', 'deliveryGates', 'accessibility', 'motion', 'persistenceBoundary', 'unresolvedDecisions'];
 const surfaces = {
   hero: 'src/lib/components/journal/JournalHero.svelte',

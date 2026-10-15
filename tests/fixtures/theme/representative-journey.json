@@ -47,9 +47,9 @@
   },
   "screenshots": {
     "required": [
-      "docs/theme-evaluation/screenshots/{preset}/1440x900.png",
-      "docs/theme-evaluation/screenshots/{preset}/375x812.png"
+      ".planning/archive/docs/theme-evaluation/screenshots/{preset}/1440x900.png",
+      ".planning/archive/docs/theme-evaluation/screenshots/{preset}/375x812.png"
     ],
-    "retainedSurfaceReview": ["docs/theme-evaluation/screenshots/{preset}/768x1024.png"]
+    "retainedSurfaceReview": [".planning/archive/docs/theme-evaluation/screenshots/{preset}/768x1024.png"]
   }
 }

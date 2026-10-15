@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
-const matrix = readFileSync(resolve(import.meta.dirname, '../../docs/phase-8-gate-b-matrix.md'), 'utf8');
+const matrix = readFileSync(resolve(import.meta.dirname, '../../.planning/archive/docs/phase-8-gate-b-matrix.md'), 'utf8');
 
 describe('Phase 8 Gate B evidence contract', () => {
 	it('records every required promotion and fallback dimension', () => {

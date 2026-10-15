@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
-const evidenceText = readFileSync('docs/phase-8-gate-c-hdr-evidence.md', 'utf8');
+const evidenceText = readFileSync('.planning/archive/docs/phase-8-gate-c-hdr-evidence.md', 'utf8');
 const evidence = readEvidence();
 const scripts = ['scripts/verify-hdr-container.mjs', 'scripts/hdr-fixture-matrix.mjs'];
 

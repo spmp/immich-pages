@@ -13,7 +13,7 @@ import { promisify } from 'node:util';
 
 const exec = promisify(execFile);
 const args = process.argv.slice(2);
-const evidencePath = resolve(value('--evidence') ?? 'docs/phase-8-gate-c-hdr-evidence.md');
+const evidencePath = resolve(value('--evidence') ?? '.planning/archive/docs/phase-8-gate-c-hdr-evidence.md');
 const outputDir = resolve(value('--output-dir') ?? '/tmp/immich-pages-hdr-release');
 const manifestPath = resolve(value('--fixture-manifest') ?? 'tests/resources/hdr/fixture-manifest.local.json');
 const referencePath = value('--reference') ? resolve(value('--reference')) : undefined;
