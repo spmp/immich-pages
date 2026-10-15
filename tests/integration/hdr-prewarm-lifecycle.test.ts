@@ -28,8 +28,12 @@ describe('real HDR prewarm control-route lifecycle', () => {
 		try {
 			const first = await POST(event({ activeAssetId: ids[0], activePosition: 0, representation: 'video' }, fetchMock) as never);
 			expect(first.status).toBe(200);
-			await vi.waitFor(() => expect(coordinator.snapshot().state).toBe('ready'));
-			const poll = await POST(event({ activeAssetId: ids[0], activePosition: 0, representation: 'video' }, fetchMock) as never);
+			// Wait on this share's own progress (what the page polls), not the coordinator's default bucket.
+			let poll!: Response;
+			await vi.waitFor(async () => {
+				poll = await POST(event({ activeAssetId: ids[0], activePosition: 0, representation: 'video' }, fetchMock) as never);
+				expect((await poll.clone().json()).state).toBe('ready');
+			});
 			// targetLookahead now includes the viewer's own current position (ids[0], position 0),
 			// not just what's strictly ahead of it -- see hdr-prewarm-policy.ts and
 			// .planning/debug/hdr-caching-uat-20261010.md root_cause (2)/(4). All 3 assets at

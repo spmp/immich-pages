@@ -53,6 +53,27 @@ describe('HDR prewarm coordinator', () => {
 		expect(coordinator.snapshot().failed).toBe(0);
 	});
 
+	// Production (2026-10-15): with more photos scheduled than the queue holds, every overflow
+	// entry retried every 25 ms, logging a cache miss each time -- 472,938 misses in one session,
+	// and conversion order decided by whichever retry happened to win a free slot.
+	it('waits quietly for queue space instead of retrying in a tight loop', async () => {
+		const misses: unknown[] = [];
+		const info = vi.spyOn(console, 'info').mockImplementation((line: unknown) => { if (String(line).includes('hdr-cache-miss')) misses.push(line); });
+		const convert = vi.fn(async () => {
+			await new Promise((resolve) => setTimeout(resolve, 40));
+			return { body: new Uint8Array([1]), contentType: 'video/mp4' };
+		});
+		const coordinator = new HdrPrewarmCoordinator({ convert });
+		const assets = Array.from({ length: 60 }, (_, index) => ({ id: `quiet-${index}`, eligible: true, position: index + 1, sourceIdentity: `quiet-source-${index}`, sourceBytes: new Uint8Array([1]) }));
+		try {
+			coordinator.schedule({ assets, activePosition: -1, lookahead: { kind: 'all' }, generation: 0, scope: 'quiet' }, 'video');
+			await new Promise((resolve) => setTimeout(resolve, 300));
+			// Each photo is looked up a handful of times at most, not dozens.
+			expect(misses.length).toBeLessThan(60 * 3);
+			await vi.waitFor(() => expect(convert).toHaveBeenCalledTimes(60), { timeout: 20_000 });
+		} finally { info.mockRestore(); }
+	}, 30_000);
+
 	it('retries once, then preserves a terminal failure without retaining bytes', async () => {
 		const convert = vi.fn(async () => { throw new Error('native-failed'); });
 		const coordinator = new HdrPrewarmCoordinator({ convert });

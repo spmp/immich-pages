@@ -174,6 +174,13 @@ async function readFromDisk(key: string, assetId?: string): Promise<CachedMedia 
 	return cacheSuccessful(key, value, assetId, false);
 }
 
+/** Whether a result is kept in either tier, without reading it. */
+export function hasCachedHdr(key: string, now = Date.now()): boolean {
+	const entry = entries.get(key);
+	if (entry && entry.expiresAt > now) return true;
+	return diskAvailable && Boolean(diskCache?.has(key));
+}
+
 /**
  * Memory, then disk. For the media routes' fast path, which must know whether a conversion is
  * cached BEFORE paying to download the original from Immich.
@@ -231,9 +238,19 @@ function pump(): void {
 	}
 }
 
+/**
+ * Whether a task of this priority would be admitted right now. The queue cap applies per
+ * priority: background prewarm work can fill its share of the queue, but never blocks a photo a
+ * visitor has just opened.
+ */
+export function hdrQueueHasRoom(priority: HdrConversionPriority = 'background'): boolean {
+	if (activeConversions < HDR_MAX_CONCURRENT) return true;
+	return waitingConversions.filter((item) => item.priority === priority).length < HDR_MAX_QUEUE;
+}
+
 export function withHdrConcurrency<T>(task: (signal?: AbortSignal) => Promise<T>, options: { signal?: AbortSignal; timeoutMs?: number; priority?: HdrConversionPriority; queueKey?: string } = {}): Promise<T> {
 	if (options.signal?.aborted) return Promise.reject(new DOMException('The HDR task was cancelled', 'AbortError'));
-	if (activeConversions >= HDR_MAX_CONCURRENT && waitingConversions.length >= HDR_MAX_QUEUE) return Promise.reject(new Error('hdr-queue-full'));
+	if (!hdrQueueHasRoom(options.priority ?? 'background')) return Promise.reject(new Error('hdr-queue-full'));
 	return new Promise<T>((resolve, reject) => {
 		const priority = options.priority ?? 'background';
 		const item = { task: async (signal: AbortSignal) => task(signal), resolve: (value: T) => resolve(value), reject, signal: options.signal, timeoutMs: options.timeoutMs, priority, sequence: queueSequence++ } satisfies QueueItem<T>;

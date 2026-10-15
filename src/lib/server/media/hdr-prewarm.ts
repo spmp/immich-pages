@@ -1,6 +1,8 @@
 import {
 	buildHdrCacheKey,
 	getCachedHdr,
+	hasCachedHdr,
+	hdrQueueHasRoom,
 	getOrCreateHdr,
 	withHdrConcurrency,
 	type CachedMedia,
@@ -91,6 +93,10 @@ function safeReason(error: unknown): string {
 	return error instanceof Error ? error.message.replace(/[^A-Za-z0-9._:-]/g, '').slice(0, 80) || 'conversion-failed' : 'conversion-failed';
 }
 
+// How often an entry waiting for queue room checks again. Conversions take seconds, so this is
+// frequent enough not to leave a slot idle and rare enough to cost nothing.
+const QUEUE_ROOM_POLL_MS = 250;
+
 export class HdrPrewarmCoordinator {
 	private readonly registry = createHdrAssetRegistry();
 	// inspectSourceBytes() needs to sum retained source bytes across both representations; the
@@ -102,6 +108,7 @@ export class HdrPrewarmCoordinator {
 	private readonly trackedEntries = new Set<DecoratedEntry>();
 	private generation = 0;
 	private readonly scopedGenerations = new Map<string, number>();
+	private readonly ineligible = new Map<string, Set<string>>();
 	private readonly maxAttempts: number;
 
 	constructor(private readonly options: HdrPrewarmOptions) {
@@ -186,6 +193,39 @@ export class HdrPrewarmCoordinator {
 		}
 	}
 
+	/**
+	 * Whether the control route still needs to fetch this photo's original to schedule it. False
+	 * for anything already queued, converting, converted (and still cached in either tier),
+	 * finally failed, or known to have no HDR data -- so a poll, or a revisit of a fully converted
+	 * album, never downloads those originals again.
+	 */
+	needsSource(scope: string, assetId: string, representation: HdrRepresentation): boolean {
+		if (this.ineligible.get(scope)?.has(assetId)) return false;
+		const entry = this.registry.read(scope, assetId, representation) as DecoratedEntry | undefined;
+		if (!entry || entry.generation !== this.registry.generationFor(scope)) return true;
+		switch (entry.status) {
+			case 'pending':
+			case 'converting':
+			case 'failed':
+				return false;
+			case 'ready':
+				return !(entry.cacheKey && hasCachedHdr(entry.cacheKey));
+			default:
+				return true;
+		}
+	}
+
+	/** Remember, per share, a photo found to have no HDR data, so it is not fetched again. */
+	markIneligible(scope: string, assetId: string): void {
+		let set = this.ineligible.get(scope);
+		if (!set) { set = new Set(); this.ineligible.set(scope, set); }
+		set.add(assetId);
+	}
+
+	isIneligible(scope: string, assetId: string): boolean {
+		return Boolean(this.ineligible.get(scope)?.has(assetId));
+	}
+
 	snapshot(generation = this.generation, representation: HdrRepresentation = 'video', scope = 'default'): HdrProgressSnapshot {
 		const entries = this.registry.entriesFor(scope, representation).filter((entry) => entry.generation === generation);
 		const completed = entries.filter((entry) => entry.status === 'ready').length;
@@ -259,6 +299,13 @@ export class HdrPrewarmCoordinator {
 		const representation = entry.representation!;
 		if (entry.generation !== this.registry.generationFor(scope)) return this.finishRegistryEntry(entry, 'skipped');
 		const key = buildHdrCacheKey({ assetId: asset.id, sourceIdentity: entry.sourceIdentity, width: entry.width, height: entry.height, outputContract: HDR_OUTPUT_CONTRACT[representation] });
+		// No room in the queue for this priority: wait for some, without touching the cache or the
+		// queue in between. Retrying every 25 ms through the cache produced hundreds of thousands
+		// of cache-miss events in one session and handed free slots to whichever retry won.
+		if (!hasCachedHdr(key) && !hdrQueueHasRoom(entry.priority)) {
+			this.waitForQueueRoom(entry);
+			return;
+		}
 		try {
 			await getOrCreateHdr(key, () => withHdrConcurrency(
 				(signal) => this.convertRegistryEntry(entry, key, signal),
@@ -272,7 +319,7 @@ export class HdrPrewarmCoordinator {
 				// `all` is an admission request, not a best-effort batch. Keep the authorized
 				// source owned by this entry until queue capacity is available; the bounded
 				// scheduler still limits memory and active work.
-				setTimeout(() => { if (entry.generation === this.registry.generationFor(scope) && entry.status === 'converting') void this.runRegistryEntry(entry); }, 25);
+				this.waitForQueueRoom(entry);
 				return;
 			}
 			this.registry.transition(entry, { attempts: entry.attempts + 1 });
@@ -284,6 +331,10 @@ export class HdrPrewarmCoordinator {
 			this.registry.transition(entry, { status: 'failed', error: safeReason(error) });
 			this.finishRegistryEntry(entry, 'failed');
 		}
+	}
+
+	private waitForQueueRoom(entry: DecoratedEntry): void {
+		setTimeout(() => { if (entry.generation === this.registry.generationFor(entry.scope!) && entry.status === 'converting') void this.runRegistryEntry(entry); }, QUEUE_ROOM_POLL_MS);
 	}
 
 	private async convertRegistryEntry(entry: DecoratedEntry, key: string, signal?: AbortSignal): Promise<CachedMedia> {

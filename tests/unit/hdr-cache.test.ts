@@ -50,6 +50,18 @@ describe('HDR media cache', () => {
 		expect(memoryHdrCacheBackend.stats().entries).toBe(0);
 	});
 
+	// A photo someone has just opened must never be refused because background prewarm work has
+	// filled the queue; background work alone is what the queue cap holds back.
+	it('admits interactive work even when background work has filled the queue', async () => {
+		let release!: () => void;
+		const gate = new Promise<void>((resolve) => { release = resolve; });
+		const background = Array.from({ length: 80 }, () => withHdrConcurrency(async () => { await gate; return 'bg'; }, { priority: 'background' }).catch((error: Error) => error.message));
+		const interactive = withHdrConcurrency(async () => 'opened', { priority: 'interactive' });
+		release();
+		expect(await interactive).toBe('opened');
+		expect((await Promise.all(background)).filter((value) => value === 'hdr-queue-full').length).toBeGreaterThan(0);
+	});
+
 	it('enforces one global queue contract and releases work after completion', async () => {
 		let active = 0;
 		let maximum = 0;

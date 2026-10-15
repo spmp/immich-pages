@@ -24,7 +24,8 @@ describe('Phase 8 corrected prewarm release contract', () => {
 		expect(pageLoad).not.toContain('hdr-prewarm-source');
 		expect(controlRoute).toContain('coordinator.schedule(');
 		expect(controlRoute).toContain('share.data.assets');
-		expect(controlRoute).toContain('targetLookahead(projection, command.activePosition');
+		// The open photo's position is resolved by ID on the server (activePosition), not taken on trust.
+		expect(controlRoute).toContain('targetLookahead(projection, activePosition, lookahead)');
 		expect(controlRoute).not.toMatch(/command\.(?:assetIds|assets|urls)/);
 	});
 
