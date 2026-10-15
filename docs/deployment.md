@@ -5,7 +5,7 @@
 Immich remains the sole persistent source of truth and authorization boundary.
 Pages is read-only and stateless: it stores no albums, credentials, sessions,
 media, or page configuration. Every response is rebuilt from the request and
-Immich. Caches, if introduced later, are optimizations and must be disposable.
+Immich. Cached content is only generated media such as HDR conversions.
 
 Use separate hosts:
 
@@ -24,11 +24,11 @@ host; do not proxy or internally replace the Immich host for share requests.
 Pages needs exactly three settings. Everything else has a working default, either
 in the code or baked into the image.
 
-| Required | What it is |
-|---|---|
-| `IMMICH_BASE_URL` | The trusted Immich origin, e.g. `https://immich.example.xyz`. Pages forwards only the visitor's own cookie and authorization to it, never an owner credential or API key. |
-| `PAGES_SESSION_SECRET` | Encrypts the saved Immich access for password-protected shares. At least 32 characters: `openssl rand -hex 32`. |
-| `PAGES_VISITED_SHARES_SECRET` | Encrypts the visitor's library cookie (the list of shares this browser has opened). A different random value: `openssl rand -hex 32`. |
+| Required                      | What it is                                                                                                                                                                |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `IMMICH_BASE_URL`             | The trusted Immich origin, e.g. `https://immich.example.xyz`. Pages forwards only the visitor's own cookie and authorization to it, never an owner credential or API key. |
+| `PAGES_SESSION_SECRET`        | Encrypts the saved Immich access for password-protected shares. At least 32 characters: `openssl rand -hex 32`.                                                           |
+| `PAGES_VISITED_SHARES_SECRET` | Encrypts the visitor's library cookie (the list of shares this browser has opened). A different random value: `openssl rand -hex 32`.                                     |
 
 Keep both secrets stable: changing one only invalidates what it protects (saved
 password access, or every visitor's library list respectively). Neither secret
@@ -39,32 +39,32 @@ pairs, never visitor credentials.
 Optional settings, with their defaults. Settings starting `PUBLIC_` are also
 sent to the browser, so never put anything secret in one:
 
-| Setting | Default | Purpose |
-|---|---|---|
-| `MAP_STYLE_URL_QUIET_ATLAS` | `https://tiles.openfreemap.org/styles/liberty` | MapLibre style for the `quiet-atlas` map style. Deployment-owned; album descriptions cannot supply a style URL. |
-| `PAGES_ALL_ALBUMS_ARE_PAGES` | `false` | Treat every accessed album as a page, even without an `immich-presentation` key (see below). |
-| `IMMICH_SUPPORTED_VERSION` | `3.3.1` | Immich release that `/health/immich` checks against. |
-| `PUBLIC_HDR_ZOOM_INDICATOR` | `true` | Tints the lightbox zoom (magnifier) button for a photo with an HDR version: yellow while it loads, blue once it is showing. |
-| `PUBLIC_HDR_CLIENT_TIMEOUT_MS` | `60000` | How long the lightbox waits for an HDR version before settling for the standard photo (at most `600000`). |
-| `PUBLIC_HDR_FORCE_AVIF` | `false` | Serve the AVIF HDR version to every browser, bypassing the built-in list of browsers known to display it. For testing devices. |
-| `PUBLIC_HDR_DEBUG` | `false` | Shows an on-screen HDR status line in the lightbox. For troubleshooting only. |
-| `PUBLIC_PAGES_DEBUG` | `false` | Bounded, redacted browser lifecycle diagnostics relayed to the server log. For troubleshooting only. |
-| `BROUTER_ENDPOINT` / `BROUTER_ALLOWED_ORIGINS` | `https://brouter.de/brouter` / `https://brouter.de` | Router used for `map.source: brouter-web` routes. |
-| `BROUTER_MAX_TOTAL_MS` | `15000` | How long one page load waits for a route; resolution continues in the background and is cached for the next load. |
-| `BROUTER_MAX_RESPONSE_BYTES` | `4194304` | Largest reply accepted for one leg of a route (about 8,500 km of road). |
-| `BROUTER_CACHE_ENABLED` | `true` | In-memory route caching. |
-| `HDR_CACHE_TTL_MS` | `600000` | How long generated HDR media, and resolved routes, are kept in memory. |
-| `HDR_PREWARM_LOOKAHEAD` | `10` | Photos converted ahead of the viewer; `all` for the whole album. |
-| `HDR_PREWARM_INDICATOR` | `on` | The readiness dot on the share page. |
-| `HDR_CACHE_MAX_BYTES` | `134217728` | Memory budget for generated HDR media (128 MB). |
-| `HDR_CACHE_BACKEND` | `memory` | `disk` also keeps generated HDR media in `HDR_CACHE_DIRECTORY`, so it survives restarts and more of it can be kept. Memory stays the fast tier. |
-| `HDR_CACHE_DIRECTORY` | unset | Directory for the disk tier; required for `disk`. Mount a volume here. Without a writable directory Pages logs a warning and uses memory only. |
-| `HDR_CACHE_DISK_MAX_BYTES` | `2147483648` | Size budget for the disk tier (2 GB); least recently used media is removed first. |
-| `HOST` / `PORT` | `0.0.0.0` / `3000` | Listen address (set in the image). |
-| `PROTOCOL_HEADER` / `HOST_HEADER` | `X-Forwarded-Proto` / `X-Forwarded-Host` | How Pages learns its public origin behind a reverse proxy (set in the image; see Proxy requirements). |
-| `ORIGIN` | unset | Pin a fixed public origin, e.g. `https://pages.example.xyz`, instead of reading it from proxy headers. |
+| Setting                                        | Default                                             | Purpose                                                                                                                                         |
+| ---------------------------------------------- | --------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| `MAP_STYLE_URL_QUIET_ATLAS`                    | `https://tiles.openfreemap.org/styles/liberty`      | MapLibre style for the `quiet-atlas` map style. Deployment-owned; album descriptions cannot supply a style URL.                                 |
+| `PAGES_ALL_ALBUMS_ARE_PAGES`                   | `false`                                             | Treat every accessed album as a page, even without an `immich-presentation` key (see below).                                                    |
+| `IMMICH_SUPPORTED_VERSION` | `>=3.1.0 <4.0.0` | Immich releases `/health/immich` reports as supported: an exact version or a range of comparisons (`>=`, `>`, `<=`, `<`, `=`) separated by spaces. Informational only; Pages renders the same on any Immich version. |
+| `PUBLIC_HDR_ZOOM_INDICATOR`                    | `true`                                              | Tints the lightbox zoom (magnifier) button for a photo with an HDR version: yellow while it loads, blue once it is showing.                     |
+| `PUBLIC_HDR_CLIENT_TIMEOUT_MS`                 | `60000`                                             | How long the lightbox waits for an HDR version before settling for the standard photo (at most `600000`).                                       |
+| `PUBLIC_HDR_FORCE_AVIF`                        | `false`                                             | Serve the AVIF HDR version to every browser, bypassing the built-in list of browsers known to display it. For testing devices.                  |
+| `PUBLIC_HDR_DEBUG`                             | `false`                                             | Shows an on-screen HDR status line in the lightbox. For troubleshooting only.                                                                   |
+| `PUBLIC_PAGES_DEBUG`                           | `false`                                             | Bounded, redacted browser lifecycle diagnostics relayed to the server log. For troubleshooting only.                                            |
+| `BROUTER_ENDPOINT` / `BROUTER_ALLOWED_ORIGINS` | `https://brouter.de/brouter` / `https://brouter.de` | Router used for `map.source: brouter-web` routes.                                                                                               |
+| `BROUTER_MAX_TOTAL_MS`                         | `15000`                                             | How long one page load waits for a route; resolution continues in the background and is cached for the next load.                               |
+| `BROUTER_MAX_RESPONSE_BYTES`                   | `4194304`                                           | Largest reply accepted for one leg of a route (about 8,500 km of road).                                                                         |
+| `BROUTER_CACHE_ENABLED`                        | `true`                                              | In-memory route caching.                                                                                                                        |
+| `HDR_CACHE_TTL_MS`                             | `600000`                                            | How long generated HDR media, and resolved routes, are kept in memory.                                                                          |
+| `HDR_PREWARM_LOOKAHEAD`                        | `10`                                                | Photos converted ahead of the viewer; `all` for the whole album.                                                                                |
+| `HDR_PREWARM_INDICATOR`                        | `on`                                                | The readiness dot on the share page.                                                                                                            |
+| `HDR_CACHE_MAX_BYTES`                          | `134217728`                                         | Memory budget for generated HDR media (128 MB).                                                                                                 |
+| `HDR_CACHE_BACKEND`                            | `memory`                                            | `disk` also keeps generated HDR media in `HDR_CACHE_DIRECTORY`, so it survives restarts and more of it can be kept. Memory stays the fast tier. |
+| `HDR_CACHE_DIRECTORY`                          | unset                                               | Directory for the disk tier; required for `disk`. Mount a volume here. Without a writable directory Pages logs a warning and uses memory only.  |
+| `HDR_CACHE_DISK_MAX_BYTES`                     | `2147483648`                                        | Size budget for the disk tier (2 GB); least recently used media is removed first.                                                               |
+| `HOST` / `PORT`                                | `0.0.0.0` / `3000`                                  | Listen address (set in the image).                                                                                                              |
+| `PROTOCOL_HEADER` / `HOST_HEADER`              | `X-Forwarded-Proto` / `X-Forwarded-Host`            | How Pages learns its public origin behind a reverse proxy (set in the image; see Proxy requirements).                                           |
+| `ORIGIN`                                       | unset                                               | Pin a fixed public origin, e.g. `https://pages.example.xyz`, instead of reading it from proxy headers.                                          |
 
-The disk tier is an optimization, not state: deleting the directory only means
+The disk tier cache is an optimization, not state: deleting the directory only means
 photos are converted again on their next view. Nothing in it is served without
 the request first being authorized against Immich, and files are named by a hash
 of the cache key, so album content never chooses a path. For example:

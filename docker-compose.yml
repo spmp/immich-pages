@@ -121,7 +121,7 @@ services:
       # HDR_CACHE_DIRECTORY: /cache/hdr  # mount a volume here, writable by uid 1000
       # PUBLIC_HDR_ZOOM_INDICATOR: "true"
       # BROUTER_MAX_TOTAL_MS: "15000"
-      # IMMICH_SUPPORTED_VERSION: 3.3.1
+      # IMMICH_SUPPORTED_VERSION: ">=3.1.0 <4.0.0"
       # ORIGIN: https://${PAGES_HOST}
     depends_on:
       - immich-server
