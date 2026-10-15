@@ -29,3 +29,12 @@ tests/e2e/real-immich/seed-output.json
 
 # Local dev runner output: built HDR binaries and the dev server log (scripts/dev-real-immich.mjs).
 .cache/
+
+# GSD planning and review state: local working state for the maintainer's agent workflow, not
+# published source (see AGENTS.md).
+.planning/
+SPEC.md
+REVIEW.md
+
+# Local Claude Code settings and worktrees.
+.claude/

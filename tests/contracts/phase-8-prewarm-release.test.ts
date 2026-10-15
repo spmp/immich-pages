@@ -12,7 +12,6 @@ const cache = read('src/lib/server/media/hdr-cache.ts');
 const progress = read('src/lib/server/media/hdr-progress.ts');
 const browser = read('src/lib/components/journal/JournalGallery.svelte');
 const readiness = read('src/lib/components/journal/ReadinessIndicator.svelte');
-const evidenceText = read('.planning/archive/docs/phase-8-gate-c-hdr-evidence.md');
 
 describe('Phase 8 corrected prewarm release contract', () => {
 	 it('binds scheduling to the normalized authorized model and never to client media lists', () => {
@@ -83,27 +82,9 @@ describe('Phase 8 corrected prewarm release contract', () => {
 		expect(policy).toContain("value === undefined || value === null) return { enabled: true");
 		expect(readiness).toContain("readinessState === 'partial'");
 		expect(browser).toContain('optional control-plane failure preserves SDR');
-		for (const text of [coordinator, progress, evidenceText]) {
+		for (const text of [coordinator, progress]) {
 			expect(text).not.toMatch(/(?:cookie|authorization|bearer|password)\s*[:=][^\n]*/i);
 		}
 	});
 
-	it('records the automated contract separately from physical HDR approval', () => {
-		const evidence = readEvidence();
-		expect(evidence.automatedPrewarm.status).toBe('PASS');
-		expect(evidence.automatedPrewarm.attempts).toBe(2);
-		expect(evidence.automatedPrewarm.cacheBackend).toBe('memory');
-		expect(evidence.automatedPrewarm.representations).toEqual(['video', 'avif']);
-		expect(evidence.automatedPrewarm.fallback).toBe('SDR-only on failure');
-		expect(evidence.overallStatus).toBe('PENDING');
-		expect(evidence.releaseMode).toBe('SDR-only');
-		expect(evidence.physicalHdrValidation).toBe('not-run');
-		expect(evidence.physicalReview.status).toBe('PENDING');
-	});
 });
-
-function readEvidence(): any {
-	const match = evidenceText.match(/```json\n([\s\S]*?)\n```/);
-	if (!match) throw new Error('Gate C evidence JSON block is missing');
-	return JSON.parse(match[1]);
-}
