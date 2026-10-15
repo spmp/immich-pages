@@ -103,8 +103,9 @@ services:
       - immich
 
   pages:
-    build: .
-    # image: ghcr.io/spmp/immich-pages:latest
+    #build: .
+    image: ghcr.io/spmp/immich-pages:latest
+    container_name: pages
     environment:
       # Required. Pages reaches Immich through its public, TLS-terminated hostname.
       IMMICH_BASE_URL: https://${IMMICH_HOST}

@@ -73,7 +73,7 @@ Once the tech stack is up and running, the process for generating a Pages share 
 
 3. Optionally modify the album order, cover image, and description text AFTER the top matter
 
-4. Create a share, either the long form or with a _custom URL_
+4. Create a share, either the long form or with a _custom URL_. **NOTE:** Download must be enabled for the images to show in full resolution.
 
 5. Share this URL with your F&F's
 
