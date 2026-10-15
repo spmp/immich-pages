@@ -1,27 +1,58 @@
 name: immich
 
+# A complete, minimal stack: Traefik (HTTPS with Let's Encrypt), Immich, and Pages.
+# Copy .env.example to .env, set the values it marks as required, point both hostnames at this
+# Docker host, then: docker compose up -d
+#
+# Already running Immich behind your own Traefik? Use compose.yaml (Pages alone) instead, and
+# copy the immich-share-to-pages labels below onto your Immich service.
+
 services:
+  traefik:
+    image: traefik:v3
+    command:
+      - --providers.docker=true
+      - --providers.docker.exposedbydefault=false
+      - --providers.docker.network=immich
+      - --entrypoints.web.address=:80
+      - --entrypoints.web.http.redirections.entrypoint.to=websecure
+      - --entrypoints.web.http.redirections.entrypoint.scheme=https
+      - --entrypoints.websecure.address=:443
+      - --certificatesresolvers.letsencrypt.acme.email=${LETSENCRYPT_EMAIL:?LETSENCRYPT_EMAIL is required}
+      - --certificatesresolvers.letsencrypt.acme.storage=/letsencrypt/acme.json
+      - --certificatesresolvers.letsencrypt.acme.tlschallenge=true
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ${TRAEFIK_ACME_LOCATION:-./letsencrypt}:/letsencrypt
+    restart: always
+    networks:
+      - immich
+
   immich-server:
     image: ghcr.io/immich-app/immich-server:v3
     labels:
       traefik.enable: true
-      traefik.docker.network: ${TRAEFIK_NETWORK:-images}
-      traefik.http.routers.immich.rule: Host(`${IMMICH_HOST:-immich.example.xyz}`)
-      traefik.http.routers.immich.entrypoints: ${TRAEFIK_ENTRYPOINT:-websecure}
-      traefik.http.routers.immich.tls: true
-      traefik.http.routers.immich.tls.certresolver: ${TRAEFIK_CERTRESOLVER:-letsencrypt}
+      traefik.http.routers.immich.rule: Host(`${IMMICH_HOST:?IMMICH_HOST is required}`)
+      traefik.http.routers.immich.entrypoints: websecure
+      traefik.http.routers.immich.tls.certresolver: letsencrypt
       traefik.http.routers.immich.service: immich
       traefik.http.services.immich.loadbalancer.server.port: 2283
-      traefik.http.routers.immich-share-to-pages.rule: Host(`${IMMICH_HOST:-immich.example.xyz}`) && PathPrefix(`/share`)
+      # Share links go to Pages: /share/<key> and short /s/<slug> links. Each middleware acts
+      # only when its own pattern matches. Add redirectregex.permanent: true to both once the
+      # mapping is settled; browsers cache a permanent redirect indefinitely.
+      traefik.http.routers.immich-share-to-pages.rule: Host(`${IMMICH_HOST}`) && (PathPrefix(`/share/`) || PathPrefix(`/s/`))
       traefik.http.routers.immich-share-to-pages.priority: 100
-      traefik.http.routers.immich-share-to-pages.entrypoints: ${TRAEFIK_ENTRYPOINT:-websecure}
-      traefik.http.routers.immich-share-to-pages.tls: true
-      traefik.http.routers.immich-share-to-pages.tls.certresolver: ${TRAEFIK_CERTRESOLVER:-letsencrypt}
-      traefik.http.routers.immich-share-to-pages.middlewares: immich-share-redirect
+      traefik.http.routers.immich-share-to-pages.entrypoints: websecure
+      traefik.http.routers.immich-share-to-pages.tls.certresolver: letsencrypt
+      traefik.http.routers.immich-share-to-pages.middlewares: immich-share-key-redirect,immich-share-slug-redirect
       traefik.http.routers.immich-share-to-pages.service: immich
-      traefik.http.middlewares.immich-share-redirect.redirectregex.regex: '^https://${IMMICH_HOST:-immich.example.xyz}/share/(.*)'
-      traefik.http.middlewares.immich-share-redirect.redirectregex.replacement: 'https://${PAGES_HOST:-pages.example.xyz}/share/key/$${1}'
-      traefik.http.middlewares.immich-share-redirect.redirectregex.permanent: true
+      traefik.http.middlewares.immich-share-key-redirect.redirectregex.regex: '^https://${IMMICH_HOST}/share/(.+)'
+      traefik.http.middlewares.immich-share-key-redirect.redirectregex.replacement: 'https://${PAGES_HOST}/share/key/$${1}'
+      traefik.http.middlewares.immich-share-slug-redirect.redirectregex.regex: '^https://${IMMICH_HOST}/s/(.+)'
+      traefik.http.middlewares.immich-share-slug-redirect.redirectregex.replacement: 'https://${PAGES_HOST}/share/slug/$${1}'
     volumes:
       - ${IMMICH_LIBRARY_LOCATION:-./library}:/data
       - /etc/localtime:/etc/localtime:ro
@@ -37,7 +68,7 @@ services:
       - database
     restart: always
     networks:
-      - images
+      - immich
 
   immich-machine-learning:
     image: ghcr.io/immich-app/immich-machine-learning:v3
@@ -47,7 +78,7 @@ services:
       MPLCONFIGDIR: /cache
     restart: always
     networks:
-      - images
+      - immich
 
   redis:
     image: docker.io/valkey/valkey:8
@@ -55,7 +86,7 @@ services:
       test: [CMD, redis-cli, ping]
     restart: always
     networks:
-      - images
+      - immich
 
   database:
     image: ghcr.io/immich-app/postgres:14-vectorchord0.4.3-pgvectors0.2.0
@@ -69,26 +100,36 @@ services:
     shm_size: 128mb
     restart: always
     networks:
-      - images
+      - immich
 
   pages:
     build: .
+    # image: ghcr.io/spmp/immich-pages:latest
     environment:
-      IMMICH_BASE_URL: https://${IMMICH_HOST:-immich.example.xyz}
-      IMMICH_SUPPORTED_VERSION: ${IMMICH_SUPPORTED_VERSION:-3.3.1}
+      # Required. Pages reaches Immich through its public, TLS-terminated hostname.
+      IMMICH_BASE_URL: https://${IMMICH_HOST}
       PAGES_SESSION_SECRET: ${PAGES_SESSION_SECRET:?PAGES_SESSION_SECRET is required}
       PAGES_VISITED_SHARES_SECRET: ${PAGES_VISITED_SHARES_SECRET:?PAGES_VISITED_SHARES_SECRET is required}
-      MAP_STYLE_URL_QUIET_ATLAS: ${MAP_STYLE_URL_QUIET_ATLAS:-https://tiles.openfreemap.org/styles/liberty}
-      PUBLIC_PAGES_DEBUG: ${PUBLIC_PAGES_DEBUG:-false}
+      # Optional; the values shown are the defaults. See docs/deployment.md for every setting.
+      # MAP_STYLE_URL_QUIET_ATLAS: https://tiles.openfreemap.org/styles/liberty
+      # PAGES_ALL_ALBUMS_ARE_PAGES: "false"
+      # HDR_PREWARM_LOOKAHEAD: "10"
+      # HDR_PREWARM_INDICATOR: "on"
+      # HDR_CACHE_TTL_MS: "600000"
+      # HDR_CACHE_MAX_BYTES: "134217728"
+      # HDR_CACHE_BACKEND: memory        # disk: also keep HDR media in HDR_CACHE_DIRECTORY across restarts
+      # HDR_CACHE_DIRECTORY: /cache/hdr  # mount a volume here, writable by uid 1000
+      # PUBLIC_HDR_ZOOM_INDICATOR: "true"
+      # BROUTER_MAX_TOTAL_MS: "15000"
+      # IMMICH_SUPPORTED_VERSION: 3.3.1
+      # ORIGIN: https://${PAGES_HOST}
     depends_on:
       - immich-server
     labels:
       traefik.enable: true
-      traefik.docker.network: ${TRAEFIK_NETWORK:-images}
-      traefik.http.routers.pages.rule: Host(`${PAGES_HOST:-pages.example.xyz}`)
-      traefik.http.routers.pages.entrypoints: ${TRAEFIK_ENTRYPOINT:-websecure}
-      traefik.http.routers.pages.tls: true
-      traefik.http.routers.pages.tls.certresolver: ${TRAEFIK_CERTRESOLVER:-letsencrypt}
+      traefik.http.routers.pages.rule: Host(`${PAGES_HOST:?PAGES_HOST is required}`)
+      traefik.http.routers.pages.entrypoints: websecure
+      traefik.http.routers.pages.tls.certresolver: letsencrypt
       traefik.http.routers.pages.service: pages
       traefik.http.services.pages.loadbalancer.server.port: 3000
     healthcheck:
@@ -98,8 +139,8 @@ services:
       retries: 5
     restart: always
     networks:
-      - images
+      - immich
 
 networks:
-  images:
-    external: true
+  immich:
+    name: immich

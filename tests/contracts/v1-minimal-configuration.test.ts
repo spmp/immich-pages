@@ -15,7 +15,10 @@ describe('V1 minimal configuration', () => {
 	});
 
 	it.each(['compose.yaml', 'docker-compose.yml'])('%s requires only the three V1 settings for Pages', (file) => {
-		const pages = read(file).split(/\n {2}pages:\n/)[1]?.split(/\n {2}\S/)[0] ?? '';
+		const service = read(file).split(/\n {2}pages:\n/)[1]?.split(/\n {2}\S/)[0] ?? '';
+		// The application's own settings only: Traefik labels may need stack-level values such as
+		// the public hostname, which are not Pages configuration.
+		const pages = service.split(/\n {4}environment:\n/)[1]?.split(/\n {4}\S/)[0] ?? '';
 		const mandatory = [...pages.matchAll(/\$\{(\w+):\?/g)].map((match) => match[1]);
 		// docker-compose.yml is the combined Immich + Pages example, which derives the Immich URL
 		// from the stack's own IMMICH_HOST; compose.yaml (Pages alone) asks for it directly.

@@ -36,13 +36,18 @@ grants access to anything; every share is freshly authorized against Immich on
 every request. The library cookie stores only validated share kind/reference
 pairs, never visitor credentials.
 
-Optional settings, with their defaults:
+Optional settings, with their defaults. Settings starting `PUBLIC_` are also
+sent to the browser, so never put anything secret in one:
 
 | Setting | Default | Purpose |
 |---|---|---|
 | `MAP_STYLE_URL_QUIET_ATLAS` | `https://tiles.openfreemap.org/styles/liberty` | MapLibre style for the `quiet-atlas` map style. Deployment-owned; album descriptions cannot supply a style URL. |
 | `PAGES_ALL_ALBUMS_ARE_PAGES` | `false` | Treat every accessed album as a page, even without an `immich-presentation` key (see below). |
 | `IMMICH_SUPPORTED_VERSION` | `3.3.1` | Immich release that `/health/immich` checks against. |
+| `PUBLIC_HDR_ZOOM_INDICATOR` | `true` | Tints the lightbox zoom (magnifier) button for a photo with an HDR version: yellow while it loads, blue once it is showing. |
+| `PUBLIC_HDR_CLIENT_TIMEOUT_MS` | `60000` | How long the lightbox waits for an HDR version before settling for the standard photo (at most `600000`). |
+| `PUBLIC_HDR_FORCE_AVIF` | `false` | Serve the AVIF HDR version to every browser, bypassing the built-in list of browsers known to display it. For testing devices. |
+| `PUBLIC_HDR_DEBUG` | `false` | Shows an on-screen HDR status line in the lightbox. For troubleshooting only. |
 | `PUBLIC_PAGES_DEBUG` | `false` | Bounded, redacted browser lifecycle diagnostics relayed to the server log. For troubleshooting only. |
 | `BROUTER_ENDPOINT` / `BROUTER_ALLOWED_ORIGINS` | `https://brouter.de/brouter` / `https://brouter.de` | Router used for `map.source: brouter-web` routes. |
 | `BROUTER_MAX_TOTAL_MS` | `15000` | How long one page load waits for a route; resolution continues in the background and is cached for the next load. |
@@ -51,6 +56,7 @@ Optional settings, with their defaults:
 | `HDR_CACHE_TTL_MS` | `600000` | How long generated HDR media, and resolved routes, are kept in memory. |
 | `HDR_PREWARM_LOOKAHEAD` | `10` | Photos converted ahead of the viewer; `all` for the whole album. |
 | `HDR_PREWARM_INDICATOR` | `on` | The readiness dot on the share page. |
+| `HDR_CACHE_MAX_BYTES` | `134217728` | Memory budget for generated HDR media (128 MB). |
 | `HDR_CACHE_BACKEND` | `memory` | `disk` also keeps generated HDR media in `HDR_CACHE_DIRECTORY`, so it survives restarts and more of it can be kept. Memory stays the fast tier. |
 | `HDR_CACHE_DIRECTORY` | unset | Directory for the disk tier; required for `disk`. Mount a volume here. Without a writable directory Pages logs a warning and uses memory only. |
 | `HDR_CACHE_DISK_MAX_BYTES` | `2147483648` | Size budget for the disk tier (2 GB); least recently used media is removed first. |
@@ -90,11 +96,17 @@ activation model. This never suppresses a real authoring error -- an album
 whose `immich-presentation` block is present but malformed still surfaces
 `invalid-metadata` regardless of this setting.
 
+Two Compose files are provided:
+
+* `docker-compose.yml` is a complete stack: Traefik with Let's Encrypt
+  certificates, Immich, and Pages, including the Immich share redirect.
+* `compose.yaml` is Pages alone, for adding to an existing Immich and Traefik.
+
 ```sh
 cp .env.example .env
-# edit .env and set IMMICH_BASE_URL=https://immich.example.xyz
-docker compose up -d --build
-docker compose ps
+# edit .env: the two hostnames, LETSENCRYPT_EMAIL, DB_PASSWORD and both Pages secrets
+docker compose -f docker-compose.yml up -d --build
+docker compose -f docker-compose.yml ps
 ```
 
 Check the configuration without printing secret values:
