@@ -12,8 +12,18 @@ describe('Pages share sessions', () => {
 		expect(decodeSession(second)?.entries).toHaveLength(2);
 	});
 	it('rejects tampering and extracts only the approved upstream token', () => {
-		const cookie = addSession(undefined, ref, 'token-one');
-		expect(decodeSession(`x${cookie.slice(1)}`)).toBeNull();
+		// The cookie starts with a random IV: replacing its first character with a fixed one ('x')
+		// changed nothing whenever it already was that character, failing 1 run in 64. Swap in a
+		// character that always differs, in each part (IV, auth tag, ciphertext), over many cookies.
+		const swapFirst = (part: string) => `${part[0] === 'A' ? 'B' : 'A'}${part.slice(1)}`;
+		for (let attempt = 0; attempt < 200; attempt += 1) {
+			const cookie = addSession(undefined, ref, 'token-one');
+			const parts = cookie.split('.');
+			expect(decodeSession(cookie)?.entries[0].token).toBe('token-one');
+			for (let index = 0; index < parts.length; index += 1) {
+				expect(decodeSession(parts.map((part, at) => at === index ? swapFirst(part) : part).join('.'))).toBeNull();
+			}
+		}
 		expect(extractImmichShareToken('foo=bar; immich_shared_link_token=abc123; x=y')).toBe('abc123');
 		expect(extractImmichShareToken('immich_shared_link_token=' + 'x'.repeat(2049))).toBeNull();
 	});

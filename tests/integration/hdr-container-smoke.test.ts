@@ -16,7 +16,9 @@ describe('production HDR container smoke contract', () => {
   });
 
   it('does not track or allow fixture media as application content', () => {
-    expect(execFileSync('git', ['ls-files', 'tests/resources/hdr'], { encoding: 'utf8' })).toBe('');
+    // The ignore files below hold everywhere; the index can only be asked where there is one (a
+    // checkout), not in a source export such as npm run test:isolated's.
+    if (existsSync('.git')) expect(execFileSync('git', ['ls-files', 'tests/resources/hdr'], { encoding: 'utf8' })).toBe('');
     expect(readFileSync('.gitignore', 'utf8')).toContain('tests/resources/hdr/');
     expect(readFileSync('.dockerignore', 'utf8')).toContain('tests/resources/hdr/');
     for (const script of ['scripts/hdr-fixture-matrix.mjs', 'scripts/verify-hdr-container.mjs']) expect(readFileSync(script, 'utf8')).toContain('physicalHdrValidation');

@@ -2,15 +2,16 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterAll, describe, expect, it } from 'vitest';
+import { afterAll, expect, it } from 'vitest';
 import { extractAppleHdrMetadata } from '../../src/lib/server/media/hdr-metadata';
+import { describeNativeHdr } from '../helpers/native-hdr';
 
 // The HDR video fallback (PQ, absolute nits) used to place the photo's SDR white at 100 nits,
 // while the AVIF path uses 203 nits (ITU-R BT.2408 reference white, libavif's convention). A
 // player following BT.2408 then showed the video a stop darker than the page around it, and the
 // same photo looked different depending on which representation a browser received.
 //
-// Built from the current source here (skipped without g++/libheif), so this tests the code in the
+// Built from the current source here (skipped without g++), so this tests the code in the
 // tree rather than whatever binary happens to be installed. The reference build pins the old
 // 100-nit white; every pixel of the default build must be exactly 203/100 as bright.
 const work = mkdtempSync(join(tmpdir(), 'hdr-white-'));
@@ -20,7 +21,7 @@ const build = (name: string, defines: string[] = []) => {
 	return result.status === 0 ? output : undefined;
 };
 const current = build('current');
-const reference = current ? build('reference', ['-DHDR_SDR_WHITE_NITS=100']) : undefined;
+const reference = build('reference', ['-DHDR_SDR_WHITE_NITS=100']);
 afterAll(() => rmSync(work, { recursive: true, force: true }));
 
 const pqToNits = (code: number) => {
@@ -39,8 +40,10 @@ function frame(binary: string, heic: Uint8Array, args: string[]): Uint16Array {
 	return values;
 }
 
-describe.skipIf(!current || !reference)('HDR video fallback white level', () => {
+describeNativeHdr('HDR video fallback white level', { tools: ['g++', 'exiftool'] }, () => {
 	it('places the photo\'s SDR white at 203 nits (BT.2408), like the AVIF path', { timeout: 120_000 }, async () => {
+		// g++ is here, so the compositor must build (libheif missing fails here, not silently).
+		expect(current && reference).toBeTruthy();
 		const heic = new Uint8Array(readFileSync(new URL('../resources/heic-test-set/originals/01.HEIC', import.meta.url)));
 		const metadata = await extractAppleHdrMetadata(heic);
 		expect(metadata).toBeTruthy();

@@ -7,6 +7,7 @@
     "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
     "test": "vitest run && npm run test:component",
     "test:component": "vitest run --config vitest.component.config.ts",
+    "test:isolated": "node scripts/test-isolated.mjs",
     "dev": "vite dev",
     "dev:real-immich": "node scripts/dev-real-immich.mjs",
     "build": "vite build",

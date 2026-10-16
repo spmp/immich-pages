@@ -291,6 +291,14 @@ npm run test
 npm run build
 ```
 
+Without the native HDR tools installed, `npm run test` skips the tests that
+convert real photos. `npm run test:isolated` runs the whole suite as a clean
+machine would: it exports the repository (nothing outside git leaks in), builds
+the Dockerfile's `test` stage (the production image's libheif, libavif, ffmpeg,
+exiftool and compiled HDR binaries) and runs it with no network. Add
+`-- --committed` to test exactly `HEAD`, or `-- --repeat 5` to shake out flaky
+tests. CI runs the same stage before publishing an image.
+
 `npm run dev:real-immich` (see [Quickstart](#quickstart)) runs Pages against a
 real, disposable Immich with seeded demo albums, HDR and maps working; its log is
 in `.cache/pages-dev.log`. See

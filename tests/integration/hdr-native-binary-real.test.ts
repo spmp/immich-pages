@@ -1,9 +1,10 @@
-import { existsSync, readFileSync } from 'node:fs';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { beforeEach, expect, it, vi } from 'vitest';
 import { GET } from '../../src/routes/share/[kind]/[ref]/media/[assetId]/image/hdr/+server';
 import { clearHdrCache } from '../../src/lib/server/media/hdr-cache';
 import { clearHdrMetadataCache } from '../../src/lib/server/media/hdr-metadata-cache';
 import v3 from '../fixtures/shared-link/v3-valid-page.json';
+import { describeNativeHdr, nativeBinary } from '../helpers/native-hdr';
 
 // Real-backend UAT (2026-10-12): every fast unit/integration/E2E test in this repo deliberately
 // substitutes a bridge script for the native compositor/ffmpeg (HDR_METADATA_PATH/
@@ -15,14 +16,15 @@ import v3 from '../fixtures/shared-link/v3-valid-page.json';
 // that gap without requiring every contributor/CI machine to have g++/libheif-dev/libavif-dev
 // installed: it skips cleanly if the real binary isn't present, and proves real end-to-end
 // correctness when it is.
-const compositorPath = process.env.HDR_COMPOSITOR_PATH ?? '/usr/local/bin/hdr-gainmap-compositor';
-const hasRealCompositor = existsSync(compositorPath) && !process.env.HDR_METADATA_PATH && !process.env.HDR_COMPOSITOR_PATH;
+// Runs where the production binaries are (HDR_NATIVE_BIN_DIR, default /usr/local/bin); required,
+// so never silently skipped, in the Dockerfile's test stage (see tests/helpers/native-hdr.ts).
+const compositorPath = nativeBinary('hdr-gainmap-compositor');
 
 const assetId = v3.assets[0].id;
 const params = { kind: 'key', ref: 'opaque-ref', assetId };
 const realHeic = readFileSync(new URL('../resources/heic-test-set/originals/01.HEIC', import.meta.url));
 
-describe.skipIf(!hasRealCompositor)('real (unbridged) native HDR compositor + ffmpeg pipeline', () => {
+describeNativeHdr('real (unbridged) native HDR compositor + ffmpeg pipeline', { binaries: ['hdr-gainmap-compositor'], tools: ['exiftool', 'ffmpeg'] }, () => {
 	beforeEach(() => { vi.stubEnv('IMMICH_BASE_URL', 'https://immich.example'); clearHdrCache(); clearHdrMetadataCache(); });
 
 	it('produces a real, valid HEVC Main10/PQ/BT.2020 MP4 from a real Apple HDR gain-map photo', { timeout: 30_000 }, async () => {

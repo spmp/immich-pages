@@ -23,6 +23,20 @@ RUN g++ -O2 -std=c++17 -Wall -Wextra scripts/hdr-avif-encode.cpp -lavif -o /usr/
 RUN heif-convert --list-decoders | grep -q '^- libde265 ' || (echo "libheif HEVC decoder plugin missing" >&2 && exit 1)
 RUN npm run check && npm run build
 
+# The full test suite against the real HDR toolchain: the same libheif, libavif, ffmpeg and
+# compiled binaries as production, plus exiftool (the runtime image's metadata reader), so the
+# native HDR tests run instead of skipping. Not part of the production image: build it with
+#   docker build --target test --build-context tests=tests .
+# (tests/ is excluded from the main context; npm run test:isolated does this from a clean export).
+FROM build AS test
+RUN apk add --no-cache exiftool libavif-apps
+COPY --from=tests . ./tests
+RUN chown -R node:node /app
+USER node
+# Native HDR tests must run here: a missing binary or tool fails the suite rather than skipping.
+ENV CI=true TZ=UTC HDR_NATIVE_TESTS=required
+CMD ["npm", "test"]
+
 FROM node:24-alpine AS runtime
 
 RUN apk add --no-cache ffmpeg libheif libheif-libde265 libheif-tools exiftool libavif-apps libavif
