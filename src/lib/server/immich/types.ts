@@ -1,6 +1,9 @@
 import { z } from 'zod';
 
-const IdentifierSchema = z.uuidv4();
+// Any RFC 9562 UUID: Immich issues v4 today, but a move to time-ordered v7 IDs must not make
+// every share unreadable. Still strictly hex-and-dashes, so an ID is always safe in a URL path.
+export const ImmichIdSchema = z.uuid();
+const IdentifierSchema = ImmichIdSchema;
 
 
 export const AssetResponseSchema = z.object({
@@ -47,19 +50,19 @@ export const MapMarkerResponseSchema = z.object({
 export const MapMarkerResponseArraySchema = z.array(MapMarkerResponseSchema);
 export type MapMarkerResponse = z.infer<typeof MapMarkerResponseSchema>;
 
+// Only what Pages reads. Immich's other shared-link fields (id, key, slug, userId, createdAt,
+// expiresAt, allowUpload, description) are dropped rather than validated, so a release
+// that renames, removes or retypes one of them cannot stop shares loading. Built against v3.3.1;
+// tests/unit/immich-version-tolerance.test.ts holds this to fields that release guarantees.
 export const SharedLinkResponseSchema = z.object({
-	id: IdentifierSchema,
-	description: z.string().nullable(),
-	password: z.string().nullable(),
-	userId: IdentifierSchema,
-	key: z.string().min(1),
 	type: z.enum(['ALBUM', 'INDIVIDUAL']),
-	createdAt: z.string().min(1),
-	expiresAt: z.string().nullable(),
+	// Only picks the page shown (password prompt); Immich itself withholds the photos until the
+	// password is given, so an unreadable value falls back to "none" without exposing anything.
+	password: z.string().nullable().optional().catch(undefined),
 	album: z.object({
 		id: IdentifierSchema,
 		albumName: z.string(),
-		description: z.string().nullable(),
+		description: z.string().nullable().optional(),
 		albumThumbnailAssetId: IdentifierSchema.nullable().optional(),
 		startDate: z.string().max(128).nullable().optional(),
 		endDate: z.string().max(128).nullable().optional(),
@@ -69,10 +72,9 @@ export const SharedLinkResponseSchema = z.object({
 		order: z.enum(['asc', 'desc']).optional()
 	}).optional(),
 	assets: z.array(AssetResponseSchema),
-	allowUpload: z.boolean(),
-	allowDownload: z.boolean(),
-	showMetadata: z.boolean(),
-	slug: z.string().nullable()
+	// Absent means no: Pages never offers a download, or shows metadata, Immich has not allowed.
+	allowDownload: z.boolean().default(false),
+	showMetadata: z.boolean().default(false)
 });
 
 export type SharedLinkResponse = z.infer<typeof SharedLinkResponseSchema>;

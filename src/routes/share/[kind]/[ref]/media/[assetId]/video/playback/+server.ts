@@ -5,6 +5,7 @@ import { parseSharedLinkRef } from '$server/share/ref';
 import { z } from 'zod';
 import { logShareMediaStatus } from '$server/share/diagnostics';
 import { extractImmichShareToken, PAGES_SESSION_COOKIE, sessionForShare } from '$server/share/session';
+import { ImmichIdSchema } from '$server/immich/types';
 
 const MAX_VIDEO_RESPONSE_BYTES = 64 * 1024 * 1024;
 const MAX_VIDEO_RANGE_BYTES = 64 * 1024 * 1024;
@@ -73,7 +74,7 @@ async function boundedBody(response: Response, max: number, declared: number | n
 
 export const GET: RequestHandler = async ({ params, request, cookies, fetch }) => {
 	const shareRef = parseSharedLinkRef(params.kind, params.ref);
-	if (!shareRef || !z.uuidv4().safeParse(params.assetId).success) return new Response('Media not found', { status: 404 });
+	if (!shareRef || !ImmichIdSchema.safeParse(params.assetId).success) return new Response('Media not found', { status: 404 });
 	const session = sessionForShare(cookies.get(PAGES_SESSION_COOKIE), shareRef);
 	if (session.cookie) cookies.set(PAGES_SESSION_COOKIE, session.cookie.split(';')[0].split('=')[1] ?? '', { path: '/', httpOnly: true, secure: true, sameSite: 'lax', maxAge: session.token ? 86400 : 0 });
 	const token = session.token ?? extractImmichShareToken(request.headers.get('cookie'));

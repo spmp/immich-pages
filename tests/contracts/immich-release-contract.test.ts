@@ -181,11 +181,13 @@ describe('pinned Immich release contract', () => {
     expect(contract.immichAssetFields).not.toContain('thumbnailPath');
     expect(contract.immichAssetFields).not.toContain('viewPath');
     expect(contract.pagesDerivedReferences).toEqual(['thumbnail', 'view']);
-    const openApi = JSON.parse(readFileSync('/workspace/immich/open-api/immich-openapi-specs.json', 'utf8'));
-    const sharedLink = openApi.components.schemas.SharedLinkResponseDto.properties;
-    const asset = openApi.components.schemas.AssetResponseDto.properties;
-    expect(Object.keys(sharedLink)).toEqual(expect.arrayContaining(['id', 'description', 'password', 'userId', 'key', 'type', 'createdAt', 'expiresAt', 'assets', 'album', 'allowUpload', 'allowDownload', 'showMetadata', 'slug']));
-    expect(asset).not.toHaveProperty(['thumbnail', 'Path'].join(''));
-    expect(asset).not.toHaveProperty(['view', 'Path'].join(''));
+    // A vendored excerpt of the v3.3.1 OpenAPI spec, so this runs without an Immich checkout.
+    const openApi = JSON.parse(readFileSync('tests/fixtures/immich/v3.3.1/openapi-excerpt.json', 'utf8'));
+    expect(openApi.version).toBe('3.3.1');
+    const sharedLink: string[] = openApi.schemas.SharedLinkResponseDto.properties;
+    const asset: string[] = openApi.schemas.AssetResponseDto.properties;
+    expect(sharedLink).toEqual(expect.arrayContaining(['id', 'description', 'password', 'userId', 'key', 'type', 'createdAt', 'expiresAt', 'assets', 'album', 'allowUpload', 'allowDownload', 'showMetadata', 'slug']));
+    expect(asset).not.toContain(['thumbnail', 'Path'].join(''));
+    expect(asset).not.toContain(['view', 'Path'].join(''));
   });
 });

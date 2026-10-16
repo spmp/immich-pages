@@ -13,6 +13,7 @@ import { extractAppleHdrMetadata } from '$server/media/hdr-metadata';
 import { buildHdrMetadataCacheKey, getCachedHdrMetadata, getOrExtractHdrMetadata } from '$server/media/hdr-metadata-cache';
 import { probeHdrAvailability } from '$server/media/hdr-availability';
 import { boundedQueryDimension } from '$lib/media/resolution';
+import { ImmichIdSchema } from '$server/immich/types';
 
 const noStore = { 'cache-control': 'private, no-store' };
 const unavailable = () => new Response('HDR unavailable', { status: 404, headers: noStore });
@@ -27,7 +28,7 @@ export const GET: RequestHandler = async ({ params, request, cookies, fetch, loc
 	const requestStartedAt = Date.now();
 	const requestId = locals?.requestId;
 	const shareRef = parseSharedLinkRef(params.kind, params.ref);
-	if (!shareRef || !z.uuidv4().safeParse(params.assetId).success) return new Response('Media not found', { status: 404, headers: noStore });
+	if (!shareRef || !ImmichIdSchema.safeParse(params.assetId).success) return new Response('Media not found', { status: 404, headers: noStore });
 	const session = sessionForShare(cookies.get(PAGES_SESSION_COOKIE), shareRef);
 	if (session.cookie) cookies.set(PAGES_SESSION_COOKIE, session.cookie.split(';')[0].split('=')[1] ?? '', { path: '/', httpOnly: true, secure: true, sameSite: 'lax', maxAge: session.token ? 86400 : 0 });
 	const token = session.token ?? extractImmichShareToken(request.headers.get('cookie'));

@@ -8,6 +8,7 @@ import { extractImmichShareToken, PAGES_SESSION_COOKIE, sessionForShare } from '
 import { logShareMediaStatus } from '$server/share/diagnostics';
 import { convertHeicToJpeg, SdrConvertError } from '$server/media/sdr-compositor';
 import { buildSdrCacheKey, getOrCreateSdr, withSdrConcurrency } from '$server/media/sdr-cache';
+import { ImmichIdSchema } from '$server/immich/types';
 
 const HEIC_MIME_TYPES = new Set(['image/heic', 'image/heif']);
 
@@ -34,7 +35,7 @@ async function previewResponse(provider: ReturnType<typeof createImmichProvider>
 
 export const GET: RequestHandler = async ({ params, request, cookies, fetch }) => {
 	const shareRef = parseSharedLinkRef(params.kind, params.ref);
-	if (!shareRef || !z.uuidv4().safeParse(params.assetId).success) return new Response('Media not found', { status: 404 });
+	if (!shareRef || !ImmichIdSchema.safeParse(params.assetId).success) return new Response('Media not found', { status: 404 });
 	const session = sessionForShare(cookies.get(PAGES_SESSION_COOKIE), shareRef);
 	if (session.cookie) cookies.set(PAGES_SESSION_COOKIE, session.cookie.split(';')[0].split('=')[1] ?? '', { path: '/', httpOnly: true, secure: true, sameSite: 'lax', maxAge: session.token ? 86400 : 0 });
 	const token = session.token ?? extractImmichShareToken(request.headers.get('cookie'));
