@@ -43,7 +43,7 @@ describe('Phase 8 corrected prewarm release contract', () => {
 	});
 
 	it('keeps video and AVIF work independent from cache through browser promotion', () => {
-		expect(coordinator).toContain("video: 'mp4-hevc-main10-pq-bt2020'");
+		expect(coordinator).toContain("video: 'mp4-hevc-main10-pq-bt2020-w203'");
 		expect(coordinator).toContain("avif: 'avif-gainmap-p3'");
 		expect(coordinator).toContain('outputContract: HDR_OUTPUT_CONTRACT[representation]');
 		expect(videoRoute).toContain("submitInteractive");

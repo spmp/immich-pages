@@ -34,6 +34,15 @@ float source_to_linear(float value, const std::string& transfer) {
   return value <= 0.04045f ? value / 12.92f : std::pow((value + 0.055f) / 1.055f, 2.4f);
 }
 
+// Where the photo's SDR white (linear 1.0) lands in absolute PQ nits: 203, the ITU-R BT.2408
+// reference white, which the AVIF path (libavif) also uses -- so the video fallback is as bright as
+// the page around it and matches the AVIF version of the same photo. Gain-map highlights scale from
+// here (up to 203 x 8 = ~1600 nits for a 3-stop photo). Overridable at build time for tests only.
+#ifndef HDR_SDR_WHITE_NITS
+#define HDR_SDR_WHITE_NITS 203.0f
+#endif
+constexpr float kSdrWhiteNits = HDR_SDR_WHITE_NITS;
+
 float pq_encode(float nits) {
   constexpr float m1 = 2610.0f / 16384.0f, m2 = 2523.0f / 32.0f;
   constexpr float c1 = 3424.0f / 4096.0f, c2 = 2413.0f / 128.0f, c3 = 2392.0f / 128.0f;
@@ -162,7 +171,7 @@ int main(int argc, char** argv) {
       const float nr = 0.8225927f * r + 0.177533f * g, ng = 0.0331995f * r + 0.9667835f * g, nb = 0.0170853f * r + 0.0723957f * g + 0.910519f * b;
       r = nr; g = ng; b = nb;
     }
-    const uint16_t encoded[] = { static_cast<uint16_t>(std::round(pq_encode(r * 100.0f) * 65535.0f)), static_cast<uint16_t>(std::round(pq_encode(g * 100.0f) * 65535.0f)), static_cast<uint16_t>(std::round(pq_encode(b * 100.0f) * 65535.0f)) };
+    const uint16_t encoded[] = { static_cast<uint16_t>(std::round(pq_encode(r * kSdrWhiteNits) * 65535.0f)), static_cast<uint16_t>(std::round(pq_encode(g * kSdrWhiteNits) * 65535.0f)), static_cast<uint16_t>(std::round(pq_encode(b * kSdrWhiteNits) * 65535.0f)) };
     const size_t offset = (static_cast<size_t>(oy) * output_width + ox) * 3;
     std::copy(std::begin(encoded), std::end(encoded), output_rgb.begin() + offset);
   }

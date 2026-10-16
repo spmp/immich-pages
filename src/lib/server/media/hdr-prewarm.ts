@@ -15,7 +15,9 @@ import { composeHdr, decodeHdrAvifStream, encodeHdrAvif, encodeHdrMp4 } from './
 import { createHdrAssetRegistry, type HdrRegistryEntry } from './hdr-registry';
 
 export type HdrRepresentation = 'video' | 'avif';
-export const HDR_OUTPUT_CONTRACT: Record<HdrRepresentation, string> = { video: 'mp4-hevc-main10-pq-bt2020', avif: 'avif-gainmap-p3' };
+// Part of every cache key. '-w203': the video's SDR white is 203 nits (it was 100), so videos
+// converted before are not served again from either cache tier; AVIF output is unchanged.
+export const HDR_OUTPUT_CONTRACT: Record<HdrRepresentation, string> = { video: 'mp4-hevc-main10-pq-bt2020-w203', avif: 'avif-gainmap-p3' };
 export type HdrJobState = 'queued' | 'running' | 'succeeded' | 'failed' | 'skipped';
 
 export type AuthorizedHdrAsset = HdrProjectionAsset & {

@@ -38,6 +38,15 @@ describe('HDR media cache', () => {
 		expect(key).not.toMatch(/cookie|authorization|https?:/i);
 	});
 
+	// The video's SDR white moved from 100 to 203 nits: a video converted before (memory or disk
+	// tier) must not be served as the new one, while AVIF conversions, unchanged, stay valid.
+	it('does not reuse videos converted with the old 100-nit white', async () => {
+		const { HDR_OUTPUT_CONTRACT } = await import('../../src/lib/server/media/hdr-prewarm');
+		const common = { assetId: 'asset', sourceIdentity: 'etag', width: 10, height: 20 };
+		expect(buildHdrCacheKey({ ...common, outputContract: HDR_OUTPUT_CONTRACT.video })).not.toBe(buildHdrCacheKey({ ...common, outputContract: 'mp4-hevc-main10-pq-bt2020' }));
+		expect(HDR_OUTPUT_CONTRACT.avif).toBe('avif-gainmap-p3');
+	});
+
 	it('keeps video and AVIF cache identities independent', () => {
 		const common = { assetId: 'asset', sourceIdentity: 'etag', width: 10, height: 20 };
 		expect(buildHdrCacheKey({ ...common, outputContract: 'video' })).not.toBe(buildHdrCacheKey({ ...common, outputContract: 'avif' }));

@@ -85,7 +85,7 @@ export function buildHdrCacheKey(input: {
 	outputContract?: string;
 }): string {
 	const safe = (value: string) => value.replace(/[^A-Za-z0-9._:-]/g, '_').slice(0, 160);
-	return [input.version ?? HDR_CACHE_VERSION, safe(input.assetId), safe(input.sourceIdentity), input.width ?? 'auto', input.height ?? 'auto', safe(input.outputContract ?? 'mp4-hevc-main10-pq-bt2020')].join(':');
+	return [input.version ?? HDR_CACHE_VERSION, safe(input.assetId), safe(input.sourceIdentity), input.width ?? 'auto', input.height ?? 'auto', safe(input.outputContract ?? 'mp4-hevc-main10-pq-bt2020-w203')].join(':');
 }
 
 function evict(now: number): void {
