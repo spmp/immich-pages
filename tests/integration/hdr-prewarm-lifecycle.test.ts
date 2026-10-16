@@ -62,6 +62,8 @@ describe('real HDR prewarm control-route lifecycle', () => {
 		const extract = vi.spyOn(await import('../../src/lib/server/media/hdr-metadata'), 'extractAppleHdrMetadata').mockResolvedValue(metadata);
 		try {
 			await POST(event({ activeAssetId: ids[0], activePosition: 0, representation: 'video' }, fetchMock, 'poll-ref') as never);
+			// Originals are fetched by the server's queue after the response: let it finish first.
+			await vi.waitFor(() => expect(coordinator.idle()).toBe(true));
 			const callsAfterFirstPoll = extract.mock.calls.length;
 			expect(callsAfterFirstPoll).toBeGreaterThan(0);
 			await POST(event({ activeAssetId: ids[0], activePosition: 0, representation: 'video' }, fetchMock, 'poll-ref') as never);

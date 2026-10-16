@@ -6,7 +6,7 @@ import { createImmichProvider } from '$server/immich/provider';
 import { inferSafeImageMime, IMMICH_MAX_ORIGINAL_BYTES, readBoundedBytes } from '$server/immich/client';
 import { extractAppleHdrMetadata } from '$server/media/hdr-metadata';
 import { buildHdrMetadataCacheKey, getOrExtractHdrMetadata } from '$server/media/hdr-metadata-cache';
-import { getHdrInteractiveCoordinator, type AuthorizedHdrAsset, type HdrActiveAssetState, type HdrProgressSnapshot } from '$server/media/hdr-prewarm';
+import { getHdrInteractiveCoordinator, type HdrActiveAssetState, type HdrProgressSnapshot, type HdrSourceFetcher } from '$server/media/hdr-prewarm';
 import { buildHdrSourceIdentity } from '$server/media/hdr-cache';
 import { parseHdrLookahead, targetLookahead, type HdrProjectionAsset } from '$server/media/hdr-prewarm-policy';
 import { emptyHdrProgress, emitHdrProgressEvent, HDR_PREWARM_MAX_BODY_BYTES, HDR_PREWARM_MAX_GENERATION, HDR_PREWARM_MAX_POLL, HDR_PREWARM_MAX_POSITION, progressHeaders, redactHdrProgress } from '$server/media/hdr-progress';
@@ -14,11 +14,6 @@ import { operationScope, parseSharedLinkRef } from '$server/share/ref';
 import { extractImmichShareToken, PAGES_SESSION_COOKIE, sessionForShare } from '$server/share/session';
 import { logHdrPrewarmRequest } from '$server/share/diagnostics';
 import { selectTargetResolution } from '$lib/media/resolution';
-
-// How many originals one /prewarm poll fetches to schedule. The page polls every two seconds while
-// work remains, so 'all' is admitted progressively and a poll stays fast; the conversion queue
-// itself (HDR_MAX_CONCURRENT running, HDR_MAX_QUEUE waiting) still bounds the actual work.
-const PREWARM_SOURCE_BATCH = 6;
 
 const CommandSchema = z.object({
 	activeAssetId: z.string().uuid().max(64),
@@ -70,12 +65,56 @@ function projectionAsset(asset: { id: string; type: string; originalMimeType?: s
 	return { id: asset.id, position, eligible: asset.type === 'IMAGE' && (mime === 'image/heic' || mime === 'image/heif'), sourceIdentity: `${asset.id}:${mime ?? 'unknown'}:${asset.width ?? 'auto'}x${asset.height ?? 'auto'}`, width: asset.width ?? undefined, height: asset.height ?? undefined };
 }
 
-async function authorizedAssets(event: EndpointEvent, command: z.infer<typeof CommandSchema>, provider: ReturnType<typeof createImmichProvider>, context: Parameters<ReturnType<typeof createImmichProvider>['getSharedLink']>[0], scope: string): Promise<{ status: number; generation: number; assets?: AuthorizedHdrAsset[]; activeEligible?: boolean; activePosition?: number; waiting?: number; snapshot?: HdrProgressSnapshot }> {
+type Provider = ReturnType<typeof createImmichProvider>;
+type Context = Parameters<Provider['getSharedLink']>[0];
+
+/**
+ * Fetches one queued photo's original when the server's prewarm queue reaches it -- possibly after
+ * this request has ended -- with this visitor's share context. Immich authorizes every fetch, so a
+ * share revoked in the meantime yields 'revoked' and its queue is dropped.
+ */
+function sourceFetcher(provider: Provider, context: Context, projection: Map<string, HdrProjectionAsset>): HdrSourceFetcher {
+	return async (assetId) => {
+		const target = projection.get(assetId);
+		if (!target) return 'unavailable';
+		const source = await provider.getFullsizeImage(context, assetId);
+		if (source.status === 401 || source.status === 403) return 'revoked';
+		// No original to convert (a share without downloads answers 404): nothing to make for it.
+		if (source.status === 404) return 'ineligible';
+		if (!source.response?.ok) return 'unavailable';
+		try {
+			const bytes = await readBoundedBytes(source.response, IMMICH_MAX_ORIGINAL_BYTES);
+			const mime = inferSafeImageMime(bytes, source.response.headers.get('content-type'));
+			if (mime !== 'image/heif' && mime !== 'image/heic') return 'ineligible';
+			// Byte-for-byte the same header-derived identity the interactive media routes use
+			// (image/hdr, image/hdr-avif) for the same metadata cache, so exiftool runs once per photo.
+			const headerSourceIdentity = [
+				source.response.headers.get('etag'),
+				source.response.headers.get('last-modified'),
+				source.response.headers.get('content-length')
+			].filter(Boolean).join('|') || `asset-${assetId}`;
+			const metadataCacheKey = buildHdrMetadataCacheKey({ assetId, sourceIdentity: headerSourceIdentity });
+			const metadata = await getOrExtractHdrMetadata(metadataCacheKey, () => extractAppleHdrMetadata(bytes));
+			if (!metadata) { bytes.fill(0); return 'ineligible'; }
+			// Keep the prewarm key byte-for-byte compatible with both interactive media routes, bound
+			// to the same scaled target the client requests (selectTargetResolution), or a swipe
+			// would miss the cache and convert a second time.
+			const sourceIdentity = buildHdrSourceIdentity({ headers: source.response.headers, assetId, metadata, byteLength: bytes.byteLength });
+			const bounded = selectTargetResolution(target.width, target.height);
+			return { ...target, sourceIdentity, width: bounded?.width ?? target.width, height: bounded?.height ?? target.height, sourceBytes: bytes, metadata };
+		} catch {
+			await source.response.body?.cancel().catch(() => {});
+			return 'unavailable';
+		}
+	};
+}
+
+async function queueShare(command: z.infer<typeof CommandSchema>, provider: Provider, context: Context, scope: string): Promise<{ status: number; generation: number; activeEligible?: boolean; targetedAssetIds?: string[]; snapshot?: HdrProgressSnapshot }> {
 	const coordinator = getHdrInteractiveCoordinator();
 	const generation = coordinator.getScopedGeneration(scope);
 	if (command.generation !== undefined && command.generation !== generation) return { status: 409, generation, snapshot: emptyHdrProgress(generation, command.representation, 'partial') };
 	const share = await provider.getSharedLink(context);
-	if (share.status === 401 || share.status === 403) return { status: 403, generation };
+	if (share.status === 401 || share.status === 403) { coordinator.dropSources(scope); return { status: 403, generation }; }
 	if (!share.data || share.data.type !== 'ALBUM' || !share.data.album) return { status: share.status === 404 ? 404 : 422, generation };
 	const sourceAssets = share.data.assets;
 	// Located by ID, with the page's position only as a hint: two Immich calls can return photos
@@ -86,9 +125,7 @@ async function authorizedAssets(event: EndpointEvent, command: z.infer<typeof Co
 		: sourceAssets.findIndex((asset) => asset.id === command.activeAssetId);
 	if (activePosition < 0) return { status: 400, generation, snapshot: emptyHdrProgress(generation, command.representation, 'partial') };
 	const projection = sourceAssets.map((asset, position) => projectionAsset(asset, position));
-	// Per-asset readiness (root_cause (3), hdr-caching-uat-20261010): the viewer's own active asset
-	// may simply not be an HDR candidate at all (not HEIC/HEIF) -- that must report 'ineligible'
-	// up front, distinct from 'unavailable' (eligible but this specific fetch/extraction failed).
+	// The open photo may simply not be an HDR candidate (not HEIC/HEIF): reported 'ineligible'.
 	const activeEligible = projection[activePosition]?.eligible ?? false;
 	const lookahead = parseHdrLookahead();
 	// From the open photo forward; for 'all', then round to the photos before it, so the whole
@@ -96,58 +133,12 @@ async function authorizedAssets(event: EndpointEvent, command: z.infer<typeof Co
 	const targets = lookahead !== 0 && lookahead.kind === 'all'
 		? [...targetLookahead(projection, activePosition, lookahead), ...projection.filter((asset) => asset.eligible && asset.position < activePosition)]
 		: targetLookahead(projection, activePosition, lookahead);
-	// Only photos not already queued, converting, converted or known to have no HDR data need their
-	// original fetched -- and only a few per poll: the page polls every two seconds while there is
-	// work, so a large album is admitted progressively instead of one request downloading every
-	// original (holding them all in memory) before anything can start.
-	const scopeTargets = targets.filter((target) => !coordinator.isIneligible(scope, target.id));
-	const needing = scopeTargets.filter((target) => coordinator.needsSource(scope, target.id, command.representation));
-	const batch = needing.slice(0, PREWARM_SOURCE_BATCH);
-	const assets: AuthorizedHdrAsset[] = [];
-	for (const target of batch) {
-		const source = await provider.getFullsizeImage(context, target.id);
-		if (source.status === 401 || source.status === 403) return { status: 403, generation };
-		if (!source.response?.ok) continue;
-		try {
-			const bytes = await readBoundedBytes(source.response, IMMICH_MAX_ORIGINAL_BYTES);
-			const mime = inferSafeImageMime(bytes, source.response.headers.get('content-type'));
-			if (mime !== 'image/heif' && mime !== 'image/heic') { coordinator.markIneligible(scope, target.id); continue; }
-			// Byte-for-byte the same header-derived identity the interactive media routes use
-			// (image/hdr, image/hdr-avif) for the SAME cache -- confirmed hdr-caching-uat-20261010:
-			// before this fix, this background loop called extractAppleHdrMetadata() directly,
-			// bypassing hdr-metadata-cache.ts entirely. Every prewarm poll (fired repeatedly by the
-			// client, and again fresh on every page reload) re-spawned exiftool for every asset in
-			// its lookahead window, with no memoization at all -- the dominant cause of the exiftool
-			// load observed during manual real-backend UAT, not merely per-call cost.
-			const headerSourceIdentity = [
-				source.response.headers.get('etag'),
-				source.response.headers.get('last-modified'),
-				source.response.headers.get('content-length')
-			].filter(Boolean).join('|') || `asset-${target.id}`;
-			const metadataCacheKey = buildHdrMetadataCacheKey({ assetId: target.id, sourceIdentity: headerSourceIdentity });
-			const metadata = await getOrExtractHdrMetadata(metadataCacheKey, () => extractAppleHdrMetadata(bytes));
-			if (metadata) {
-				// Keep the prewarm key byte-for-byte compatible with both interactive media
-				// routes. A MIME/dimension identity is not equivalent to the media route's
-				// upstream identity and silently causes a second conversion on swipe.
-				const sourceIdentity = buildHdrSourceIdentity({ headers: source.response.headers, assetId: target.id, metadata, byteLength: bytes.byteLength });
-				// Bound to the SAME scaled target the interactive route's client computes via
-				// selectTargetResolution before it ever sends a ?width=/?height= query -- keying
-				// on the raw Immich asset dimensions here only coincided with the interactive
-				// route's key while the source stayed under 8192px/32MP, where scale is exactly 1.
-				// Any larger source would otherwise permanently miss. See hdr-caching-uat-20261010
-				// finding 5.
-				const bounded = selectTargetResolution(target.width, target.height);
-				assets.push({ ...target, sourceIdentity, width: bounded?.width ?? target.width, height: bounded?.height ?? target.height, sourceBytes: bytes, metadata });
-			}
-			else { bytes.fill(0); coordinator.markIneligible(scope, target.id); }
-		} catch {
-			await source.response.body?.cancel().catch(() => {});
-		}
-	}
-	// Photos still waiting for a later poll: reported as queued so the page keeps polling.
-	const waiting = needing.length - batch.length;
-	return { status: 200, generation, assets, activeEligible, activePosition, waiting };
+	// Queued on the server, in this order, and fetched there a few at a time: this request answers
+	// at once, the work carries on after the page is left, and other shares' queues take turns
+	// with this one. Photos already queued, converting, converted or without HDR data are skipped.
+	const targetedAssetIds = targets.map((target) => target.id);
+	coordinator.queueSources(scope, command.representation, targetedAssetIds, sourceFetcher(provider, context, new Map(targets.map((target) => [target.id, target]))));
+	return { status: 200, generation, activeEligible, targetedAssetIds };
 }
 
 export const POST: RequestHandler = async (event) => {
@@ -171,40 +162,30 @@ export const POST: RequestHandler = async (event) => {
 	const context = requestContext(event, shareRef);
 	const coordinator = getHdrInteractiveCoordinator();
 	try {
-		const result = await authorizedAssets(event, command, createImmichProvider(event.fetch), context, operationScope(shareRef));
+		const scope = operationScope(shareRef);
+		const result = await queueShare(command, createImmichProvider(event.fetch), context, scope);
 		if (result.status !== 200) {
 			if (result.status === 403) event.cookies.set(PAGES_SESSION_COOKIE, '', { path: '/', httpOnly: true, secure: true, sameSite: 'lax', maxAge: 0 });
 			logHdrPrewarmRequest({ status: result.status, activePosition: command.activePosition, activeAssetId: command.activeAssetId });
 			return response(result.snapshot ?? emptyHdrProgress(result.generation, command.representation, 'partial'), result.status);
 		}
-		const scope = operationScope(shareRef);
-		const assets = result.assets ?? [];
-		// 'all' here targets exactly the (already window-bounded) assets authorizedAssets() fetched
-		// -- not a second, independent lookahead decision. See hdr-caching-uat-20261010 evidence
-		// 2026-10-10T22:33:00Z on why a second cap here would be an inert passthrough either way.
-		const scheduled = coordinator.schedule({ assets, activePosition: -1, lookahead: { kind: 'all' }, generation: result.generation, scope }, command.representation, 'background');
-		const waiting = result.waiting ?? 0;
-		const snapshot = waiting > 0 ? { ...scheduled, state: 'preparing' as const, targeted: scheduled.targeted + waiting, queued: scheduled.queued + waiting } : scheduled;
+		const snapshot = coordinator.snapshot(result.generation, command.representation, scope);
 		const requestId = event.locals?.requestId;
 		if (snapshot.queued > 0) emitHdrProgressEvent('queued', command.representation, requestId);
 		if (snapshot.running > 0) emitHdrProgressEvent('started', command.representation, requestId);
 		if (snapshot.completed > 0) emitHdrProgressEvent('completed', command.representation, requestId);
 		if (snapshot.failed > 0) emitHdrProgressEvent('failed', command.representation, requestId);
 		if (snapshot.skipped > 0) emitHdrProgressEvent('skipped', command.representation, requestId);
-		// Per-asset readiness (root_cause (3)): the status of the ONE asset the viewer currently
-		// has open, independent of the aggregate window's own terminal/partial/preparing math --
-		// see resolveHdrReadiness in hdr-readiness.ts, which treats this as the primary signal.
+		// The status of the one photo the viewer has open, independent of the whole prewarm's state
+		// (see resolveHdrReadiness in hdr-readiness.ts, which treats this as the primary signal).
 		let activeAssetState: HdrActiveAssetState;
-		if (!result.activeEligible) {
+		if (!result.activeEligible || coordinator.isIneligible(scope, command.activeAssetId)) {
 			activeAssetState = 'ineligible';
 		} else {
-			// Direct O(1) registry lookup, not a cache-key reconstruction -- see activeState()'s own
-			// contract and hdr-caching-uat-20261010 root_cause (1)/CR-01. The open photo may have
-			// been scheduled by an earlier poll, so it is looked up whether or not this poll fetched it.
-			const state = coordinator.isIneligible(scope, command.activeAssetId) ? 'ineligible' : coordinator.activeState(scope, command.activeAssetId, command.representation);
-			activeAssetState = state === 'none' ? (result.waiting ? 'queued' : 'unavailable') : state;
+			const state = coordinator.activeState(scope, command.activeAssetId, command.representation);
+			activeAssetState = state === 'none' ? (snapshot.queued > 0 ? 'queued' : 'unavailable') : state;
 		}
-		logHdrPrewarmRequest({ status: 200, activePosition: command.activePosition, activeAssetId: command.activeAssetId, targetedAssetIds: assets.map((asset) => asset.id), activeAssetState });
+		logHdrPrewarmRequest({ status: 200, activePosition: command.activePosition, activeAssetId: command.activeAssetId, targetedAssetIds: result.targetedAssetIds, activeAssetState });
 		return response({ ...snapshot, activeAssetState });
 	} catch {
 		logHdrPrewarmRequest({ status: 502, activePosition: command.activePosition, activeAssetId: command.activeAssetId });

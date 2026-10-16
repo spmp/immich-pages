@@ -22,7 +22,7 @@ describe('Phase 8 corrected prewarm release contract', () => {
 		// comment-text-discipline anti-pattern named in hdr-caching-uat-20261010).
 		expect(pageLoad).not.toContain('prepareAuthorizedHdrSources');
 		expect(pageLoad).not.toContain('hdr-prewarm-source');
-		expect(controlRoute).toContain('coordinator.schedule(');
+		expect(controlRoute).toContain('coordinator.queueSources(');
 		expect(controlRoute).toContain('share.data.assets');
 		// The open photo's position is resolved by ID on the server (activePosition), not taken on trust.
 		expect(controlRoute).toContain('targetLookahead(projection, activePosition, lookahead)');

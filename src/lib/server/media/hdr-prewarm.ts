@@ -3,6 +3,7 @@ import {
 	getCachedHdr,
 	hasCachedHdr,
 	hdrQueueHasRoom,
+	HDR_MAX_CONCURRENT,
 	getOrCreateHdr,
 	withHdrConcurrency,
 	type CachedMedia,
@@ -97,6 +98,15 @@ function safeReason(error: unknown): string {
 // frequent enough not to leave a slot idle and rare enough to cost nothing.
 const QUEUE_ROOM_POLL_MS = 250;
 
+/**
+ * Fetches one photo's original (re-authorized against Immich at that moment) and prepares it for
+ * conversion. 'ineligible': the photo has no HDR version to make (no HDR data, not HEIC, or the
+ * share does not allow the original). 'revoked': Immich no longer authorizes the share.
+ */
+export type HdrSourceFetcher = (assetId: string) => Promise<AuthorizedHdrAsset | 'ineligible' | 'unavailable' | 'revoked'>;
+
+type PendingShare = { representation: HdrRepresentation; order: string[]; fetch: HdrSourceFetcher };
+
 export class HdrPrewarmCoordinator {
 	private readonly registry = createHdrAssetRegistry();
 	// inspectSourceBytes() needs to sum retained source bytes across both representations; the
@@ -109,6 +119,14 @@ export class HdrPrewarmCoordinator {
 	private generation = 0;
 	private readonly scopedGenerations = new Map<string, number>();
 	private readonly ineligible = new Map<string, Set<string>>();
+	// Photos waiting for their original to be fetched, per share and representation, in the order
+	// they should be converted. Shares take turns (round robin), so a large album opened first
+	// does not hold back one opened later.
+	private readonly pending = new Map<string, PendingShare>();
+	private rotation: string[] = [];
+	private sourcesInFlight = 0;
+	private readonly fetching = new Map<string, number>();
+	private pumpTimer: ReturnType<typeof setTimeout> | undefined;
 	private readonly maxAttempts: number;
 
 	constructor(private readonly options: HdrPrewarmOptions) {
@@ -215,6 +233,88 @@ export class HdrPrewarmCoordinator {
 		}
 	}
 
+	/**
+	 * Queue every photo of a share that still needs converting, on the server, independent of the
+	 * page that asked: work continues after the visitor leaves, and another share's photos are
+	 * added alongside rather than replacing them. A later call (the page polling, or the visitor
+	 * moving to another photo) re-orders the share's queue from its new position and refreshes the
+	 * fetcher, so originals are always fetched with the most recent visitor's authorization.
+	 *
+	 * The fetcher holds that share's link (and session token, if any) in memory until its queued
+	 * photos have been fetched; nothing is written to disk, and Immich re-checks authorization on
+	 * every fetch, so a revoked share empties its own queue.
+	 */
+	queueSources(scope: string, representation: HdrRepresentation, assetIds: string[], fetch: HdrSourceFetcher): void {
+		const key = `${scope}|${representation}`;
+		const order = assetIds.filter((id) => this.needsSource(scope, id, representation));
+		if (!order.length) { this.pending.delete(key); this.rotation = this.rotation.filter((entry) => entry !== key); return; }
+		this.pending.set(key, { representation, order, fetch });
+		if (!this.rotation.includes(key)) this.rotation.push(key);
+		this.pumpSources();
+	}
+
+	/** Stop fetching queued photos (tests, shutdown); work already holding an original finishes. */
+	dispose(): void {
+		this.pending.clear();
+		this.rotation = [];
+		if (this.pumpTimer) clearTimeout(this.pumpTimer);
+		this.pumpTimer = undefined;
+	}
+
+	/** True once nothing is queued, being fetched, or holding an original. */
+	idle(): boolean {
+		return !this.rotation.length && this.sourcesInFlight === 0 && this.heldSources() === 0;
+	}
+
+	/** Forget a share's queued photos (Immich no longer authorizes it). */
+	dropSources(scope: string): void {
+		for (const key of [...this.pending.keys()]) if (key.slice(0, key.lastIndexOf('|')) === scope) this.pending.delete(key);
+		this.rotation = this.rotation.filter((key) => this.pending.has(key));
+	}
+
+	private heldSources(): number {
+		let held = 0;
+		for (const entry of this.trackedEntries) if (entry.source && !entry.source.released && entry.source.bytes.byteLength > 0) held += 1;
+		return held;
+	}
+
+	/** Photos of this share still waiting for their original to be fetched. */
+	pendingSources(scope: string, representation: HdrRepresentation): number {
+		const key = `${scope}|${representation}`;
+		return (this.pending.get(key)?.order.length ?? 0) + (this.fetching.get(key) ?? 0);
+	}
+
+	private pumpSources(): void {
+		// Originals held in memory (being fetched, waiting for a slot, or converting) stay at about
+		// twice the conversion concurrency however many photos are queued: enough that a slot never
+		// sits idle waiting for a download, no more.
+		while (this.rotation.length && this.sourcesInFlight < HDR_MAX_CONCURRENT && this.heldSources() + this.sourcesInFlight < HDR_MAX_CONCURRENT * 2) {
+			const key = this.rotation.shift()!;
+			const share = this.pending.get(key);
+			if (!share || !share.order.length) { this.pending.delete(key); continue; }
+			const assetId = share.order.shift()!;
+			const scope = key.slice(0, key.lastIndexOf('|'));
+			if (share.order.length) this.rotation.push(key); else this.pending.delete(key);
+			if (!this.needsSource(scope, assetId, share.representation)) continue;
+			this.sourcesInFlight += 1;
+			this.fetching.set(key, (this.fetching.get(key) ?? 0) + 1);
+			void share.fetch(assetId).then((result) => {
+				if (result === 'revoked') this.dropSources(scope); else if (result === 'ineligible') {
+					this.markIneligible(scope, assetId);
+				} else if (result !== 'unavailable') {
+					this.enqueue(result, share.representation, 'background', scope);
+				}
+			}).catch(() => {}).finally(() => {
+				this.sourcesInFlight -= 1;
+				const left = (this.fetching.get(key) ?? 1) - 1;
+				if (left > 0) this.fetching.set(key, left); else this.fetching.delete(key);
+				this.pumpSources();
+			});
+		}
+		// Blocked only by conversions still waiting: look again shortly.
+		if (this.rotation.length && !this.pumpTimer) this.pumpTimer = setTimeout(() => { this.pumpTimer = undefined; this.pumpSources(); }, QUEUE_ROOM_POLL_MS);
+	}
+
 	/** Remember, per share, a photo found to have no HDR data, so it is not fetched again. */
 	markIneligible(scope: string, assetId: string): void {
 		let set = this.ineligible.get(scope);
@@ -234,12 +334,16 @@ export class HdrPrewarmCoordinator {
 		const queued = entries.filter((entry) => entry.status === 'pending').length;
 		const running = entries.filter((entry) => entry.status === 'converting').length;
 		const terminal = completed + failed + skipped;
+		// Photos queued on the server but not yet fetched count as queued work.
+		const waiting = this.pendingSources(scope, representation);
 		return {
 			generation,
 			representation,
-			state: terminal < entries.length ? 'preparing' : failed + skipped > 0 ? 'partial' : 'ready',
-			targeted: entries.length,
-			queued,
+			// 'skipped' is superseded work (a newer generation took over), not a failure: only real
+			// failures make a finished prewarm 'partial'.
+			state: terminal < entries.length || waiting > 0 ? 'preparing' : failed > 0 ? 'partial' : 'ready',
+			targeted: entries.length + waiting,
+			queued: queued + waiting,
 			running,
 			completed,
 			failed,
@@ -362,6 +466,7 @@ export class HdrPrewarmCoordinator {
 			rejectResult(new Error(`hdr-${outcome}`));
 		}
 		this.options.onComplete?.(this.snapshot(entry.generation, entry.representation, entry.scope));
+		this.pumpSources();
 	}
 
 	private releaseRegistryEntry(entry: DecoratedEntry): void {

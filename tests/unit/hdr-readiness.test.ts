@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { resolveHdrReadiness } from '../../src/lib/media/hdr-readiness';
+import { resolveHdrReadiness, resolveHdrReadinessState } from '../../src/lib/media/hdr-readiness';
 
 const preparing = { state: 'preparing' as const, targeted: 2, queued: 0, running: 0, completed: 0, failed: 0, skipped: 0 };
 
@@ -40,8 +40,14 @@ describe('HDR readiness reports the whole prewarm', () => {
 		expect(resolveHdrReadiness({ ...preparing, state: 'ready', targeted: 10, completed: 9, running: 1 }, { supported: true }).state).toBe('preparing');
 		expect(resolveHdrReadiness({ ...preparing, state: 'ready', targeted: 10, completed: 10, queued: 1 }, { supported: true }).state).toBe('preparing');
 	});
-	it('is partial, not ready, when the prewarm finished with failures or skips', () => {
+	it('is partial, not ready, when the prewarm finished with failures', () => {
 		expect(resolveHdrReadiness({ ...preparing, targeted: 10, completed: 8, failed: 1, skipped: 1, activeAssetState: 'succeeded' }, { supported: true }).state).toBe('partial');
+	});
+	// Production 2026-10-15: every photo converted, yet the dot was orange -- work superseded by a
+	// newer prewarm (the visitor moved on) was counted as 'skipped' and treated as a failure.
+	it('is ready when the only unconverted work was superseded (skipped), not failed', () => {
+		expect(resolveHdrReadiness({ ...preparing, targeted: 10, completed: 9, skipped: 1 }, { supported: true }).state).toBe('ready');
+		expect(resolveHdrReadinessState({ targeted: 10, completed: 9, failed: 0, skipped: 1 }, { supported: true })).toBe('ready');
 	});
 	it('still reports unsupported/control-failure ahead of the counts', () => {
 		expect(resolveHdrReadiness({ ...preparing, completed: 2 }, { supported: false }).state).toBe('ready');

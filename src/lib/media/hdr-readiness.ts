@@ -21,7 +21,7 @@ export type HdrReadinessProgress = {
  * The indicator reports the PREWARM as a whole: it is only visible on the share page itself,
  * never over the lightbox, so there is no single photo for it to describe. 'ready' means every
  * conversion the prewarm targeted (the configured lookahead, or the whole album for 'all') has
- * finished and nothing is queued or running for it; 'partial' means it finished with failures.
+ * finished and nothing is queued or running for it; 'partial' means it finished with failures (superseded, 'skipped', work is not a failure).
  *
  * This supersedes hdr-caching-uat-20261010 root_cause (3), which made the server's per-photo
  * activeAssetState the primary signal. That turned the dot green as soon as one photo was done
@@ -40,13 +40,15 @@ export function resolveHdrReadiness(
 	// label and counts disagree can only ever err towards "still working".
 	const terminal = progress.completed + progress.failed + progress.skipped;
 	if (terminal < progress.targeted || progress.queued > 0 || progress.running > 0) return { ...progress, state: 'preparing' };
-	return { ...progress, state: progress.failed + progress.skipped > 0 ? 'partial' : 'ready' };
+	// 'skipped' is work a newer prewarm took over (the visitor moved on, or a second visit
+	// started), never a photo left without HDR: only real failures make it 'partial'.
+	return { ...progress, state: progress.failed > 0 ? 'partial' : 'ready' };
 }
 
 export function resolveHdrReadinessState(progress: Pick<HdrReadinessProgress, 'targeted' | 'completed' | 'failed' | 'skipped'> | undefined, options: { supported: boolean }): HdrReadinessState {
 	if (!options.supported) return 'unsupported';
 	if (!progress || progress.targeted === 0) return 'empty';
 	return progress.completed + progress.failed + progress.skipped >= progress.targeted
-		? progress.failed + progress.skipped > 0 ? 'partial' : 'ready'
+		? progress.failed > 0 ? 'partial' : 'ready'
 		: 'preparing';
 }

@@ -40,7 +40,8 @@ describe('authorized HDR prewarm control plane', () => {
 		const metadata = await import('../../src/lib/server/media/hdr-metadata');
 		const extract = vi.spyOn(metadata, 'extractAppleHdrMetadata').mockResolvedValue({ version: '1.0', auxiliaryType: 'urn:com:apple:photo:2020:aux:hdrgainmap', makerNote33: 0.8, makerNote48: 0.4, headroom: 1.8, hdrGain: 1.25, sourceProfile: 'display-p3', sourceTransfer: 'srgb', orientation: 1 });
 		const coordinator = getHdrInteractiveCoordinator();
-		const schedule = vi.spyOn(coordinator, 'schedule').mockReturnValue({ generation: coordinator.getGeneration(), representation: 'video', state: 'preparing', targeted: 1, queued: 1, running: 0, completed: 0, failed: 0, skipped: 0 });
+		// Originals are fetched by the server's queue after the response; capture its fetcher to run it here.
+		const queueSources = vi.spyOn(coordinator, 'queueSources').mockImplementation(() => {});
 
 		const response = await POST(event({ activeAssetId, activePosition: 0, representation: 'video' }, fetchMock) as never);
 		expect(response.status).toBe(200);
@@ -48,11 +49,14 @@ describe('authorized HDR prewarm control plane', () => {
 		// activeAssetId here is position 0, the jpeg -- not an HDR candidate at all. Per-asset
 		// readiness (hdr-caching-uat-20261010 root_cause (3)) must report that directly rather than
 		// leaving the viewer's own dot keyed to the unrelated eligible target's progress.
-		expect(await response.json()).toEqual(expect.objectContaining({ representation: 'video', targeted: 1, activeAssetState: 'ineligible' }));
-		expect(schedule).toHaveBeenCalledWith(expect.objectContaining({ assets: [expect.objectContaining({ id: targetAssetId, sourceBytes: expect.any(Uint8Array) })] }), 'video', 'background');
+		expect(await response.json()).toEqual(expect.objectContaining({ representation: 'video', activeAssetState: 'ineligible' }));
+		// Only the eligible HEIC is queued; its original is fetched (with this visitor's context) when the queue reaches it.
+		expect(queueSources).toHaveBeenCalledWith(expect.any(String), 'video', [targetAssetId], expect.any(Function));
+		const fetchSource = queueSources.mock.calls[0][3];
+		expect(await fetchSource(targetAssetId)).toEqual(expect.objectContaining({ id: targetAssetId, sourceBytes: expect.any(Uint8Array) }));
 		expect(fetchMock).toHaveBeenCalledWith(expect.any(URL), expect.anything());
 		expect(extract).toHaveBeenCalledWith(source);
-		schedule.mockRestore();
+		queueSources.mockRestore();
 		extract.mockRestore();
 	});
 
@@ -76,12 +80,14 @@ describe('authorized HDR prewarm control plane', () => {
 		const metadata = await import('../../src/lib/server/media/hdr-metadata');
 		const extract = vi.spyOn(metadata, 'extractAppleHdrMetadata').mockResolvedValue({ version: '1.0', auxiliaryType: 'urn:com:apple:photo:2020:aux:hdrgainmap', makerNote33: 0.8, makerNote48: 0.4, headroom: 1.8, hdrGain: 1.25, sourceProfile: 'display-p3', sourceTransfer: 'srgb', orientation: 1 });
 		const coordinator = getHdrInteractiveCoordinator();
-		const schedule = vi.spyOn(coordinator, 'schedule').mockReturnValue({ generation: coordinator.getGeneration(), representation: 'video', state: 'preparing', targeted: 1, queued: 1, running: 0, completed: 0, failed: 0, skipped: 0 });
+		// Originals are fetched by the server's queue after the response; capture its fetcher to run it here.
+		const queueSources = vi.spyOn(coordinator, 'queueSources').mockImplementation(() => {});
 
 		const response = await POST(event({ activeAssetId: targetAssetId, activePosition: 0, representation: 'video' }, fetchMock) as never);
 		expect(response.status).toBe(200);
-		expect(schedule).toHaveBeenCalledWith(expect.objectContaining({ assets: [expect.objectContaining({ id: targetAssetId, width: expectedTarget?.width, height: expectedTarget?.height })] }), 'video', 'background');
-		schedule.mockRestore();
+		const fetchSource = queueSources.mock.calls[0][3];
+		expect(await fetchSource(targetAssetId)).toEqual(expect.objectContaining({ id: targetAssetId, width: expectedTarget?.width, height: expectedTarget?.height }));
+		queueSources.mockRestore();
 		extract.mockRestore();
 	});
 
@@ -93,9 +99,14 @@ describe('authorized HDR prewarm control plane', () => {
 			// The album lookup succeeds but this specific asset's own original-image fetch fails.
 			return new Response(null, { status: 500 });
 		});
+		const coordinator = getHdrInteractiveCoordinator();
+		const queueSources = vi.spyOn(coordinator, 'queueSources').mockImplementation(() => {});
 		const response = await POST(event({ activeAssetId: targetAssetId, activePosition: 0, representation: 'video' }, fetchMock) as never);
 		expect(response.status).toBe(200);
 		expect(await response.json()).toEqual(expect.objectContaining({ targeted: 0, activeAssetState: 'unavailable' }));
+		// A failed fetch is 'unavailable' (tried again on the next poll), not 'ineligible' (never again).
+		expect(await queueSources.mock.calls[0][3](targetAssetId)).toBe('unavailable');
+		queueSources.mockRestore();
 	});
 
 	// hdr-caching-uat-20261010 finding 6b: the user explicitly asked for more server-side logging
@@ -127,17 +138,17 @@ describe('authorized HDR prewarm control plane', () => {
 	});
 
 	it('rejects unauthorized shares, arbitrary IDs, and client asset lists before scheduling', async () => {
-		const schedule = vi.spyOn(getHdrInteractiveCoordinator(), 'schedule');
+		const queueSources = vi.spyOn(getHdrInteractiveCoordinator(), 'queueSources');
 		const unauthorizedFetch = vi.fn(async () => new Response(null, { status: 401 }));
 		const unauthorized = await POST(event({ activeAssetId, activePosition: 0, representation: 'video' }, unauthorizedFetch) as never);
 		expect(unauthorized.status).toBe(403);
-		expect(schedule).not.toHaveBeenCalled();
+		expect(queueSources).not.toHaveBeenCalled();
 
 		const shareFetch = vi.fn(async (input: URL | RequestInfo) => new Response(new URL(input.toString()).pathname.endsWith('/me') ? JSON.stringify(v3) : new Uint8Array([1])));
 		const arbitrary = await POST(event({ activeAssetId: '66666666-6666-4666-8666-666666666666', activePosition: 0, representation: 'video', assetIds: [targetAssetId] }, shareFetch) as never);
 		expect(arbitrary.status).toBe(400);
-		expect(schedule).not.toHaveBeenCalled();
-		schedule.mockRestore();
+		expect(queueSources).not.toHaveBeenCalled();
+		queueSources.mockRestore();
 	});
 
 	it('bounds malformed and oversized control bodies without touching the provider', async () => {

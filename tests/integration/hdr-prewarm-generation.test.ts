@@ -21,6 +21,8 @@ describe('HDR prewarm generation boundary', () => {
 		resolve({ body: new Uint8Array([1]), contentType: 'video/mp4' });
 		await vi.waitFor(() => expect(coordinator.inspectSourceBytes()).toBe(0));
 		expect(coordinator.getGeneration()).toBe(nextGeneration);
-		expect(coordinator.snapshot(0, 'video').state).toBe('partial');
+		// The stale result is discarded and the work counted as superseded ('skipped'), which is not
+		// a failure: the old generation reads as settled, not partial (orange).
+		expect(coordinator.snapshot(0, 'video')).toMatchObject({ state: 'ready', completed: 0, skipped: 1 });
 	});
 });
