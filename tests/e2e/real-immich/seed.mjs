@@ -245,7 +245,9 @@ async function ensureAlbum(accessToken, name, assetIds, order, description = DEF
 async function ensureUnauthenticatedSharedLink(accessToken, albumId, albumName, slug) {
   console.log(`[seed] ensuring unauthenticated shared link for album "${albumName}" (slug=${slug})...`);
   const links = await api('/shared-links', { accessToken });
-  const existing = links.find((link) => link.album?.id === albumId);
+  // Prefer the link that already carries the slug: an album can have other links (say, one made
+  // by hand to test a no-download share), and re-slugging one of those collides with this one.
+  const existing = links.find((link) => link.album?.id === albumId && link.slug === slug) ?? links.find((link) => link.album?.id === albumId);
   if (existing) {
     if (existing.slug !== slug) {
       await api(`/shared-links/${existing.id}`, { method: 'PATCH', accessToken, body: { slug } });
