@@ -1,0 +1,136 @@
+name: Release
+
+# Pull requests into main: run the checks and tests (also against the real HDR toolchain), and build the image (amd64) without
+# publishing it, so a PR shows whether it would release cleanly.
+#
+# Every push to main: run the checks and tests, then build the image for amd64 and arm64 and
+# publish it to GitHub Container Registry as `latest` and `sha-<commit>`. When the version in
+# package.json has no release yet, also tag v<version>, publish <version>, <major>.<minor> and
+# <major>, and create a GitHub release with generated notes. To cut a release, bump the version.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  # Pushes to main queue one after another; a newer push to the same PR replaces the older run.
+  group: ${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || 'release' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run check
+      - run: npm test
+      - run: npm run build
+
+  # The whole suite again inside the Dockerfile's `test` stage: the production image's Alpine
+  # base, libheif, libavif, ffmpeg, exiftool and compiled HDR binaries, so the native HDR tests
+  # run here instead of skipping. Same as `npm run test:isolated` on a development machine.
+  test-hdr:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: test
+          build-contexts: tests=tests
+          tags: immich-pages-test:ci
+          load: true
+          push: false
+          cache-from: type=gha
+      - run: docker run --rm --network none immich-pages-test:ci
+
+  # Pull requests only: prove the image builds. Nothing is published and no secrets are used.
+  image-check:
+    if: github.event_name == 'pull_request'
+    needs: [test, test-hdr]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64
+          push: false
+          cache-from: type=gha
+
+  image:
+    if: github.event_name != 'pull_request'
+    needs: [test, test-hdr]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Decide whether this push is a release
+        id: version
+        run: |
+          version=$(node -p "require('./package.json').version")
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          if git rev-parse -q --verify "refs/tags/v$version" >/dev/null; then
+            echo "release=false" >> "$GITHUB_OUTPUT"
+            echo "v$version already exists: publishing latest and sha tags only."
+          else
+            echo "release=true" >> "$GITHUB_OUTPUT"
+            echo "v$version is new: this run creates the release."
+          fi
+
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=raw,value=latest
+            type=sha,prefix=sha-
+            type=semver,pattern={{version}},value=v${{ steps.version.outputs.version }},enable=${{ steps.version.outputs.release }}
+            type=semver,pattern={{major}}.{{minor}},value=v${{ steps.version.outputs.version }},enable=${{ steps.version.outputs.release }}
+            type=semver,pattern={{major}},value=v${{ steps.version.outputs.version }},enable=${{ steps.version.outputs.release }}
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Create the GitHub release
+        if: steps.version.outputs.release == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          # Notes are generated from the commits and pull requests since the previous release.
+          gh release create "v$VERSION" --target "$GITHUB_SHA" --title "v$VERSION" --generate-notes

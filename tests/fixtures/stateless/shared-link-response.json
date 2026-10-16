@@ -1,0 +1,39 @@
+{
+  "id": "550e8400-e29b-41d4-a716-446655440000",
+  "description": null,
+  "password": null,
+  "userId": "550e8400-e29b-41d4-a716-446655440001",
+  "key": "stateless-fixture",
+  "type": "ALBUM",
+  "createdAt": "2026-01-01T00:00:00.000Z",
+  "expiresAt": null,
+  "album": {
+    "id": "550e8400-e29b-41d4-a716-446655440003",
+    "albumName": "Recreated Journey",
+    "description": "---\nimmich-presentation:\n  type: journey\n  version: 1\n---\nRecreated safely.",
+    "albumThumbnailAssetId": "550e8400-e29b-41d4-a716-446655440002",
+    "startDate": "2026-01-01T00:00:00.000Z",
+    "endDate": "2026-01-02T00:00:00.000Z",
+    "updatedAt": "2026-01-02T00:00:00.000Z",
+    "assetCount": 1
+  },
+  "assets": [
+    {
+      "id": "550e8400-e29b-41d4-a716-446655440002",
+      "type": "IMAGE",
+      "originalFileName": "recreated.jpg",
+      "originalMimeType": "image/jpeg",
+      "localDateTime": "2026-01-01T12:00:00.000Z",
+      "createdAt": "2026-01-01T12:00:00.000Z",
+      "duration": null,
+      "livePhotoVideoId": null,
+      "hasMetadata": true,
+      "width": 1200,
+      "height": 800
+    }
+  ],
+  "allowUpload": false,
+  "allowDownload": false,
+  "showMetadata": true,
+  "slug": null
+}

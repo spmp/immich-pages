@@ -1,0 +1,22 @@
+{
+  "emptyAssets": {
+    "album": {
+      "id": "album-empty",
+      "albumName": "Empty Journey",
+      "description": "---\nimmich-presentation:\n  type: journey\n  version: 1\n---"
+    },
+    "assets": [],
+    "showMetadata": false,
+    "allowDownload": false
+  },
+  "passwordRequired": {
+    "album": { "id": "album-password", "description": "---\nimmich-presentation:\n  type: journey\n  version: 1\n---" },
+    "assets": [],
+    "password": "must-not-leak"
+  },
+  "secondAlbum": {
+    "album": { "id": "album-authorized", "albumName": "First", "description": "---\nimmich-presentation:\n  type: journey\n  version: 1\n---" },
+    "assets": [],
+    "unrelatedAlbum": { "id": "album-other", "albumName": "Second" }
+  }
+}

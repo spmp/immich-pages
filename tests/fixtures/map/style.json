@@ -1,0 +1,14 @@
+{
+  "version": 8,
+  "name": "Immich Pages quiet-atlas test fixture",
+  "sources": {},
+  "layers": [
+    {
+      "id": "quiet-atlas-background",
+      "type": "background",
+      "paint": {
+        "background-color": "#e8e3d8"
+      }
+    }
+  ]
+}

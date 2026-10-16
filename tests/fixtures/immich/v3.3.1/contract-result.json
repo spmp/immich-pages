@@ -1,0 +1,17 @@
+{
+  "image": "immich-server:v3.3.1",
+  "mode": "fixture",
+  "exactImage": false,
+  "liveVerified": false,
+  "expectedVersion": "v3.3.1",
+  "observedVersion": "v3.3.1",
+  "provenance": "fixture",
+  "checks": {
+    "serverVersion": true,
+    "dtoFields": true,
+    "mediaReferences": true,
+    "requestScopedAuthorization": true,
+    "separateHost": true
+  },
+  "status": "passed"
+}

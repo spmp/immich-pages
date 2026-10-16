@@ -1,0 +1,94 @@
+import { describe, expect, it, vi } from 'vitest';
+import { parseSharedLinkRef } from '../../src/lib/server/share/ref';
+import { createImmichProvider } from '../../src/lib/server/immich/provider';
+import { assembleDirectShare } from '../../src/lib/server/page/assemble';
+import v3Response from '../fixtures/shared-link/v3-valid-page.json';
+
+describe('direct-share tracer', () => {
+	 it('requires an explicit key or slug kind', () => {
+		expect(parseSharedLinkRef('key', 'opaque_ref')).toEqual({ kind: 'key', value: 'opaque_ref' });
+		expect(parseSharedLinkRef('opaque_ref', undefined)).toBeNull();
+		expect(parseSharedLinkRef(undefined, 'opaque_ref')).toBeNull();
+		expect(parseSharedLinkRef('key', 'bad/ref')).toBeNull();
+	});
+
+	it.each(['key', 'slug'] as const)('forwards only request auth and matching %s query', async (kind) => {
+		const fetchMock = vi.fn(async (input: URL | RequestInfo, init?: RequestInit) => {
+			const url = new URL(input.toString());
+			// map.enabled now defaults to true, so a minimal presentation config also triggers a
+			// map-markers lookup; only the shared-link lookup itself is asserted here.
+			if (url.pathname.endsWith('/map-markers')) return new Response(JSON.stringify([]), { status: 200 });
+			expect(url.pathname).toBe('/api/shared-links/me');
+			expect(url.searchParams.get(kind)).toBe('opaque_ref');
+			expect(url.searchParams.get(kind === 'key' ? 'slug' : 'key')).toBeNull();
+			expect([...new Headers(init?.headers).keys()].sort()).toEqual(['accept', 'authorization', 'cookie']);
+			return new Response(JSON.stringify(v3Response), { status: 200 });
+		});
+		const provider = createImmichProvider(fetchMock, 'https://immich.example');
+		const ref = parseSharedLinkRef(kind, 'opaque_ref')!;
+		const outcome = await assembleDirectShare(provider, { shareRef: ref, cookie: 'session=visitor', authorization: 'Bearer visitor' }, 'req-1');
+		expect(outcome.kind).toBe('page');
+		if (outcome.kind === 'page') {
+			expect(outcome.page.album).not.toHaveProperty('id');
+			expect(outcome.page.assets[0]).toEqual({
+			id: '22222222-2222-4222-8222-222222222222', type: 'IMAGE',
+			thumbnail: `/share/${kind}/opaque_ref/media/22222222-2222-4222-8222-222222222222/thumbnail?${kind}=opaque_ref`,
+			fullsize: `/share/${kind}/opaque_ref/media/22222222-2222-4222-8222-222222222222/image/fullsize?${kind}=opaque_ref`, width: 100, height: 100, sourceWidth: 100, sourceHeight: 100
+		});
+			expect(JSON.stringify(outcome)).not.toContain('visitor');
+		}
+	});
+
+	it('does not expose private paths or direct Immich origins', async () => {
+		const outcome = await assembleDirectShare(createImmichProvider(vi.fn(async () => new Response(JSON.stringify(v3Response))), 'https://immich.example'), {
+			shareRef: { kind: 'key', value: 'opaque_ref' }, cookie: null, authorization: null
+		}, 'req-media');
+		expect(outcome.kind).toBe('page');
+		expect(JSON.stringify(outcome)).not.toContain('originalPath');
+		expect(JSON.stringify(outcome)).not.toContain('https://immich.example');
+	});
+
+	it('keeps raw author content and private values out of the browser model', async () => {
+		const secret = 'TRACER_SECRET_DO_NOT_SERIALIZE';
+		const description = `---
+immich-presentation:
+  type: journey
+  version: 1
+  leakedSecret: ${secret}
+---
+Visible <em>story</em>
+
+<script>alert('xss')</script>
+[unsafe](javascript:alert('xss'))`;
+		const outcome = await assembleDirectShare(
+			createImmichProvider(vi.fn(async () => new Response(JSON.stringify({ ...v3Response, album: { ...v3Response.album, description } }))), 'https://immich.example'),
+			{ shareRef: { kind: 'key', value: 'opaque_ref' }, cookie: 'session=visitor', authorization: 'Bearer visitor' }, 'req-safe-model'
+		);
+		expect(outcome.kind).toBe('page');
+		if (outcome.kind !== 'page') return;
+		const serialized = JSON.stringify(outcome.page);
+		expect(outcome.page.narrativeHtml).toContain('Visible');
+		expect(outcome.page.narrativeHtml).not.toContain('<script');
+		expect(outcome.page.narrativeHtml).not.toContain('javascript:');
+		expect(outcome.page.album).not.toHaveProperty('description');
+		expect(serialized).not.toContain(secret);
+		expect(serialized).not.toContain('session=visitor');
+		expect(serialized).not.toContain('Bearer visitor');
+		expect(serialized).not.toContain('https://immich.example');
+		expect(serialized).not.toContain('originalPath');
+	});
+
+	it('classifies activation metadata deterministically', async () => {
+		const makeOutcome = async (description: string) => assembleDirectShare(
+			createImmichProvider(vi.fn(async () => new Response(JSON.stringify({ ...v3Response, album: { ...v3Response.album, description } }))), 'https://immich.example'),
+			{ shareRef: { kind: 'key', value: 'opaque_ref' }, cookie: null, authorization: null }, 'req-metadata'
+		);
+		expect((await makeOutcome('ordinary album')).kind).toBe('non-page');
+		expect((await makeOutcome('---\nimmich-presentation:\n  type: journey\n  version: 2\n---')).kind).toBe('invalid-metadata');
+		expect((await makeOutcome('---\nimmich-presentation:\n  type: journey\n  version: 1\n---')).kind).toBe('page');
+		expect((await makeOutcome('---\nimmich-presentation:\n  type: "journey"\n  version: "1"\n---')).kind).toBe('page');
+		expect((await makeOutcome("---\nimmich-presentation:\n  type: 'journey'\n  version: '1'\n---")).kind).toBe('page');
+		const malformed = await makeOutcome('---\nimmich-presentation:\n  type: journey\n  version: "1\n---');
+		expect(malformed).toEqual({ kind: 'invalid-metadata', metadataReason: 'malformed-quoting' });
+	});
+});

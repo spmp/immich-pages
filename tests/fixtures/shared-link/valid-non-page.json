@@ -1,0 +1,10 @@
+{
+  "album": {
+    "id": "album-ordinary",
+    "albumName": "Ordinary Album",
+    "description": "A normal Immich album"
+  },
+  "assets": [],
+  "showMetadata": true,
+  "allowDownload": true
+}

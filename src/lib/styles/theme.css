@@ -1,0 +1,45 @@
+:root {
+	--theme-bg: #161616;
+	--theme-surface: #222222;
+	--theme-text: #f1eee7;
+	--theme-muted: #aaa59b;
+	--theme-accent: #d89a4a;
+	--theme-focus: var(--theme-accent);
+	--theme-rule: #46433e;
+	--theme-radius: 0rem;
+	--theme-content-width: 68rem;
+	--theme-space-section: clamp(4rem, 12vw, 10rem);
+	--theme-space-gap: 1rem;
+	--theme-font-heading: ui-serif, Georgia, serif;
+	--theme-font-body: ui-serif, Georgia, serif;
+	--theme-font-caption: ui-sans-serif, system-ui, sans-serif;
+	--theme-hero-text: #fffdf8;
+	--theme-gradient-direction: to bottom;
+	--theme-gradient-top: var(--theme-bg);
+	--theme-gradient-bottom: var(--theme-bg);
+	--theme-overlay: #000;
+	--theme-nav-bg: var(--theme-bg);
+	--theme-control-bg: var(--theme-surface);
+	--theme-backdrop: color-mix(in srgb, var(--theme-text) 55%, transparent);
+	--theme-card: var(--theme-surface);
+	--theme-gradient: linear-gradient(var(--theme-gradient-direction), var(--theme-gradient-top) 0%, var(--theme-gradient-bottom) 100%);
+}
+
+.theme-root {
+	min-height: 100svh;
+	/* Resolve the recipe in the themed subtree; the journal content owns the paint. */
+	--theme-gradient: linear-gradient(var(--theme-gradient-direction), var(--theme-gradient-top) 0%, var(--theme-gradient-bottom) 100%);
+	background-color: var(--theme-bg);
+	color: var(--theme-text);
+	font-family: var(--theme-font-body);
+}
+
+.theme-root[data-theme='default'], .theme-root[data-theme='dark'] { --theme-bg: #161616; --theme-gradient-direction: to bottom; --theme-gradient-top: #161616; --theme-gradient-bottom: #161616; --theme-focus: #d89a4a; --theme-nav-bg: #161616; --theme-control-bg: #222222; --theme-card: #222222; }
+.theme-root[data-theme='light'] { --theme-bg: #fafafa; --theme-gradient-direction: to bottom; --theme-gradient-top: #fafafa; --theme-gradient-bottom: #fafafa; --theme-surface: #fff; --theme-text: #1b1b1b; --theme-muted: #676767; --theme-accent: #8b3027; --theme-focus: #8b3027; --theme-rule: #cfcfcf; --theme-nav-bg: #fafafa; --theme-control-bg: #fff; --theme-card: #fff; }
+
+/* Keep the overscroll canvas in the same fixed, allowlisted palette as the page. */
+html:has(.theme-root[data-theme='default']), html:has(.theme-root[data-theme='default']) body,
+html:has(.theme-root[data-theme='dark']), html:has(.theme-root[data-theme='dark']) body { background: #161616; }
+html:has(.theme-root[data-theme='light']), html:has(.theme-root[data-theme='light']) body { background: #fafafa; }
+
+.theme-root h1, .theme-root h2, .theme-root h3 { font-family: var(--theme-font-heading); }

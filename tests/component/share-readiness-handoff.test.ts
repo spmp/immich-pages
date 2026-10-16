@@ -1,0 +1,61 @@
+import { readFileSync } from 'node:fs';
+import { describe, expect, it } from 'vitest';
+
+const read = (path: string) => readFileSync(path, 'utf8');
+
+describe('share readiness handoff', () => {
+	it('passes only the parsed server boolean through the real composition path', () => {
+		const server = read('src/routes/share/[kind]/[ref]/+page.server.ts');
+		const route = read('src/routes/share/[kind]/[ref]/+page.svelte');
+		const journal = read('src/lib/components/journal/JournalPage.svelte');
+		const indicator = read('src/lib/components/journal/ReadinessIndicator.svelte');
+		expect(server).toContain('indicatorEnabled: indicator.enabled');
+		expect(server).not.toContain('indicatorValue');
+		expect(route).toContain('indicatorEnabled={data.indicatorEnabled}');
+		expect(journal).toContain('indicatorEnabled = false');
+		expect(journal).toContain('<ReadinessIndicator enabled={indicatorEnabled}');
+		expect(indicator).toContain('window.location.pathname}/prewarm');
+		expect(indicator).toContain("credentials: 'same-origin'");
+		expect(indicator).not.toMatch(/process\.env|import\.meta\.env|HDR_PREWARM_INDICATOR/);
+	});
+
+	it('keeps SSR, SDR, navigation, and PhotoSwipe nonblocking', () => {
+		const indicator = read('src/lib/components/journal/ReadinessIndicator.svelte');
+		const journal = read('src/lib/components/journal/JournalPage.svelte');
+		expect(indicator).toContain('onMount');
+		expect(indicator).toContain('pointer-events: none');
+		expect(indicator).toContain("readinessState === 'partial'");
+		expect(indicator).toContain("readinessState === 'ready'");
+		expect(indicator).toContain('prefers-reduced-motion');
+		expect(journal).toContain('<JournalGallery');
+		expect(journal).toContain('<MobileDrawer');
+	});
+
+	it('omits the element when disabled or there is no eligible target', () => {
+		const indicator = read('src/lib/components/journal/ReadinessIndicator.svelte');
+		expect(indicator).toContain('{#if enabled && activeAssetId && progress.targeted !== 0}');
+		expect(indicator).toContain('aria-live="polite"');
+		expect(indicator).toContain('role="status"');
+		expect(indicator).toContain('aria-busy={readinessState === \'preparing\'}');
+		expect(indicator).toContain('if (!response.ok)');
+		expect(indicator).not.toMatch(/sourceIdentity|sourceBytes|cookie|authorization|requestId/);
+	});
+
+	// The dot reports the prewarm as a whole (see hdr-readiness.test.ts): the response validator
+	// still has to accept the server's activeAssetState field rather than reject the response, but
+	// nothing about showing, hiding or colouring the dot may hang off one photo's status.
+	it('accepts the server\'s activeAssetState without letting it decide what the dot shows', () => {
+		const indicator = read('src/lib/components/journal/ReadinessIndicator.svelte');
+		expect(indicator).toContain('isActiveAssetState');
+		expect(indicator).toContain('resolveHdrReadiness(value,');
+		expect(indicator).not.toContain("value.activeAssetState === 'ineligible'");
+	});
+
+	it('hides the dot only when the prewarm targeted nothing, and keeps polling until the whole prewarm settles', () => {
+		const indicator = read('src/lib/components/journal/ReadinessIndicator.svelte');
+		expect(indicator).toContain("value.targeted === 0 ? 'empty' : progress.state");
+		// Re-poll on the resolved state, which is 'preparing' for as long as any targeted
+		// conversion is unfinished.
+		expect(indicator).toContain("progress.state === 'preparing'");
+	});
+});

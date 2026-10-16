@@ -1,0 +1,226 @@
+import { spawn } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
+import { readFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import type { AppleHdrMetadata } from './hdr-metadata';
+
+function positiveEnv(name: string, fallback: number, maximum: number): number {
+	const value = Number(process.env[name]);
+	return Number.isFinite(value) && value > 0 ? Math.min(Math.trunc(value), maximum) : fallback;
+}
+
+// Measured directly against 20 real Apple HEIC+gain-map photos, not assumed: composeHdr alone
+// took up to 8.6s and encodeHdrMp4 alone took up to 12s for perfectly ordinary photos (8 of the
+// 20 test photos exceeded 8s on encodeHdrMp4 alone). The original 8s default was silently 502ing
+// every photo whose native resolution/complexity pushed either stage past it -- this is the same
+// class of bug already found and fixed for the AVIF pipeline's decode/encode timeouts, just not
+// caught here at the time because reports were about AVIF specifically.
+export const HDR_COMPOSITOR_TIMEOUT_MS = positiveEnv('HDR_COMPOSITOR_TIMEOUT_MS', 20_000, 120_000);
+export const HDR_COMPOSITOR_MAX_INPUT_BYTES = 100 * 1024 * 1024;
+// The compositor writes the photo at full size as 16-bit RGB (width x height x 6 bytes), so this
+// must fit the largest photo an iPhone takes: 48 MP (8064x6048) is ~279 MiB. 64 MiB fit 16:9 12 MP
+// (52 MiB) but not the default 4:3 12 MP (70 MiB), which made every 4:3 photo fail its HDR version.
+export const HDR_COMPOSITOR_MAX_OUTPUT_BYTES = 320 * 1024 * 1024;
+export const HDR_FFMPEG_TIMEOUT_MS = positiveEnv('HDR_FFMPEG_TIMEOUT_MS', 20_000, 120_000);
+export const HDR_FFMPEG_MAX_OUTPUT_BYTES = 64 * 1024 * 1024;
+// Full-resolution decode + a dense per-pixel gain-map reconstruction (not a single video frame)
+// legitimately takes longer than the HEVC path's 8s default, especially for real 48MP Apple
+// photos -- the original 8s default silently 502'd every photo whose native resolution pushed
+// either stage past it, which looked like "most photos work, a few just never convert."
+export const HDR_AVIF_DECODE_TIMEOUT_MS = positiveEnv('HDR_AVIF_DECODE_TIMEOUT_MS', 20_000, 120_000);
+// The decode stage's output is an uncompressed intermediate (SDR 8-bit RGBA + HDR 16-bit
+// half-float RGBA = 12 bytes/pixel), piped straight into the encode stage, never stored or
+// cached. hdr-avif-decode.cpp's own kMaxPixels (64 megapixels, comfortably above Apple's current
+// 48MP sensors) is the real ceiling; size this bound to match it exactly (64*1024*1024*12 bytes)
+// rather than an arbitrary round number that quietly truncates real full-resolution photos --
+// the original 256MB bound rejected anything above ~22 megapixels, which is exactly the "some
+// photos just never show HDR, reproducibly" symptom.
+export const HDR_AVIF_DECODE_MAX_OUTPUT_BYTES = 64 * 1024 * 1024 * 12;
+export const HDR_AVIF_ENCODE_TIMEOUT_MS = positiveEnv('HDR_AVIF_ENCODE_TIMEOUT_MS', 20_000, 120_000);
+// The final compressed AVIF, for the same largest-real-photo case above -- AVIF compresses well
+// even with a gain map, but 64MB was sized for the ~9-megapixel spike fixture, not a 48MP photo.
+export const HDR_AVIF_ENCODE_MAX_OUTPUT_BYTES = 128 * 1024 * 1024;
+export type NativeFailureReason = 'read' | 'primary-decode' | 'gain-map-missing' | 'gain-map-decode' | 'metadata-invalid' | 'ffmpeg' | 'compositor-timeout' | 'ffmpeg-timeout' | 'compositor-spawn' | 'ffmpeg-spawn' | 'compositor-exit' | 'ffmpeg-exit' | 'avif-decode-timeout' | 'avif-encode-timeout' | 'avif-decode-spawn' | 'avif-encode-spawn' | 'avif-decode-exit' | 'avif-encode-exit' | 'stale-generation' | 'unknown';
+
+export async function composeHdr(input: Uint8Array, metadata: AppleHdrMetadata, options: { executable?: string; timeoutMs?: number; invocationId?: string; signal?: AbortSignal } = {}): Promise<Uint8Array> {
+	if (input.byteLength === 0 || input.byteLength > HDR_COMPOSITOR_MAX_INPUT_BYTES) throw new Error('hdr-input-limit');
+	if (!metadata || metadata.auxiliaryType !== 'urn:com:apple:photo:2020:aux:hdrgainmap' || !Number.isFinite(metadata.makerNote33) || !Number.isFinite(metadata.makerNote48)) throw new Error('hdr-metadata-invalid');
+	const executable = options.executable ?? process.env.HDR_COMPOSITOR_PATH ?? '/usr/local/bin/hdr-gainmap-compositor';
+	const args = ['--hdr-version', metadata.version, '--maker-note-33', String(metadata.makerNote33), '--maker-note-48', String(metadata.makerNote48), '--source-profile', metadata.sourceProfile, '--source-transfer', metadata.sourceTransfer, '--orientation', String(metadata.orientation)];
+	return runBoundedProcess(executable, args, input, HDR_COMPOSITOR_MAX_OUTPUT_BYTES, options.timeoutMs ?? HDR_COMPOSITOR_TIMEOUT_MS, 'hdr-compositor', options.invocationId, options.signal);
+}
+
+export async function encodeHdrMp4(input: Uint8Array, options: { executable?: string; timeoutMs?: number; invocationId?: string; signal?: AbortSignal } = {}): Promise<Uint8Array> {
+	if (input.byteLength === 0 || input.byteLength > HDR_COMPOSITOR_MAX_OUTPUT_BYTES) throw new Error('hdr-input-limit');
+	const executable = options.executable ?? process.env.HDR_FFMPEG_PATH ?? '/usr/bin/ffmpeg';
+	// This is one still frame standing in for a full-size photo, not streaming video -- file size
+	// from a lower CRF is negligible (one frame), but the default CRF 28 (tuned for multi-frame
+	// streaming bitrate budgets) was visibly lossy once anyone looked closely/zoomed in. crf 16
+	// measured ~QP 18 either way; preset slow (~2.5-5s under load) cut it too close against
+	// HDR_FFMPEG_TIMEOUT_MS's 8s default on a loaded host -- preset medium hits the same QP/quality
+	// in roughly half the time, so it's the safer choice for the same visual result.
+	// master-display/max-cll (MDCV/CLL SEI messages) were missing entirely: the pixel format and
+	// colr box (primaries/transfer/matrix) tagged this as HDR10, but WebKit's native HDR video
+	// path on iOS appears to additionally require the mastering-display luminance range before it
+	// will actually tone-map and display it as HDR -- without it, older WebKit (confirmed: iOS
+	// Safari on WebKit < 26) silently renders a technically-correct-but-visually-flat/SDR-looking
+	// video instead of refusing it outright, which is why this had no error to go on. Values below
+	// are the standard "no real mastering info available" Rec.2020/1000-nit boilerplate (full
+	// Rec.2020 primaries + D65 white point, matching this project's own "1000 nits" framing),
+	// not derived from any particular photo -- advisory metadata a decoder uses for tone-mapping,
+	// not a per-image measurement.
+	const x265Params = 'colorprim=bt2020:transfer=smpte2084:colormatrix=bt2020nc:master-display=G(8500,39850)B(6550,2300)R(35400,14600)WP(15635,16450)L(10000000,1):max-cll=1000,400';
+	// Output used to go to pipe:1 as a fragmented MP4 (frag_keyframe+empty_moov+default_base_moof)
+	// because a true pipe can't be seeked back to finalize a standard moov-at-front file. That
+	// structure is designed for MSE-style incremental consumption, not a plain <video src>: real
+	// server logs showed the server succeeding and delivering the exact right bytes every single
+	// time (confirmed: zero failures, zero timeouts, correct byte count), yet WebKit's <video>
+	// element still fired its error event outright -- it never got far enough to even try playing
+	// it, consistent with rejecting the container structure itself before any tone-mapping would
+	// matter. Fix: let ffmpeg write to a real (temporary, immediately-deleted) file instead of a
+	// pipe, so it can seek back and produce a standard +faststart file (moov up front) -- the
+	// universally-compatible structure for direct <video src> playback.
+	// No explicit output frame rate meant ffmpeg's image2pipe default (25fps) applied to a single
+	// still frame standing in for a whole second-plus of real video: canPlayType() reported
+	// "probably" for this exact profile/level on the real failing device, yet the actual file was
+	// still rejected outright (MediaError SRC_NOT_SUPPORTED) -- and other, lower-complexity photos
+	// played fine on the same device. HEVC's Level/Tier limits cap *bitrate*, and bitrate here is
+	// just this one frame's size divided by its nominal duration: at 25fps, a 1.78MB frame implies
+	// ~357Mbps -- comfortably over even Level 5.1 High Tier's 160Mbps, let alone Main Tier's
+	// 40Mbps, which real hardware decoders do enforce even though ffmpeg/ffprobe never flagged it
+	// as non-compliant. At 1fps the exact same bytes imply ~14.3Mbps, safely under Main Tier Level
+	// 5.1 -- the universally-supported baseline -- with zero quality or file-size cost, since
+	// nothing about the actual encode changes, only the frame-rate metadata around it.
+	const outputPath = join(tmpdir(), `hdr-${randomUUID()}.mp4`);
+	const args = ['-hide_banner', '-loglevel', 'error', '-f', 'image2pipe', '-vcodec', 'ppm', '-i', 'pipe:0', '-frames:v', '1', '-r', '1', '-an', '-c:v', 'libx265', '-preset', 'medium', '-crf', '16', '-profile:v', 'main10', '-pix_fmt', 'yuv420p10le', '-color_primaries', 'bt2020', '-color_trc', 'smpte2084', '-colorspace', 'bt2020nc', '-x265-params', x265Params, '-tag:v', 'hvc1', '-movflags', '+faststart', '-f', 'mp4', '-y', outputPath];
+	try {
+		return await runBoundedProcessToFile(executable, args, input, outputPath, HDR_FFMPEG_MAX_OUTPUT_BYTES, options.timeoutMs ?? HDR_FFMPEG_TIMEOUT_MS, 'hdr-ffmpeg', options.invocationId, options.signal);
+	} finally {
+		await rm(outputPath, { force: true }).catch(() => {});
+	}
+}
+
+/** Decode stage of the two-process AVIF gain-map pipeline (see scripts/hdr-avif-decode.cpp):
+ * reads the source HEIC directly (independent of composeHdr's PPM path) and Apple's gain-map
+ * metadata, and emits a raw RGBA(+half-float) stream for hdr-avif-encode to consume. Links only
+ * libheif; the encode stage links only libavif -- kept as two single-library binaries for the
+ * same one-native-contract-per-concern reason composeHdr/encodeHdrMp4 already are. */
+export async function decodeHdrAvifStream(input: Uint8Array, metadata: AppleHdrMetadata, options: { executable?: string; timeoutMs?: number; invocationId?: string; signal?: AbortSignal } = {}): Promise<Uint8Array> {
+	if (input.byteLength === 0 || input.byteLength > HDR_COMPOSITOR_MAX_INPUT_BYTES) throw new Error('hdr-input-limit');
+	if (!metadata || metadata.auxiliaryType !== 'urn:com:apple:photo:2020:aux:hdrgainmap' || !Number.isFinite(metadata.makerNote33) || !Number.isFinite(metadata.makerNote48)) throw new Error('hdr-metadata-invalid');
+	const executable = options.executable ?? process.env.HDR_AVIF_DECODE_PATH ?? '/usr/local/bin/hdr-avif-decode';
+	const args = ['--mode', 'gainmap', '--hdr-version', metadata.version, '--maker-note-33', String(metadata.makerNote33), '--maker-note-48', String(metadata.makerNote48), '--source-profile', metadata.sourceProfile, '--source-transfer', metadata.sourceTransfer, '--orientation', String(metadata.orientation)];
+	return runBoundedProcess(executable, args, input, HDR_AVIF_DECODE_MAX_OUTPUT_BYTES, options.timeoutMs ?? HDR_AVIF_DECODE_TIMEOUT_MS, 'hdr-avif-decode', options.invocationId, options.signal);
+}
+
+/** Encode stage: consumes hdr-avif-decode's stream and produces a single Display-P3-preserving
+ * AVIF with a real ISO 21496-1-style gain map, gracefully SDR-degrading on any decoder that
+ * doesn't understand the gain map (see scripts/hdr-avif-encode.cpp header comment). */
+export async function encodeHdrAvif(stream: Uint8Array, metadata: AppleHdrMetadata, options: { executable?: string; timeoutMs?: number; invocationId?: string; signal?: AbortSignal } = {}): Promise<Uint8Array> {
+	if (stream.byteLength === 0 || stream.byteLength > HDR_AVIF_DECODE_MAX_OUTPUT_BYTES) throw new Error('hdr-input-limit');
+	const executable = options.executable ?? process.env.HDR_AVIF_ENCODE_PATH ?? '/usr/local/bin/hdr-avif-encode';
+	const args = ['--source-profile', metadata.sourceProfile, '--source-transfer', metadata.sourceTransfer];
+	return runBoundedProcess(executable, args, stream, HDR_AVIF_ENCODE_MAX_OUTPUT_BYTES, options.timeoutMs ?? HDR_AVIF_ENCODE_TIMEOUT_MS, 'hdr-avif-encode', options.invocationId, options.signal);
+}
+
+function runBoundedProcess(executable: string, args: string[], input: Uint8Array, maxOutputBytes: number, timeoutMs: number, failurePrefix: string, invocationId?: string, signal?: AbortSignal): Promise<Uint8Array> {
+	return new Promise((resolve, reject) => {
+		const child = spawn(executable, args, { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true, shell: false, env: invocationId ? { ...process.env, HDR_BRIDGE_ASSET_ID: invocationId } : process.env });
+		const chunks: Buffer[] = [];
+		let bytes = 0;
+		let stderr = '';
+		let stderrBytes = 0;
+		let settled = false;
+		let timeout: ReturnType<typeof setTimeout> | undefined;
+		const finish = (error?: Error) => { if (settled) return; settled = true; if (timeout) clearTimeout(timeout); signal?.removeEventListener('abort', abort); if (error) reject(error); else resolve(Buffer.concat(chunks)); };
+		const abort = () => { child.kill('SIGKILL'); finish(new DOMException('The HDR native task was cancelled', 'AbortError')); };
+		if (signal?.aborted) return abort();
+		signal?.addEventListener('abort', abort, { once: true });
+		timeout = setTimeout(() => { child.kill('SIGKILL'); finish(new Error(`${failurePrefix}-timeout`)); }, timeoutMs);
+		child.stdout.on('data', (chunk: Buffer) => { bytes += chunk.byteLength; if (bytes > maxOutputBytes) { child.kill('SIGKILL'); finish(new Error(`${failurePrefix}-output-limit`)); return; } chunks.push(chunk); });
+		child.stderr.on('data', (chunk: Buffer) => { stderrBytes += chunk.byteLength; if (stderr.length < 16 * 1024) stderr += chunk.toString('utf8').slice(0, 16 * 1024 - stderr.length); if (stderrBytes > 16 * 1024) child.stderr.destroy(); });
+		child.on('error', (error) => finish(new Error(`${failurePrefix}-spawn:${error.message}`)));
+		child.on('close', (code, signal) => code === 0 && bytes > 0 ? finish() : finish(new Error(`${failurePrefix}-failed:${classifyNativeFailure(stderr, failurePrefix, code, signal)}:${safeNativeDetail(stderr) || `exit-${code ?? signal ?? 'unknown'}`}`)));
+		child.stdin.on('error', (error) => finish(error));
+		child.stdin.end(input);
+	});
+}
+
+/** Same contract as runBoundedProcess, but for a process (ffmpeg producing +faststart MP4) that
+ * must write its output to a real, seekable file path rather than stdout -- a true pipe can't be
+ * seeked back to move the moov box to the front after muxing. Reads the file back once the
+ * process exits cleanly; the caller owns deleting it. */
+function runBoundedProcessToFile(executable: string, args: string[], input: Uint8Array, outputPath: string, maxOutputBytes: number, timeoutMs: number, failurePrefix: string, invocationId?: string, signal?: AbortSignal): Promise<Uint8Array> {
+	return new Promise((resolve, reject) => {
+		const child = spawn(executable, args, { stdio: ['pipe', 'ignore', 'pipe'], windowsHide: true, shell: false, env: invocationId ? { ...process.env, HDR_BRIDGE_ASSET_ID: invocationId } : process.env });
+		let stderr = '';
+		let stderrBytes = 0;
+		let settled = false;
+		let timeout: ReturnType<typeof setTimeout> | undefined;
+		const finish = (error: Error | undefined, result?: Promise<Uint8Array>) => {
+			if (settled) return;
+			settled = true;
+			if (timeout) clearTimeout(timeout);
+			signal?.removeEventListener('abort', abort);
+			if (error) reject(error);
+			else resolve(result!);
+		};
+		const abort = () => { child.kill('SIGKILL'); finish(new DOMException('The HDR native task was cancelled', 'AbortError')); };
+		if (signal?.aborted) return abort();
+		signal?.addEventListener('abort', abort, { once: true });
+		timeout = setTimeout(() => { child.kill('SIGKILL'); finish(new Error(`${failurePrefix}-timeout`)); }, timeoutMs);
+		child.stderr.on('data', (chunk: Buffer) => { stderrBytes += chunk.byteLength; if (stderr.length < 16 * 1024) stderr += chunk.toString('utf8').slice(0, 16 * 1024 - stderr.length); if (stderrBytes > 16 * 1024) child.stderr.destroy(); });
+		child.on('error', (error) => finish(new Error(`${failurePrefix}-spawn:${error.message}`)));
+		child.on('close', (code, signal) => {
+			if (code !== 0) { finish(new Error(`${failurePrefix}-failed:${classifyNativeFailure(stderr, failurePrefix, code, signal)}:${safeNativeDetail(stderr) || `exit-${code ?? signal ?? 'unknown'}`}`)); return; }
+			finish(undefined, readFile(outputPath).then((output) => {
+				if (output.byteLength === 0) throw new Error(`${failurePrefix}-failed:unknown:empty-output`);
+				if (output.byteLength > maxOutputBytes) throw new Error(`${failurePrefix}-output-limit`);
+				return output;
+			}));
+		});
+		child.stdin.on('error', (error) => finish(error));
+		child.stdin.end(input);
+	});
+}
+
+export function nativeFailureReason(error: unknown): NativeFailureReason {
+	if (!(error instanceof Error)) return 'unknown';
+	// Real-backend UAT (2026-10-12): these two are thrown directly by hdr-prewarm.ts's
+	// coordinator (registry-generation mismatch on reload; metadata extraction genuinely
+	// returned nothing), not by a native subprocess -- distinguishing them from a real
+	// compositor/ffmpeg failure matters, since the fix for each is completely different.
+	// Previously both silently collapsed into 'unknown' here, which is what first looked
+	// like a mystery conversion failure during manual UAT.
+	if (error.message === 'stale-generation') return 'stale-generation';
+	if (error.message === 'hdr-metadata-invalid') return 'metadata-invalid';
+	if (error.message.startsWith('hdr-compositor-timeout')) return 'compositor-timeout';
+	if (error.message.startsWith('hdr-ffmpeg-timeout')) return 'ffmpeg-timeout';
+	if (error.message.startsWith('hdr-compositor-spawn')) return 'compositor-spawn';
+	if (error.message.startsWith('hdr-ffmpeg-spawn')) return 'ffmpeg-spawn';
+	if (error.message.startsWith('hdr-avif-decode-timeout')) return 'avif-decode-timeout';
+	if (error.message.startsWith('hdr-avif-encode-timeout')) return 'avif-encode-timeout';
+	if (error.message.startsWith('hdr-avif-decode-spawn')) return 'avif-decode-spawn';
+	if (error.message.startsWith('hdr-avif-encode-spawn')) return 'avif-encode-spawn';
+	const reason = error.message.match(/failed:([a-z-]+):/)?.[1];
+	return reason && ['read', 'primary-decode', 'gain-map-missing', 'gain-map-decode', 'metadata-invalid', 'ffmpeg', 'compositor-timeout', 'ffmpeg-timeout', 'compositor-spawn', 'ffmpeg-spawn', 'compositor-exit', 'ffmpeg-exit', 'avif-decode-timeout', 'avif-encode-timeout', 'avif-decode-spawn', 'avif-encode-spawn', 'avif-decode-exit', 'avif-encode-exit', 'unknown'].includes(reason) ? reason as NativeFailureReason : 'unknown';
+}
+
+export function nativeFailureDetail(error: unknown): string | undefined {
+	if (!(error instanceof Error)) return undefined;
+	return error.message.match(/failed:[a-z-]+:(.*)$/)?.[1] || undefined;
+}
+
+function safeNativeDetail(stderr: string): string { return stderr.replace(/[^A-Za-z0-9 .,_()\[\]-]/g, '?').replace(/\s+/g, ' ').trim().slice(0, 160); }
+function classifyNativeFailure(stderr: string, processName: string, code: number | null, signal: NodeJS.Signals | null): NativeFailureReason {
+	if (processName === 'hdr-ffmpeg') return 'ffmpeg';
+	if (/read HEIF/i.test(stderr)) return 'read';
+	if (/decode primary image/i.test(stderr)) return 'primary-decode';
+	if (/gain map auxiliary image not found/i.test(stderr)) return 'gain-map-missing';
+	if (/decode gain map/i.test(stderr)) return 'gain-map-decode';
+	if (/metadata|version|profile|orientation/i.test(stderr)) return 'metadata-invalid';
+	if (processName === 'hdr-avif-decode') return 'avif-decode-exit';
+	if (processName === 'hdr-avif-encode') return 'avif-encode-exit';
+	return signal ? 'compositor-exit' : code === 0 ? 'unknown' : 'compositor-exit';
+}

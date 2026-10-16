@@ -1,0 +1,44 @@
+node_modules/
+.svelte-kit/
+build/
+.env
+.env.*
+!.env.example
+playwright-report/
+test-results/
+
+# Generated HDR probes and media fixtures are local-only.
+tests/resources/hdr/
+# The demo/test photos are committed (originals/ and their NOTICE); local copies, backups and
+# other renditions of them are not.
+tests/resources/heic-test-set/*
+!tests/resources/heic-test-set/originals/
+!tests/resources/heic-test-set/NOTICE.md
+
+# Local agent tool config/cache, not project source.
+.opencode/
+
+# Local research cache (TTL'd, regenerable).
+.planning/research/.cache/
+
+# Operator's real deployment compose file: contains live credentials/paths.
+immich.yml
+
+# External rebuild-watcher trigger/status, host-local runtime state only.
+rebuild/
+
+# Real-Immich E2E fixture: Docker-managed runtime state, not project source.
+tests/e2e/real-immich/.env
+tests/e2e/real-immich/seed-output.json
+
+# Local dev runner output: built HDR binaries and the dev server log (scripts/dev-real-immich.mjs).
+.cache/
+
+# GSD planning and review state: local working state for the maintainer's agent workflow, not
+# published source (see AGENTS.md).
+.planning/
+SPEC.md
+REVIEW.md
+
+# Local Claude Code settings and worktrees.
+.claude/

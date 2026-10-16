@@ -1,0 +1,147 @@
+name: immich
+
+# A complete, minimal stack: Traefik (HTTPS with Let's Encrypt), Immich, and Pages.
+# Copy .env.example to .env, set the values it marks as required, point both hostnames at this
+# Docker host, then: docker compose up -d
+#
+# Already running Immich behind your own Traefik? Use compose.yaml (Pages alone) instead, and
+# copy the immich-share-to-pages labels below onto your Immich service.
+
+services:
+  traefik:
+    image: traefik:v3
+    command:
+      - --providers.docker=true
+      - --providers.docker.exposedbydefault=false
+      - --providers.docker.network=immich
+      - --entrypoints.web.address=:80
+      - --entrypoints.web.http.redirections.entrypoint.to=websecure
+      - --entrypoints.web.http.redirections.entrypoint.scheme=https
+      - --entrypoints.websecure.address=:443
+      - --certificatesresolvers.letsencrypt.acme.email=${LETSENCRYPT_EMAIL:?LETSENCRYPT_EMAIL is required}
+      - --certificatesresolvers.letsencrypt.acme.storage=/letsencrypt/acme.json
+      - --certificatesresolvers.letsencrypt.acme.tlschallenge=true
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ${TRAEFIK_ACME_LOCATION:-./letsencrypt}:/letsencrypt
+    restart: always
+    networks:
+      - immich
+
+  immich-server:
+    image: ghcr.io/immich-app/immich-server:v3
+    labels:
+      traefik.enable: true
+      traefik.http.routers.immich.rule: Host(`${IMMICH_HOST:?IMMICH_HOST is required}`)
+      traefik.http.routers.immich.entrypoints: websecure
+      traefik.http.routers.immich.tls.certresolver: letsencrypt
+      traefik.http.routers.immich.service: immich
+      traefik.http.services.immich.loadbalancer.server.port: 2283
+      # Share links go to Pages: /share/<key> and short /s/<slug> links. Each middleware acts
+      # only when its own pattern matches. Add redirectregex.permanent: true to both once the
+      # mapping is settled; browsers cache a permanent redirect indefinitely.
+      traefik.http.routers.immich-share-to-pages.rule: Host(`${IMMICH_HOST}`) && (PathPrefix(`/share/`) || PathPrefix(`/s/`))
+      traefik.http.routers.immich-share-to-pages.priority: 100
+      traefik.http.routers.immich-share-to-pages.entrypoints: websecure
+      traefik.http.routers.immich-share-to-pages.tls.certresolver: letsencrypt
+      traefik.http.routers.immich-share-to-pages.middlewares: immich-share-key-redirect,immich-share-slug-redirect
+      traefik.http.routers.immich-share-to-pages.service: immich
+      traefik.http.middlewares.immich-share-key-redirect.redirectregex.regex: '^https://${IMMICH_HOST}/share/(.+)'
+      traefik.http.middlewares.immich-share-key-redirect.redirectregex.replacement: 'https://${PAGES_HOST}/share/key/$${1}'
+      traefik.http.middlewares.immich-share-slug-redirect.redirectregex.regex: '^https://${IMMICH_HOST}/s/(.+)'
+      traefik.http.middlewares.immich-share-slug-redirect.redirectregex.replacement: 'https://${PAGES_HOST}/share/slug/$${1}'
+    volumes:
+      - ${IMMICH_LIBRARY_LOCATION:-./library}:/data
+      - /etc/localtime:/etc/localtime:ro
+    environment:
+      TZ: ${TZ:-UTC}
+      REDIS_HOSTNAME: redis
+      DB_HOSTNAME: database
+      DB_USERNAME: ${DB_USERNAME:-postgres}
+      DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required}
+      DB_DATABASE_NAME: ${DB_DATABASE_NAME:-immich}
+    depends_on:
+      - redis
+      - database
+    restart: always
+    networks:
+      - immich
+
+  immich-machine-learning:
+    image: ghcr.io/immich-app/immich-machine-learning:v3
+    volumes:
+      - ${IMMICH_MODEL_CACHE_LOCATION:-./model-cache}:/cache
+    environment:
+      MPLCONFIGDIR: /cache
+    restart: always
+    networks:
+      - immich
+
+  redis:
+    image: docker.io/valkey/valkey:8
+    healthcheck:
+      test: [CMD, redis-cli, ping]
+    restart: always
+    networks:
+      - immich
+
+  database:
+    image: ghcr.io/immich-app/postgres:14-vectorchord0.4.3-pgvectors0.2.0
+    environment:
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required}
+      POSTGRES_USER: ${DB_USERNAME:-postgres}
+      POSTGRES_DB: ${DB_DATABASE_NAME:-immich}
+      POSTGRES_INITDB_ARGS: --data-checksums --allow-group-access
+    volumes:
+      - ${IMMICH_DATABASE_LOCATION:-./postgres}:/var/lib/postgresql/data
+    shm_size: 128mb
+    restart: always
+    networks:
+      - immich
+
+  pages:
+    #build: .
+    image: ghcr.io/spmp/immich-pages:latest
+    container_name: pages
+    environment:
+      # Required. Pages reaches Immich through its public, TLS-terminated hostname.
+      IMMICH_BASE_URL: https://${IMMICH_HOST}
+      PAGES_SESSION_SECRET: ${PAGES_SESSION_SECRET:?PAGES_SESSION_SECRET is required}
+      PAGES_VISITED_SHARES_SECRET: ${PAGES_VISITED_SHARES_SECRET:?PAGES_VISITED_SHARES_SECRET is required}
+      # Optional; the values shown are the defaults. See docs/deployment.md for every setting.
+      # MAP_STYLE_URL_QUIET_ATLAS: https://tiles.openfreemap.org/styles/liberty
+      # PAGES_ALL_ALBUMS_ARE_PAGES: "false"
+      # HDR_PREWARM_LOOKAHEAD: "10"
+      # HDR_PREWARM_INDICATOR: "on"
+      # HDR_CACHE_TTL_MS: "600000"
+      # HDR_CACHE_MAX_BYTES: "134217728"
+      # HDR_CACHE_BACKEND: memory        # disk: also keep HDR media in HDR_CACHE_DIRECTORY across restarts
+      # HDR_CACHE_DIRECTORY: /cache/hdr  # mount a volume here, writable by uid 1000
+      # PUBLIC_HDR_ZOOM_INDICATOR: "true"
+      # BROUTER_MAX_TOTAL_MS: "15000"
+      # IMMICH_SUPPORTED_VERSION: ">=3.1.0 <4.0.0"
+      # ORIGIN: https://${PAGES_HOST}
+    depends_on:
+      - immich-server
+    labels:
+      traefik.enable: true
+      traefik.http.routers.pages.rule: Host(`${PAGES_HOST:?PAGES_HOST is required}`)
+      traefik.http.routers.pages.entrypoints: websecure
+      traefik.http.routers.pages.tls.certresolver: letsencrypt
+      traefik.http.routers.pages.service: pages
+      traefik.http.services.pages.loadbalancer.server.port: 3000
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:3000/health').then(r => { if (!r.ok) process.exit(1) }).catch(() => process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: always
+    networks:
+      - immich
+
+networks:
+  immich:
+    name: immich

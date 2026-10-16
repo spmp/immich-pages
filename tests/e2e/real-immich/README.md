@@ -1,0 +1,245 @@
+# Real-Immich E2E fixture
+
+A real, dockerized Immich instance (Postgres + Redis + `immich-server`, no
+`immich-machine-learning` service and `IMMICH_MACHINE_LEARNING_ENABLED=false`) used as
+the backend for Playwright E2E tests that need to prove Pages actually decodes and
+renders real images -- something `tests/e2e/mock-immich-server.mjs` cannot do, since it
+fabricates fake byte content rather than serving real decodable photos.
+
+This stack is for E2E fixture use only. It is disposable, local-only, and must never be
+pointed at real user data or exposed beyond localhost.
+
+## Pinned version
+
+`IMMICH_VERSION=v3.3.1` (latest release at authoring time, 2026-10-12). Image tags/
+digests for Postgres and Redis are copied verbatim from Immich's own
+`docker/docker-compose.yml` and `e2e/docker-compose.yml` on `main` -- not guessed.
+
+To bump the pinned version: update the `IMMICH_VERSION` default in `docker-compose.yml`,
+re-run `seed.mjs` against a fresh stack, and re-verify the OpenAPI-spec diff step still
+passes (see `seed.mjs`'s step 0).
+
+## Commands
+
+```sh
+cd tests/e2e/real-immich
+docker compose up -d       # start Postgres, Redis, immich-server
+docker compose down        # stop and remove containers, keep the immich-upload volume
+docker compose down --volumes  # also wipe the immich-upload volume for a full reset
+```
+
+The fixture library is mounted read-only from `tests/resources/heic-test-set/originals/`
+(the 20 real HEIC photos; not the sibling `thumbnails-webp/`/zip files, which are not
+asset originals) into the `immich-server` container at `/external/heic-originals` --
+Immich indexes it as a Library pointed at an import path (created by `seed.mjs`), never
+copying the files into its own upload volume. Note: in Immich v3.3.1 there is no
+`type: EXTERNAL` field on library creation -- all libraries created via `POST /api/libraries`
+are import-path-based; confirmed against the live OpenAPI spec, not assumed from older docs.
+
+## Local dev server against this stack
+
+One command brings up the containers, seeds the demo albums, builds the native HDR binaries
+(into `.cache/hdr-bin/`, rebuilt only when their source changes), sets a map style, and runs
+the Vite dev server:
+
+```sh
+npm run dev:real-immich                 # http://0.0.0.0:8080, log in .cache/pages-dev.log
+PORT=5173 npm run dev:real-immich
+npm run dev:real-immich -- --down       # also stop the containers on Ctrl-C
+```
+
+Any setting can be overridden from the environment (`MAP_STYLE_URL_QUIET_ATLAS`,
+`PUBLIC_PAGES_DEBUG`, `HDR_*`, `BROUTER_*`, `PAGES_DEV_LOG`, ...). The map style defaults to
+OpenFreeMap's `liberty` (no API key). HDR needs `g++`, `libheif-dev`, `libavif-dev`, `ffmpeg`
+and `exiftool` on the host; anything missing is reported and that part is simply unavailable.
+Pages' cookies are `Secure`, so from another device use HTTPS (e.g. through your reverse
+proxy); browsers only relax that for `localhost`.
+
+## Seeding
+
+Run `node seed.mjs` against an already-up stack (see `../run-real-immich.mjs` for the
+full orchestrated flow: compose up -> seed -> dev server -> Playwright -> teardown).
+`seed.mjs` is idempotent -- re-running it against an already-seeded stack reuses existing
+resources rather than erroring or duplicating them.
+
+Throwaway local-only admin credentials used by `seed.mjs` (never real secrets, only valid
+against this disposable local stack):
+
+- email: `e2e-admin@immich-pages.test`
+- password: `ImmichPagesE2E!2026`
+
+## Configured albums/slugs
+
+Every album gets a stable, deterministic `slug` (not a randomly-generated `key`,
+which changes on every reseed since this stack has no persistent DB volume --
+see Findings below), so these URLs survive `docker compose down`/`up` + reseed
+cycles unchanged. All reachable at `/share/slug/<slug>` against whichever host
+serves Pages against this stack (e.g. `http://0.0.0.0:8080/share/slug/e2e-forward`
+for a local manual dev server).
+
+| Slug | Album | Demonstrates |
+|---|---|---|
+| `e2e-forward` | immich-pages-e2e-forward | Chronological-ascending album order |
+| `e2e-reverse` | immich-pages-e2e-reverse | Chronological-descending album order |
+| `e2e-brouter` | immich-pages-e2e-brouter | `map.source: brouter-web` -- a real multi-waypoint routed path |
+| `e2e-markdown` | immich-pages-e2e-markdown | Rich markdown narrative body (headers, bold/italic, links, lists, blockquote) |
+| `e2e-gradient` | immich-pages-e2e-gradient | Manual hero gradient (`gradient.auto: false` with explicit top/bottom colors) |
+| `e2e-gradient-auto` | immich-pages-e2e-gradient-auto | Auto hero gradient (`gradient.auto: true`, colors derived from the hero image) |
+| `e2e-no-clustering` | immich-pages-e2e-no-clustering | `map.clustering: false` |
+| `e2e-scrambled` (only if the live API supports manual album ordering -- see Findings) | immich-pages-e2e-scrambled | Manual per-asset album order, if Immich ever implements it |
+
+`seed.mjs` prints the current key for each slug on every run, and writes the full
+list to the gitignored `seed-output.json`'s `slugs` map.
+
+## Findings
+
+**Albums must carry Pages' own publishing frontmatter, or the share is rejected as
+"not a Pages journey" (confirmed live):** this is unrelated to Immich auth/sharing --
+it's `src/lib/server/presentation/frontmatter.ts`'s own gate. `seed.mjs` sets each
+album's `description` to `"---\nimmich-presentation:\n  type: journey\n  version: 1\n---\n..."`
+at creation time (confirmed against `tests/e2e/mock-immich-server.mjs`'s own fixture
+descriptions, since this requirement wasn't named in 08-22-PLAN.md's `must_haves`).
+
+**Asset count ready != thumbnail ready (confirmed live, real timing gap, not a flake):**
+`GET /libraries/{id}/statistics` reports the full asset count as soon as metadata
+extraction finishes, but each asset's thumbnail is generated by a separate, slower async
+job. A direct `GET /api/assets/{id}/thumbnail` 404'd ("Asset media not found") for ~10
+seconds after the count had already settled at 20 on this machine. Checking
+`GET /api/jobs` immediately after the count settled was NOT a reliable signal either --
+it could read the `thumbnailGeneration` queue as already-empty in the brief window
+before the job runner enqueued it. `seed.mjs` now polls the real thumbnail endpoint for
+one representative asset directly (`waitForThumbnailsToExist`) as the actual completion
+signal, rather than inferring it from job-queue counters.
+
+**End-to-end proof, both backends green:** `tests/e2e/heic-sdr-hdr.mock.spec.ts` passes
+4/4 against both `test:e2e:heic:chromium` (mock) and `test:e2e:real-immich` (this real
+stack), unmodified in intent -- `ref`/`assetId()` resolve to real share keys/UUIDs when
+`REAL_IMMICH_FIXTURE=true` (set by `run-real-immich.mjs`) and a fixture
+`seed-output.json` exists, falling back to the mock's fixed fixture identity otherwise.
+One real-backend-only assertion was added (gated on `realSeed`, inert on the mock run):
+fetches the rendered thumbnail `href` and confirms a real decoded byte length
+(>10KB) rather than a trivial/placeholder size -- the plan's own acceptance criterion
+for proving this isn't fabricated. A stale `seed-output.json` left over from a prior
+real-backend run was caught silently leaking into a mock run during this verification
+(corrupting all 4 mock tests' ref/asset IDs) -- fixed by gating on the explicit
+`REAL_IMMICH_FIXTURE` env var, not file presence alone.
+
+**Immich's album `order` field is a single global display direction, not per-album
+intent (confirmed live):** both the "forward" and "reverse" albums came back with
+`order: "desc"` by default regardless of name or asset-insertion order -- `seed.mjs`
+records each album's `assetIds` in the SAME order `fetchAlbumAssets` (provider.ts) will
+actually request and display (`fetchDisplayOrderAssetIds`), not in the order this
+script happened to create them, to avoid a position mismatch between the fixture's
+recorded IDs and what Pages renders.
+
+**OpenAPI spec location (confirmed live, 2026-10-12, v3.3.1):** `GET /api/spec.json`,
+NOT `/api/doc/json` as originally assumed when this plan was authored without live API
+access. `/api/doc/json` and `/doc/json` both return the web app's SPA HTML (200, wrong
+content-type), not JSON -- a silent-looking trap if the response body isn't checked.
+Immich's own `SwaggerModule.setup` overrides `jsonDocumentUrl` to `/api/spec.json`
+explicitly, confirmed by reading `server/src/utils/misc.ts` in the pinned version's source.
+
+**Library creation has no `type` field (confirmed live):** `CreateLibraryDto` has no
+`type: EXTERNAL | UPLOAD` discriminator in v3.3.1 -- every library created via
+`POST /api/libraries` is import-path-based. The "External Library" terminology from
+older Immich docs/community posts does not correspond to a field in this version's API.
+
+**Manual album-asset ordering does not exist in the live API (confirmed live):**
+`PUT /api/albums/{id}/assets` has no `order`/`position`/similar field. This corroborates
+`.planning/debug/hdr-caching-uat-20261010.md`'s prior web-research finding with direct
+API-shape evidence from a real running server, not secondhand reporting.
+
+**The "empty assets" shape is REAL, reproducible, default Immich behavior -- not a
+user-deployment quirk (confirmed live, 2026-10-12):** `GET /api/shared-links/me?key=...`
+for a freshly created, default-configuration ALBUM share on a stock v3.3.1 server
+returns `"assets": []` (present, empty) and the `album` object has **no `assets` key at
+all** (not `null`, not `[]` -- entirely absent from the serialized response), even though
+`album.assetCount` correctly reports 20. Full captured response:
+
+```json
+{
+  "assets": [],
+  "album": {
+    "albumName": "immich-pages-e2e-forward",
+    "id": "c92ac361-ea3a-4be6-9361-42108a3d159f",
+    "assetCount": 20,
+    "order": "desc"
+    /* ... no "assets" key anywhere in the album object ... */
+  }
+}
+```
+
+`src/lib/server/immich/provider.ts`'s existing `getSharedLink`/`fetchAlbumAssets` fallback
+(added in an earlier session, before real-server access existed to confirm it) already
+handles this exact shape correctly: when `selectAuthoritativeAlbumAssets([], undefined)`
+returns `[]`, it falls back to `POST /api/search/metadata` with `{ albumIds: [albumId],
+order: album.order }`, which **was verified against this real server** to return all 20
+real assets in the requested order (`order: "desc"` -> `20.HEIC, 19.HEIC, 18.HEIC, ...`).
+This is the first real-server confirmation that the fallback path this whole session's
+HDR investigation was built around is not just plausible but necessary and correct.
+
+**Consequence for 08-22's own Task 2 acceptance criterion:** the criterion as originally
+written ("fetched directly via curl .../shared-links/me?key=<key>, returns a 200 with a
+real, non-empty `assets` or `album.assets` array") is impossible to satisfy literally
+against a real server -- this is default behavior, not a fixable test setup issue.
+Verified instead via the equivalent, actually-meaningful check: the same
+`POST /api/search/metadata` fallback call `fetchAlbumAssets` makes, which does return the
+real, non-empty, correctly ordered asset list. Recorded as a deviation rather than
+silently weakening the criterion.
+
+**The native HDR compositor/ffmpeg binaries do not exist outside the production Docker
+image (confirmed the hard way, 2026-10-12):** `npm run dev` run directly on a bare host
+(not via `docker compose`/the project's own `Dockerfile`) never builds
+`/usr/local/bin/hdr-gainmap-compositor` or the AVIF encode/decode binaries -- every HDR
+conversion attempt failed via `spawn ENOENT` in ~2ms, which looked like "the spinner never
+stops" and "clicking gives format unsupported immediately" during manual real-backend UAT
+against this exact fixture. See `docs/hdr-media.md`'s "Running `npm run dev` outside
+Docker" section for the build commands. Not specific to this fixture -- affects any
+bare-host `npm run dev` session regardless of backend.
+
+**BRouter-Web route resolution had no bound on waypoint count or total resolution time
+(confirmed via this fixture's `e2e-brouter` album, 2026-10-12):** `BrouterClient.resolve()`
+processes each waypoint pair as one real, sequential, up-to-8-second network round trip to
+`brouter.de`, with nothing capping either the number of waypoints in a permalink or the
+total time across all segments. A real 13-waypoint/12-segment route (the `e2e-brouter`
+album's own route) took ~6 seconds end-to-end against the live `brouter.de` service on
+first load -- legitimate, but slow, and with no ceiling, a permalink with many more
+waypoints could take minutes. Reported as "the map does not show" because nothing bounded
+the worst case. Fixed: `brouter-web.ts` now caps waypoint count (reusing the existing
+`MAX_ROUTE_SEGMENTS` constant for a consistent complexity bound across route sources), and
+`brouter-client.ts` now enforces an aggregate wall-clock budget
+(`BROUTER_MAX_TOTAL_MS`, default 15s) across the whole multi-segment resolution, returning
+`brouter-timeout` to degrade gracefully (map still renders with markers, just without the
+route line -- already correctly handled client-side in `JourneyMapSlot.svelte`) rather
+than blocking page assembly indefinitely. The `e2e-brouter` album's own real URL does NOT
+trigger either new bound under production defaults -- it was only reproduced by
+temporarily lowering `BROUTER_MAX_RESPONSE_BYTES` to its minimum (64KB) to force the
+pre-existing oversized-response path, confirming the *graceful-degradation* UI already
+worked correctly; the *bounding* was the actual gap, not the degradation behavior.
+
+**A long leg, not a long list of waypoints, is what took the route off a production page
+(confirmed against live `brouter.de`, 2026-10-13):** the `e2e-brouter` album's route now
+includes a Phoenix -> San Diego -> Phoenix detour (18 waypoints, 1,287 km). Each ~590 km leg
+comes back from `brouter.de` as a ~270 KB reply with ~3,300 vertices in ~5 s -- over the old
+256 KB per-leg response limit, so the whole route was discarded as `brouter-response-too-large`
+(and the 17 legs fetched one after another needed ~25 s against a 15 s budget regardless).
+Measured rate for a car profile: about 0.47 KB and 7 vertices per kilometre. `brouter-client.ts`
+no longer has any limit that scales with road length: the per-leg response limit is 4 MB by
+default (about 8,500 km in one leg), legs are fetched four at a time, a route with more than
+10,000 vertices is thinned (`simplifyLine` in `geometry.ts`) instead of rejected, and a route that
+needs longer than one page load is willing to wait (`BROUTER_MAX_TOTAL_MS`, still 15 s) keeps
+resolving in the background for up to five minutes and is served from cache on the next load.
+Against this fixture: 6.7 s for the first load, 3-6 ms afterwards, 9,116 vertices delivered.
+
+**BRouter results are cached in memory, keyed by router endpoint + profile + ordered waypoints
+-- not by the permalink text:** the `#map=zoom/lat/lon/layer` view part of a BRouter-Web URL is
+ignored, so re-saving the same route from a different map position reuses the cached result,
+while changing any waypoint or the profile is a new route. A resolved route, and each of its
+legs, is kept for `HDR_CACHE_TTL_MS` -- the same setting, default (10 minutes) and ceiling
+(24 hours) as the HDR media cache, so one variable controls both. A refusal or malformed reply
+is kept for 5 minutes and a timeout or connection failure for 30 seconds (never longer than
+`HDR_CACHE_TTL_MS`), so a failing route is not re-requested from the public router on every
+page load. Caching legs separately is what lets an interrupted resolution resume. All of
+it is per-process memory, in keeping with Pages being stateless: a container restart starts
+empty. `BROUTER_CACHE_ENABLED=false` bypasses every layer.
+

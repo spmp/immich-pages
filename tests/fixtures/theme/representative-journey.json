@@ -1,0 +1,55 @@
+{
+  "fixtureId": "representative-journey-v1",
+  "provenance": "Existing mock Immich share-only fixture; no upstream DTOs or credentials are included.",
+  "share": {
+    "kind": "key",
+    "ref": "opaque-ref",
+    "href": "/share/key/opaque-ref",
+    "title": "Mock Journey",
+    "metadataVisible": true,
+    "assetIds": [
+      "550e8400-e29b-41d4-a716-446655440002",
+      "550e8400-e29b-41d4-a716-446655440005",
+      "550e8400-e29b-41d4-a716-446655440007",
+      "550e8400-e29b-41d4-a716-446655440006"
+    ],
+    "mediaPathPatterns": [
+      "/thumbnail?key=opaque-ref",
+      "/video/playback?key=opaque-ref"
+    ],
+    "map": {
+      "ref": "map-ref",
+      "enabled": true,
+      "markerNames": ["London", "Paris"]
+    }
+  },
+  "library": {
+    "href": "/library",
+    "heading": "Published journeys",
+    "entryTitle": "Mock Journey"
+  },
+  "states": [
+    { "name": "long-title", "coverage": "fixture contract; title wrapping is asserted on the shared hero seam" },
+    { "name": "no-hero", "coverage": "fixture contract; hero fallback is asserted by the journal component contract" },
+    { "name": "narrative", "coverage": "shared journey narrative and heading" },
+    { "name": "mixed-media", "coverage": "image, video, portrait image, and unavailable media" },
+    { "name": "map-warnings", "coverage": "map markers, map availability, and warning copy" },
+    { "name": "library", "coverage": "anonymous share-only library" },
+    { "name": "empty", "coverage": "empty library presentation state" },
+    { "name": "error", "coverage": "temporary share error presentation state" },
+    { "name": "lightbox", "coverage": "keyboard open, focus containment, and Escape close" }
+  ],
+  "presets": ["studio-modern", "studio", "minimal", "editorial", "classic", "noir", "monograph"],
+  "viewports": {
+    "desktop": { "width": 1440, "height": 900 },
+    "tablet": { "width": 768, "height": 1024 },
+    "mobile": { "width": 375, "height": 812 }
+  },
+  "screenshots": {
+    "required": [
+      "docs/theme-evaluation/screenshots/{preset}/1440x900.png",
+      "docs/theme-evaluation/screenshots/{preset}/375x812.png"
+    ],
+    "retainedSurfaceReview": ["docs/theme-evaluation/screenshots/{preset}/768x1024.png"]
+  }
+}

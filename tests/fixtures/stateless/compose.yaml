@@ -1,0 +1,38 @@
+services:
+  pages:
+    build:
+      context: ../../..
+      dockerfile: Dockerfile
+    image: immich-pages:stateless-test
+    environment:
+      IMMICH_BASE_URL: http://fake-immich:3001
+      HOST: 0.0.0.0
+      PORT: 3000
+    depends_on:
+      fake-immich:
+        condition: service_healthy
+    ports:
+      - "18081:3000"
+    networks: [stateless]
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/health').then(r => { if (!r.ok) process.exit(1) }).catch(() => process.exit(1))"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+
+  fake-immich:
+    image: node:24-alpine
+    command: ["node", "/fixture/server.mjs"]
+    volumes:
+      - ./server.mjs:/fixture/server.mjs:ro
+      - ./shared-link-response.json:/fixture/shared-link-response.json:ro
+    networks: [stateless]
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3001/api/server/version').then(r => { if (!r.ok) process.exit(1) }).catch(() => process.exit(1))"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+
+networks:
+  stateless:
+    name: immich-pages-stateless

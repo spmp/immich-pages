@@ -1,0 +1,135 @@
+import { existsSync, readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { expect, test, type Page, type Route } from '@playwright/test';
+
+// When run against the real-Immich fixture (tests/e2e/run-real-immich.mjs), seed.mjs writes
+// real share keys/asset IDs here -- this spec reuses them instead of the mock's hardcoded
+// fixture identity, so the SAME assertions (status codes, decode/rendering behavior) run
+// against both backends without duplicating test code. Absent (mock run): fall back to the
+// mock server's fixed fixture identity, unchanged from before this plan.
+const seedOutputPath = fileURLToPath(new URL('./real-immich/seed-output.json', import.meta.url));
+// Gated on an explicit env var, not mere file existence -- a stale seed-output.json left over
+// from a prior real-backend run must never silently leak into a mock run (confirmed the hard
+// way: it did, corrupting all four tests' ref/asset IDs, before this guard was added).
+const realSeed: { forward: { ref: string; assetIds: string[] } } | null =
+	process.env.REAL_IMMICH_FIXTURE === 'true' && existsSync(seedOutputPath) ? JSON.parse(readFileSync(seedOutputPath, 'utf8')) : null;
+
+const ref = realSeed?.forward.ref ?? 'heic-forward-ref';
+const assetId = (number: number) => realSeed?.forward.assetIds[number - 1] ?? `70000000-0000-4000-8000-${String(number).padStart(12, '0')}`;
+
+test.use({ extraHTTPHeaders: { authorization: 'Bearer fixture' } });
+
+async function installHints(page: Page, kind: 'avif' | 'video' | 'none') {
+	await page.addInitScript((selected) => {
+		if (selected === 'avif') Object.defineProperty(navigator, 'userAgent', { configurable: true, value: 'Mozilla/5.0 AppleWebKit/605.1.15 Version/26.1 Safari/605.1.15' });
+		const nativeMatchMedia = window.matchMedia.bind(window);
+		window.matchMedia = (query: string) => {
+			const hdr = selected !== 'none' && query === '(dynamic-range: high)';
+			const gamut = selected === 'avif' && (query === '(color-gamut: p3)' || query === '(color-gamut: rec2020)');
+			return hdr || gamut ? { ...nativeMatchMedia(query), matches: true } : nativeMatchMedia(query);
+		};
+		if (selected === 'video') Object.defineProperty(navigator, 'userAgent', { configurable: true, value: 'Mozilla/5.0 AppleWebKit/605.1.15 Version/18.6 Safari/605.1.15' });
+	}, kind);
+}
+
+async function controlPlane(page: Page, state: 'preparing' | 'ready' | 'partial', representation: 'avif' | 'video' = 'avif') {
+	await page.route('**/prewarm', (route) => route.fulfill({
+		status: 200,
+		contentType: 'application/json',
+		body: JSON.stringify({ generation: 1, representation, state, targeted: 3, queued: state === 'preparing' ? 2 : 0, running: state === 'preparing' ? 1 : 0, completed: state === 'ready' ? 3 : 0, failed: state === 'partial' ? 1 : 0, skipped: 0 })
+	}));
+}
+
+async function assertUsableSdr(page: Page, number: number) {
+	const slide = page.locator('.pswp__item[aria-hidden="false"]');
+	await expect(slide.locator('img')).toBeVisible();
+	await expect(slide).not.toContainText(/image cannot be loaded/i);
+	await expect(page.locator('.pswp')).toBeVisible();
+	await expect(page.locator(`#asset-${assetId(number)} a`)).toHaveAttribute('data-lightbox-fallback', 'native-anchor');
+}
+
+test('unsupported clients stay SDR-only and keep a native anchor', async ({ page }) => {
+	await installHints(page, 'none');
+	const controlRequests: string[] = [];
+	await page.route('**/prewarm', (route) => { controlRequests.push(route.request().url()); return route.fulfill({ status: 500, body: '{}' }); });
+	await page.goto(`/share/key/${ref}`);
+	await expect(page.locator(`#asset-${assetId(1)} a`)).not.toHaveAttribute('data-pswp-type', 'hdr-image');
+	await expect(page.locator(`#asset-${assetId(1)} a`)).not.toHaveAttribute('data-video-src', /image\/hdr/);
+	expect(controlRequests).toHaveLength(0);
+	await expect(page.locator(`#asset-${assetId(1)} a`)).toHaveAttribute('href', /thumbnail/);
+	if (realSeed) {
+		// Real-backend-only: proves this plan's actual purpose -- Pages decodes and serves a
+		// REAL image, not the mock's fabricated byte content. A trivial/placeholder response
+		// would be a handful of bytes; a real decoded HEIC-derived thumbnail is not.
+		const href = await page.locator(`#asset-${assetId(1)} a`).getAttribute('href');
+		if (!href) throw new Error('expected asset anchor to have an href');
+		const byteLength = await page.evaluate(async (url) => (await (await fetch(url)).arrayBuffer()).byteLength, href);
+		expect(byteLength).toBeGreaterThan(10_000);
+	}
+});
+
+test('preparing, ready, and partial readiness never block SDR navigation', async ({ page }) => {
+	await installHints(page, 'avif');
+	let state: 'preparing' | 'ready' | 'partial' = 'preparing';
+	await page.route('**/prewarm', (route) => route.fulfill({
+		status: 200, contentType: 'application/json',
+		body: JSON.stringify({ generation: 1, representation: 'avif', state, targeted: 3, queued: state === 'preparing' ? 1 : 0, running: state === 'preparing' ? 1 : 0, completed: state === 'ready' ? 3 : 0, failed: state === 'partial' ? 1 : 0, skipped: 0 })
+	}));
+	await page.goto(`/share/key/${ref}`);
+	await expect(page.locator('[data-lightbox-status]')).toHaveAttribute('data-lightbox-status', 'ready');
+	await expect(page.locator('[id^="asset-"]')).toHaveCount(20);
+	await expect(page.locator('[aria-label="Preparing enhanced photos"]')).toBeVisible();
+	state = 'ready';
+	await page.evaluate((id) => document.dispatchEvent(new CustomEvent('pages:active-asset', { detail: { activeAssetId: id, activePosition: 4 } })), assetId(5));
+	await expect(page.locator('[aria-label="Enhanced photos ready"]')).toBeVisible();
+	state = 'partial';
+	await page.evaluate((id) => document.dispatchEvent(new CustomEvent('pages:active-asset', { detail: { activeAssetId: id, activePosition: 5 } })), assetId(6));
+	await expect(page.locator('[aria-label*="Some enhanced photos are unavailable"]')).toBeVisible();
+	await expect(page.locator('section[aria-label="Gallery"]')).toBeVisible();
+	await expect(page.locator('body')).not.toContainText(/image cannot be loaded/i);
+});
+
+test('AVIF HTTP/decode failures and legacy video playback failure recover to the SDR poster', async ({ browser }) => {
+	for (const [kind, failure] of [['avif', 'http'], ['avif', 'decode'], ['video', 'playback']] as const) {
+		const page = await browser.newPage({ extraHTTPHeaders: { authorization: 'Bearer fixture' } });
+		await page.context().addCookies([{ name: 'immich_shared_link_token', value: 'fixture', domain: '127.0.0.1', path: '/' }]);
+		await installHints(page, kind);
+		await controlPlane(page, 'ready', kind);
+		const mediaPath = kind === 'avif' ? '/image/hdr-avif' : '/image/hdr';
+		await page.route(`**${mediaPath}**`, async (route: Route) => {
+			if (failure === 'decode') return route.fulfill({ status: 200, contentType: 'image/avif', body: 'not-an-avif' });
+			return route.fulfill({ status: 503, contentType: kind === 'avif' ? 'image/avif' : 'video/mp4', body: '' });
+		});
+		await page.goto(`/share/key/${ref}`);
+		const candidate = page.locator(`#asset-${assetId(7)} a`);
+		if (kind === 'video') {
+			await expect(candidate).toHaveAttribute('data-video-src', /image\/hdr/);
+			await candidate.click();
+			await assertUsableSdr(page, 7);
+		} else {
+			const response = await page.evaluate(({ shareRef, id }) => fetch(`/share/key/${shareRef}/media/${id}/image/hdr-avif?key=${shareRef}`).then((result) => result.status), { shareRef: ref, id: assetId(7) });
+			expect(response).toBe(failure === 'http' ? 503 : 200);
+			await expect(candidate).toHaveAttribute('data-lightbox-fallback', 'native-anchor');
+		}
+		await expect(page.locator('text=The image cannot be loaded')).toHaveCount(0);
+		await expect(page.locator('a[href*="/original"], a[href*="/download"]')).toHaveCount(0);
+		await page.close();
+	}
+});
+
+test('video and AVIF control-plane progress stay representation-specific', async ({ browser }) => {
+	const seen: string[] = [];
+	for (const kind of ['avif', 'video'] as const) {
+		const page = await browser.newPage({ extraHTTPHeaders: { authorization: 'Bearer fixture' } });
+		await page.context().addCookies([{ name: 'immich_shared_link_token', value: 'fixture', domain: '127.0.0.1', path: '/' }]);
+		await installHints(page, kind);
+		await page.route('**/prewarm', async (route) => { seen.push(await route.request().headerValue('x-hdr-representation') ?? ''); return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ generation: 1, representation: kind, state: 'ready', targeted: 1, queued: 0, running: 0, completed: 1, failed: 0, skipped: 0 }) }); });
+		await page.goto(`/share/key/${ref}`);
+		await page.evaluate(({ shareRef, representation, id }) => fetch(`/share/key/${shareRef}/prewarm`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-hdr-representation': representation }, body: JSON.stringify({ activeAssetId: id, activePosition: 0 }) }), { shareRef: ref, representation: kind, id: assetId(1) });
+		await expect.poll(() => seen.includes(kind)).toBe(true);
+		await page.close();
+	}
+	expect(seen).toContain('avif');
+	expect(seen).toContain('video');
+	// This is mock/control-plane evidence only; it intentionally makes no physical HDR claim.
+});

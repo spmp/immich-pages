@@ -1,0 +1,37 @@
+services:
+  pages:
+    build: .
+    image: immich-pages:latest
+    environment:
+      IMMICH_BASE_URL: ${IMMICH_BASE_URL:?IMMICH_BASE_URL is required}
+      IMMICH_SUPPORTED_VERSION: ${IMMICH_SUPPORTED_VERSION:->=3.1.0 <4.0.0}
+      PAGES_SESSION_SECRET: ${PAGES_SESSION_SECRET:?PAGES_SESSION_SECRET is required}
+      PAGES_VISITED_SHARES_SECRET: ${PAGES_VISITED_SHARES_SECRET:?PAGES_VISITED_SHARES_SECRET is required}
+      HDR_PREWARM_LOOKAHEAD: ${HDR_PREWARM_LOOKAHEAD:-10}
+      HDR_PREWARM_INDICATOR: ${HDR_PREWARM_INDICATOR:-on}
+      HDR_CACHE_BACKEND: ${HDR_CACHE_BACKEND:-memory}
+      HDR_CACHE_DIRECTORY: ${HDR_CACHE_DIRECTORY:-}
+      MAP_STYLE_URL_QUIET_ATLAS: ${MAP_STYLE_URL_QUIET_ATLAS:-https://tiles.openfreemap.org/styles/liberty}
+      BROUTER_ENDPOINT: ${BROUTER_ENDPOINT:-https://brouter.de/brouter}
+      BROUTER_ALLOWED_ORIGINS: ${BROUTER_ALLOWED_ORIGINS:-https://brouter.de}
+      BROUTER_MAX_RESPONSE_BYTES: ${BROUTER_MAX_RESPONSE_BYTES:-4194304}
+      BROUTER_CACHE_ENABLED: ${BROUTER_CACHE_ENABLED:-true}
+    networks:
+      - proxy
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=immich-pages-proxy
+      - traefik.http.routers.pages.rule=Host(`pages.example.xyz`)
+      - traefik.http.routers.pages.entrypoints=websecure
+      - traefik.http.routers.pages.tls=true
+      - traefik.http.routers.pages.tls.certresolver=letsencrypt
+      - traefik.http.services.pages.loadbalancer.server.port=3000
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/health').then(r => { if (!r.ok) process.exit(1) }).catch(() => process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+networks:
+  proxy:
+    name: immich-pages-proxy
